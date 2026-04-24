@@ -1,0 +1,195 @@
+page {
+  min-height: 100%;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(96, 165, 250, 0.16) 0%, transparent 26%),
+    radial-gradient(circle at 86% 18%, rgba(191, 219, 254, 0.22) 0%, transparent 24%),
+    radial-gradient(circle at 18% 88%, rgba(125, 211, 252, 0.10) 0%, transparent 22%),
+    linear-gradient(135deg, #f8fbff 0%, #f1f6fc 48%, #edf3fa 100%);
+  color: #1f2a37;
+}
+
+.page {
+  position: relative;
+  min-height: 100vh;
+  padding: 30rpx 24rpx 42rpx;
+  box-sizing: border-box;
+}
+
+.hero,
+.card {
+  position: relative;
+  border-radius: 32rpx;
+  box-sizing: border-box;
+}
+
+.hero {
+  overflow: hidden;
+  margin-bottom: 28rpx;
+  padding: 42rpx 34rpx 38rpx;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.98) 0%, rgba(59, 130, 246, 0.95) 42%, rgba(96, 165, 250, 0.90) 100%);
+  border: 1rpx solid rgba(255, 255, 255, 0.24);
+  box-shadow: 0 24rpx 54rpx rgba(37, 99, 235, 0.22);
+  color: #fff;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  top: -90rpx;
+  right: -35rpx;
+  width: 240rpx;
+  height: 240rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.hero-badge,
+.hero-title,
+.hero-subtitle {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-badge {
+  display: inline-flex;
+  margin-bottom: 18rpx;
+  padding: 10rpx 24rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+.hero-title {
+  font-size: 48rpx;
+  font-weight: 700;
+  line-height: 1.24;
+}
+
+.hero-subtitle {
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  line-height: 1.72;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.card {
+  margin-bottom: 24rpx;
+  padding: 28rpx 26rpx;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.80) 0%, rgba(248, 251, 255, 0.72) 100%);
+  border: 1rpx solid rgba(255, 255, 255, 0.62);
+  box-shadow:
+    0 18rpx 36rpx rgba(15, 23, 42, 0.06),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(24rpx);
+  -webkit-backdrop-filter: blur(24rpx);
+}
+
+.info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18rpx;
+}
+
+.section-title {
+  position: relative;
+  padding-left: 18rpx;
+  color: #0f172a;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.section-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8rpx;
+  width: 8rpx;
+  height: 28rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(180deg, #2563eb 0%, #60a5fa 100%);
+}
+
+.activity-name {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.5;
+}
+
+.activity-desc {
+  margin-top: 14rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 18rpx;
+  background: linear-gradient(135deg, rgba(250, 252, 255, 0.94) 0%, rgba(245, 248, 255, 0.86) 100%);
+  color: #64748b;
+  font-size: 24rpx;
+  line-height: 1.8;
+}
+
+.info-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20rpx;
+}
+
+.info-block {
+  width: calc(50% - 10rpx);
+  padding: 24rpx 22rpx;
+  border-radius: 24rpx;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(248, 251, 255, 0.80) 100%);
+  border: 1rpx solid rgba(255, 255, 255, 0.68);
+  box-sizing: border-box;
+}
+
+.info-block-full {
+  width: 100%;
+}
+
+.info-label {
+  margin-bottom: 10rpx;
+  color: #64748b;
+  font-size: 22rpx;
+}
+
+.info-value {
+  color: #0f172a;
+  font-size: 29rpx;
+  font-weight: 700;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+}
+
+.primary-btn,
+.secondary-btn,
+.danger-btn {
+  flex: 1 1 220rpx;
+  min-height: 88rpx;
+  border-radius: 999rpx;
+  line-height: 88rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.primary-btn {
+  color: #fff;
+  background: linear-gradient(135deg, #2563eb 0%, #60a5fa 100%);
+}
+
+.secondary-btn {
+  color: #1d4ed8;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(235, 243, 255, 0.86) 100%);
+  border: 1rpx solid rgba(191, 219, 254, 0.8);
+}
+
+.danger-btn {
+  color: #fff;
+  background: linear-gradient(135deg, #ef4444 0%, #fb7185 100%);
+}

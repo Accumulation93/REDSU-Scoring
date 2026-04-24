@@ -1,0 +1,42 @@
+<view class="page">
+  <view class="hero">
+    <view class="hero-badge">设置</view>
+    <view class="hero-title">身份与活动</view>
+    <view class="hero-subtitle">查看当前身份和评分活动信息</view>
+  </view>
+
+  <view class="card activity-card">
+    <view class="info-head">
+      <view class="section-title">当前评分活动</view>
+    </view>
+    <view class="activity-name">{{currentActivityText}}</view>
+    <view class="activity-desc" wx:if="{{currentActivity && currentActivity.description}}">{{currentActivity.description}}</view>
+  </view>
+
+  <view class="card" wx:if="{{hasUser}}">
+    <view class="info-grid">
+      <view class="info-block">
+        <view class="info-label">姓名</view>
+        <view class="info-value">{{user.name}}</view>
+      </view>
+      <view class="info-block">
+        <view class="info-label">身份</view>
+        <view class="info-value">{{identityText}}</view>
+      </view>
+      <view class="info-block info-block-full" wx:if="{{user.department}}">
+        <view class="info-label">部门</view>
+        <view class="info-value">{{user.department}}</view>
+      </view>
+      <view class="info-block" wx:if="{{showWorkGroup}}">
+        <view class="info-label">工作分工</view>
+        <view class="info-value">{{user.workGroup}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="actions">
+    <button class="primary-btn" bindtap="goHome">返回首页</button>
+    <button class="secondary-btn" bindtap="goLogin">切换身份</button>
+    <button class="danger-btn" wx:if="{{hasUser}}" bindtap="onUnbind">解绑当前身份</button>
+  </view>
+</view>

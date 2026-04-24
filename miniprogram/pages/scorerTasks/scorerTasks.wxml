@@ -1,0 +1,127 @@
+<view class="page">
+  <view class="hero">
+    <view class="hero-badge">评分人任务</view>
+    <view class="hero-title">未完成评分任务</view>
+    <view class="hero-subtitle" wx:if="{{activityName}}">{{activityName}}</view>
+    <view class="hero-subtitle" wx:else> </view>
+  </view>
+
+  <view class="section">
+    <view class="stats-grid scorer-stats-grid">
+      <view class="stat-card stat-card-accent">
+        <view class="stat-label">未完成评分人</view>
+        <view class="stat-value">{{stats.totalPendingScorers || 0}}</view>
+      </view>
+    </view>
+
+    <view class="edit-box">
+      <view class="list-title">筛选条件</view>
+      <view class="field">
+        <view class="field-label">搜索评分人</view>
+        <input
+          class="field-input"
+          value="{{keyword}}"
+          bindinput="onKeywordInput"
+          bindconfirm="onKeywordConfirm"
+          confirm-type="search"
+          placeholder="按姓名或学号搜索"
+        />
+      </view>
+      <view class="field field-row">
+        <view class="field field-half">
+          <view class="field-label">所属部门</view>
+          <picker range="{{filterOptions.departments}}" bindchange="onFilterChange" data-field="department">
+            <view class="picker-value">{{filters.department}}</view>
+          </picker>
+        </view>
+        <view class="field field-half">
+          <view class="field-label">身份</view>
+          <picker range="{{filterOptions.identities}}" bindchange="onFilterChange" data-field="identity">
+            <view class="picker-value">{{filters.identity}}</view>
+          </picker>
+        </view>
+      </view>
+      <view class="field">
+        <view class="field-label">工作分工（职能组）</view>
+        <picker range="{{filterOptions.workGroups}}" bindchange="onFilterChange" data-field="workGroup">
+          <view class="picker-value">{{filters.workGroup}}</view>
+        </picker>
+      </view>
+      <view class="button-row compact-row">
+        <button class="secondary-btn" loading="{{loading}}" bindtap="loadData">刷新列表</button>
+      </view>
+    </view>
+
+    <view class="edit-box">
+      <view class="list-title">按当前视图导出</view>
+      <view class="button-row">
+        <button class="secondary-btn" loading="{{exportLoadingMap.summary_csv}}" data-report="summary" data-format="csv" bindtap="exportCurrentView">概览 CSV</button>
+        <button class="secondary-btn" loading="{{exportLoadingMap.summary_excel}}" data-report="summary" data-format="excel" bindtap="exportCurrentView">概览 Excel</button>
+        <button class="secondary-btn" loading="{{exportLoadingMap.detail_csv}}" data-report="detail" data-format="csv" bindtap="exportCurrentView">明细 CSV</button>
+        <button class="secondary-btn" loading="{{exportLoadingMap.detail_excel}}" data-report="detail" data-format="excel" bindtap="exportCurrentView">明细 Excel</button>
+      </view>
+    </view>
+
+    <view class="list-card">
+      <view class="list-title">未完成评分人列表</view>
+      <scroll-view class="inner-scroll large-scroll" scroll-y>
+        <view class="task-table">
+          <view class="task-table-head">
+            <view class="task-col task-col-name">评分人</view>
+            <view class="task-col task-col-progress">已评/应评</view>
+            <view class="task-col task-col-action">操作</view>
+          </view>
+          <view class="task-table-row" wx:for="{{scorerRows}}" wx:key="scorerKey">
+            <view class="task-col task-col-name">
+              <view class="task-name">{{item.scorerName}}</view>
+              <view class="task-meta">{{item.department}}</view>
+            </view>
+            <view class="task-col task-col-progress">
+              <view class="progress-cell">
+                <view class="progress-top">
+                  <text class="progress-count">{{item.progressText}}</text>
+                  <text class="progress-percent">{{item.progressPercentText}}</text>
+                </view>
+                <view class="progress-track">
+                  <view class="progress-fill" style="{{item.progressFillStyle}}"></view>
+                </view>
+              </view>
+            </view>
+            <view class="task-col task-col-action">
+              <text class="link no-wrap-link" data-index="{{index}}" bindtap="openPendingPopup">查看</text>
+            </view>
+          </view>
+        </view>
+        <view class="empty-inline" wx:if="{{!scorerRows.length}}">当前筛选条件下没有未完成评分任务的评分人。</view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <view class="popup-mask" wx:if="{{pendingPopupVisible}}" bindtap="closePendingPopup">
+    <view class="popup-card" catchtap="noop">
+      <view class="popup-header">
+        <view class="popup-title">{{pendingPopupTitle}}</view>
+        <text class="popup-close" bindtap="closePendingPopup">关闭</text>
+      </view>
+      <scroll-view class="popup-scroll" scroll-y>
+        <view class="popup-table">
+          <view class="popup-table-head">
+            <view class="popup-col popup-col-name">被评分人</view>
+            <view class="popup-col popup-col-dept">具体信息</view>
+          </view>
+          <view class="popup-table-row" wx:for="{{pendingPopupList}}" wx:key="targetId">
+            <view class="popup-col popup-col-name">
+              <view class="task-name">{{item.targetName}}</view>
+              <view class="task-meta">{{item.targetStudentId}}</view>
+            </view>
+            <view class="popup-col popup-col-dept">
+              <view class="task-meta">{{item.targetDepartment}}</view>
+              <view class="task-meta">{{item.targetIdentity}} / {{item.targetWorkGroup}}</view>
+            </view>
+          </view>
+          <view class="empty-inline" wx:if="{{!pendingPopupList.length}}">当前没有未完成名单。</view>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+</view>

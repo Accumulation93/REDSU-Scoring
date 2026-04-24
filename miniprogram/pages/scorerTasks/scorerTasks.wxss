@@ -1,0 +1,224 @@
+@import "../admin/admin.wxss";
+
+.scorer-stats-grid {
+  grid-template-columns: 1fr;
+}
+
+.stat-card-accent {
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.96) 0%, rgba(219, 234, 254, 0.88) 100%);
+}
+
+.task-table,
+.popup-table {
+  border-radius: 24rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1rpx solid rgba(219, 234, 254, 0.95);
+  box-shadow:
+    0 14rpx 28rpx rgba(15, 23, 42, 0.05),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.82);
+  animation: glassFadeUp 0.48s ease both;
+}
+
+.task-table-head,
+.task-table-row,
+.popup-table-head,
+.popup-table-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.task-table-head,
+.popup-table-head {
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.96) 0%, rgba(219, 234, 254, 0.88) 100%);
+}
+
+.task-table-head .task-col {
+  font-size: 25rpx;
+  font-weight: 600;
+}
+
+.task-table-row,
+.popup-table-row {
+  border-top: 1rpx solid rgba(226, 232, 240, 0.75);
+  transition: transform 0.18s ease, box-shadow 0.24s ease, background 0.24s ease;
+}
+
+.task-col,
+.popup-col {
+  padding: 18rpx 16rpx;
+  box-sizing: border-box;
+}
+
+.task-table-head .task-col,
+.task-table-row .task-col,
+.popup-table-head .popup-col,
+.popup-table-row .popup-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.task-col-name {
+  flex: 2.2;
+  min-width: 0;
+}
+
+.task-col-progress {
+  flex: 0.95;
+  min-width: 210rpx;
+}
+
+.task-col-action {
+  width: 112rpx;
+  min-width: 112rpx;
+}
+
+.popup-col-name {
+  flex: 0.82;
+  text-align: center;
+}
+
+.popup-col-dept {
+  flex: 1.58;
+  text-align: center;
+}
+
+.task-name {
+  color: #0f172a;
+  font-size: 26rpx;
+  font-weight: 700;
+  line-height: 1.5;
+  word-break: break-word;
+  max-width: 100%;
+  text-align: center;
+}
+
+.task-meta {
+  color: #64748b;
+  font-size: 20rpx;
+  line-height: 1.55;
+  word-break: break-word;
+  text-align: center;
+}
+
+.no-wrap-link {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 22rpx;
+  text-align: center;
+  transition: transform 0.18s ease, opacity 0.18s ease, text-shadow 0.22s ease;
+}
+
+.task-table-row:active,
+.popup-table-row:active {
+  transform: translateY(1rpx) scale(0.992);
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.78) 0%, rgba(248, 251, 255, 0.9) 100%);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.82);
+}
+
+.pending-pill:active {
+  transform: translateY(1rpx) scale(0.985);
+  filter: saturate(1.04);
+}
+
+.no-wrap-link:active,
+.popup-close:active {
+  transform: translateY(1rpx) scale(0.986);
+  opacity: 0.9;
+  text-shadow: 0 0 12rpx rgba(37, 99, 235, 0.16);
+}
+
+.popup-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40rpx 28rpx;
+  background: rgba(15, 23, 42, 0.30);
+  box-sizing: border-box;
+}
+
+.popup-card {
+  width: 100%;
+  max-height: 74vh;
+  padding: 24rpx;
+  border-radius: 30rpx;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.94) 0%, rgba(248, 251, 255, 0.92) 100%);
+  border: 1rpx solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 24rpx 56rpx rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(24rpx);
+  -webkit-backdrop-filter: blur(24rpx);
+  box-sizing: border-box;
+  transition: transform 0.22s ease, box-shadow 0.24s ease;
+  animation: glassFadeUp 0.34s ease both;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 18rpx;
+}
+
+.popup-title {
+  color: #0f172a;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.popup-close {
+  color: #2563eb;
+  font-size: 24rpx;
+  font-weight: 700;
+  transition: transform 0.18s ease, opacity 0.18s ease, text-shadow 0.22s ease;
+}
+
+.popup-scroll {
+  max-height: 56vh;
+}
+
+.progress-cell {
+  width: 100%;
+}
+
+.progress-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-bottom: 10rpx;
+}
+
+.progress-count {
+  color: #0f172a;
+  font-size: 23rpx;
+  font-weight: 700;
+}
+
+.progress-percent {
+  color: #64748b;
+  font-size: 21rpx;
+  font-weight: 700;
+}
+
+.progress-track {
+  width: 100%;
+  height: 14rpx;
+  overflow: hidden;
+  border-radius: 999rpx;
+  background: rgba(226, 232, 240, 0.9);
+  box-shadow: inset 0 1rpx 3rpx rgba(15, 23, 42, 0.12);
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  transition: width 0.25s ease;
+}

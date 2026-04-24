@@ -1,0 +1,99 @@
+<view class="page">
+  <view class="hero">
+    <view class="hero-badge">{{heroIdentity}}</view>
+    <view class="hero-title">{{heroName}}</view>
+    <view class="hero-subtitle">{{heroSubtitle}}</view>
+  </view>
+
+  <view class="card activity-card">
+    <view class="info-head">
+      <view class="section-title">当前评分活动</view>
+    </view>
+
+    <view class="activity-name" wx:if="{{currentActivityText}}">
+      {{currentActivityText}}
+    </view>
+
+    <view class="activity-desc" wx:if="{{currentActivity && currentActivity.description}}">
+      {{currentActivity.description}}
+    </view>
+  </view>
+
+  <view class="card" wx:if="{{hasUser}}">
+    <view class="info-grid">
+      <view class="info-block">
+        <view class="info-label">姓名</view>
+        <view class="info-value">{{user.name}}</view>
+      </view>
+      <view class="info-block">
+        <view class="info-label">身份</view>
+        <view class="info-value">{{heroIdentity}}</view>
+      </view>
+      <view class="info-block info-block-full" wx:if="{{user.department}}">
+        <view class="info-label">部门</view>
+        <view class="info-value">{{user.department}}</view>
+      </view>
+      <view class="info-block info-block-full" wx:if="{{showWorkGroup}}">
+        <view class="info-label">工作分工</view>
+        <view class="info-value">{{user.workGroup}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card targets-card" wx:if="{{hasUser && !isAdminRole}}">
+    <view class="info-head">
+      <view class="section-title">被评分人</view>
+    </view>
+
+    <view class="target-state" wx:if="{{targetsLoading}}">加载中...</view>
+
+    <scroll-view class="target-scroll" scroll-y wx:if="{{!targetsLoading && targetList.length}}">
+      <view
+        class="target-card {{selectedTargetId === item.id ? 'target-card-active' : ''}}"
+        wx:for="{{targetList}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        data-name="{{item.name}}"
+        bindtap="selectTarget"
+      >
+        <view class="target-main">
+          <view class="target-name">{{item.name}}</view>
+          <view class="target-tags">
+            <view class="target-identity">{{item.identity}}</view>
+            <view class="target-status {{item.scoreStatus === 'scored' ? 'target-status-scored' : 'target-status-pending'}}">
+              {{item.scoreStatusText}}
+            </view>
+          </view>
+        </view>
+        <view class="target-meta">{{item.department}}</view>
+        <view class="target-meta" wx:if="{{item.workGroup}}">{{item.workGroup}}</view>
+      </view>
+    </scroll-view>
+
+    <view class="target-state" wx:if="{{!targetsLoading && !targetList.length}}">{{targetsEmptyText}}</view>
+  </view>
+
+  <view class="card empty-card" wx:if="{{!hasUser}}">
+    <view class="empty-title">当前暂无可用身份</view>
+    <view class="empty-desc">请先完成登录。</view>
+  </view>
+
+  <view class="actions">
+    <button class="primary-btn" wx:if="{{isAdminRole}}" bindtap="goAdmin">进入管理端</button>
+    <button class="secondary-btn" bindtap="goLogin">切换身份</button>
+    <button class="danger-btn" wx:if="{{hasUser}}" bindtap="openUnbindDialog">解绑当前身份</button>
+  </view>
+
+  <view class="dialog-layer" wx:if="{{showUnbindDialog}}">
+    <view class="dialog-mask" bindtap="closeUnbindDialog"></view>
+    <view class="dialog-panel">
+      <view class="dialog-badge">危险操作</view>
+      <view class="dialog-title">确认解绑当前身份？</view>
+      <view class="dialog-desc">解绑后会立即移除当前身份的登录状态，后续如需进入，需要重新完成验证。</view>
+      <view class="dialog-actions">
+        <button class="secondary-btn dialog-btn" bindtap="closeUnbindDialog">再想想</button>
+        <button class="danger-btn dialog-btn" loading="{{unbindLoading}}" bindtap="confirmUnbind">确认解绑</button>
+      </view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,57 @@
+<view class="page">
+  <view class="hero">
+    <view class="hero-badge">{{roleBadge}}</view>
+    <view class="hero-title">{{roleTitle}}</view>
+    <view class="hero-subtitle">{{roleSubtitle}}</view>
+  </view>
+
+  <view class="role-switch">
+    <view
+      class="role-pill {{activeRole === 'user' ? 'role-pill-active' : ''}}"
+      data-role="user"
+      bindtap="switchRole"
+    >
+      普通用户
+    </view>
+    <view
+      class="role-pill {{activeRole === 'admin' ? 'role-pill-active' : ''}}"
+      data-role="admin"
+      bindtap="switchRole"
+    >
+      管理员
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">微信登录</view>
+    <view class="card-desc">先完成当前身份登录；如果系统提示补充资料，再填写姓名、学号和邀请码。</view>
+    <button class="primary-btn" loading="{{loading}}" bindtap="onLogin">{{loginButtonText}}</button>
+  </view>
+
+  <view class="{{sheetClass}}">
+    <view class="sheet-mask" bindtap="closeBind"></view>
+    <view class="sheet-panel">
+      <view class="sheet-header">
+        <view class="sheet-title">{{bindTitle}}</view>
+        <view class="sheet-close" bindtap="closeBind">关闭</view>
+      </view>
+
+      <view class="field">
+        <view class="field-label">姓名</view>
+        <input class="field-input" placeholder="请输入姓名" bindinput="onName" value="{{name}}" />
+      </view>
+
+      <view class="field">
+        <view class="field-label">学号</view>
+        <input class="field-input" placeholder="请输入学号" bindinput="onStudentId" value="{{studentId}}" />
+      </view>
+
+      <view class="field" wx:if="{{showInviteCode}}">
+        <view class="field-label">邀请码</view>
+        <input class="field-input" placeholder="请输入邀请码" bindinput="onInviteCode" value="{{inviteCode}}" />
+      </view>
+
+      <button class="primary-btn" loading="{{loading}}" bindtap="onBind">{{bindButtonText}}</button>
+    </view>
+  </view>
+</view>

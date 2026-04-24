@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "示例 - REDSU考核评分",
+  "usingComponents": {
+    "cloud-tip-modal": "/components/cloudTipModal/index"
+  }
+}

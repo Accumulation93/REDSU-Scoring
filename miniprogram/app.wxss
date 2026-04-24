@@ -1,0 +1,55 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+button {
+  background: initial;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 30rpx;
+}
+
+button:focus {
+  outline: 0;
+}
+
+button::after {
+  border: none;
+}
+
+page {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(96, 165, 250, 0.14), transparent 28%),
+    radial-gradient(circle at 86% 16%, rgba(191, 219, 254, 0.18), transparent 24%),
+    linear-gradient(180deg, #f8fbff 0%, #eef5ff 48%, #edf4fb 100%);
+  color: #163047;
+}
+
+input,
+textarea {
+  box-sizing: border-box;
+}
+
+@keyframes glassFadeUp {
+  from {
+    opacity: 0.01;
+    transform: translateY(18rpx) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

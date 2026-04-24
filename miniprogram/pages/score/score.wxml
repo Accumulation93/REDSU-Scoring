@@ -1,0 +1,85 @@
+<view class="page">
+  <view class="hero">
+    <view class="hero-badge">评分</view>
+    <view class="hero-title">填写评分</view>
+    <view class="hero-subtitle">按题目完成评分后提交结果</view>
+  </view>
+
+  <view class="card" wx:if="{{loading}}">
+    <view class="empty-text">加载中...</view>
+  </view>
+
+  <view wx:if="{{!loading && !loadFailed}}">
+    <view class="card">
+      <view class="info-grid">
+        <view class="info-block info-block-full">
+          <view class="info-label">当前评分活动</view>
+          <view class="info-value">{{currentActivityText}}</view>
+        </view>
+        <view class="info-block">
+          <view class="info-label">评分人</view>
+          <view class="info-value">{{scorer.name}}</view>
+          <view class="info-subvalue">
+            <view wx:if="{{scorer.department}}">{{scorer.department}}</view>
+            <view wx:if="{{scorer.identity}}">{{scorer.identity}}</view>
+            <view wx:if="{{scorer.workGroup}}">{{scorer.workGroup}}</view>
+          </view>
+        </view>
+        <view class="info-block">
+          <view class="info-label">被评分人</view>
+          <view class="info-value">{{target.name}}</view>
+          <view class="info-subvalue">
+            <view wx:if="{{target.department}}">{{target.department}}</view>
+            <view wx:if="{{target.identity}}">{{target.identity}}</view>
+            <view wx:if="{{target.workGroup}}">{{target.workGroup}}</view>
+          </view>
+        </view>
+      </view>
+      <view class="existing-record-tip" wx:if="{{hasExistingRecord}}">{{existingRecordText}}</view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">评分题目</view>
+      <block wx:for="{{questionList}}" wx:key="id">
+        <view class="template-chip" wx:if="{{item.showTemplateHeader}}">
+          {{item.templateSortOrder}}. {{item.templateName}}
+        </view>
+        <view class="question-card" id="question-{{index}}">
+          <view class="question-title">{{index + 1}}. {{item.question}}（{{item.maxValue}}分）</view>
+          <view class="question-meta" wx:if="{{item.scoreLabel}}">{{item.scoreLabel}}</view>
+          <view class="question-meta">
+            评分范围：{{item.minValue}} - {{item.maxValue}} · 起评分：{{item.startValue}} · 步进值：{{item.stepValue}}
+          </view>
+
+          <view class="score-entry">
+            <input
+              class="score-input {{item.errorText ? 'score-input-error' : ''}}"
+              type="digit"
+              data-index="{{index}}"
+              bindinput="onScoreInput"
+              value="{{item.score}}"
+              placeholder="请输入分值"
+            />
+            <picker
+              class="score-picker"
+              range="{{item.scoreOptions}}"
+              bindchange="onScoreOptionChange"
+              data-index="{{index}}"
+            >
+              <view class="score-picker-value">快速选择</view>
+            </picker>
+          </view>
+
+          <view class="score-warning" wx:if="{{item.errorText}}">
+            <text class="score-warning-icon">!</text>
+            <text class="score-warning-text">{{item.errorText}}</text>
+          </view>
+        </view>
+      </block>
+    </view>
+
+    <view class="actions">
+      <button class="primary-btn" loading="{{submitting}}" bindtap="submitScore">提交评分</button>
+    </view>
+  </view>
+</view>
