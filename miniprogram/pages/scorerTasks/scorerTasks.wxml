@@ -72,6 +72,7 @@
             <view class="task-col task-col-action">操作</view>
           </view>
           <view class="task-table-row" wx:for="{{scorerRows}}" wx:key="scorerKey">
+            <view class="task-row-hit-area" data-index="{{index}}" bindtap="openPendingPopup"></view>
             <view class="task-col task-col-name">
               <view class="task-name">{{item.scorerName}}</view>
               <view class="task-meta">{{item.department}}</view>
@@ -88,7 +89,7 @@
               </view>
             </view>
             <view class="task-col task-col-action">
-              <text class="link no-wrap-link" data-index="{{index}}" bindtap="openPendingPopup">查看</text>
+              <text class="link no-wrap-link">查看</text>
             </view>
           </view>
         </view>

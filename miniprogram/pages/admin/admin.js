@@ -1,5 +1,5 @@
 ﻿const STORAGE_KEY = 'roleProfiles';
-const TAB_LIST = ['activities', 'templates', 'rules', 'results', 'hr', 'admins'];
+const TAB_LIST = ['activities', 'templates', 'rules', 'results', 'profile', 'hr', 'admins'];
 const RULE_SCOPE_OPTIONS = [
   { value: 'same_department_identity', label: '同一部门内的指定身份成员' },
   { value: 'same_department_all', label: '同一部门内的所有成员' },
@@ -7,6 +7,16 @@ const RULE_SCOPE_OPTIONS = [
   { value: 'same_work_group_all', label: '同一部门同一职能组内的所有成员' },
   { value: 'identity_only', label: '全体成员中的指定身份' },
   { value: 'all_people', label: '全体成员' }
+];
+const PROFILE_EDIT_MODE_OPTIONS = [
+  { value: 'direct', label: '允许直接修改' },
+  { value: 'audit', label: '需审核修改' },
+  { value: 'readonly', label: '不允许修改' }
+];
+const PROFILE_FIELD_TYPE_OPTIONS = [
+  { value: 'text', label: '文本' },
+  { value: 'number', label: '数字' },
+  { value: 'sequence', label: '序列' }
 ];
 
 const RULE_SCOPE_LABEL_MAP = RULE_SCOPE_OPTIONS.reduce((map, item) => {
@@ -84,6 +94,47 @@ function emptyHrForm() {
     department: '',
     identity: '',
     workGroup: ''
+  };
+}
+
+function createEmptyProfileField() {
+  return {
+    id: `profile_field_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    label: '',
+    type: PROFILE_FIELD_TYPE_OPTIONS[0].value,
+    typeLabel: PROFILE_FIELD_TYPE_OPTIONS[0].label,
+    required: false,
+    minLength: '',
+    maxLength: '',
+    minValue: '',
+    maxValue: '',
+    optionsText: ''
+  };
+}
+
+function emptyHrProfileTemplateForm() {
+  return {
+    description: '',
+    editMode: PROFILE_EDIT_MODE_OPTIONS[0].value,
+    editModeLabel: PROFILE_EDIT_MODE_OPTIONS[0].label,
+    fields: [createEmptyProfileField()]
+  };
+}
+
+function normalizeHrProfileFieldForForm(field = {}) {
+  const type = field.type || PROFILE_FIELD_TYPE_OPTIONS[0].value;
+  const typeOption = PROFILE_FIELD_TYPE_OPTIONS.find((item) => item.value === type) || PROFILE_FIELD_TYPE_OPTIONS[0];
+  return {
+    id: field.id || createEmptyProfileField().id,
+    label: field.label || '',
+    type,
+    typeLabel: typeOption.label,
+    required: field.required === true,
+    minLength: field.minLength == null ? '' : String(field.minLength),
+    maxLength: field.maxLength == null ? '' : String(field.maxLength),
+    minValue: field.minValue == null ? '' : String(field.minValue),
+    maxValue: field.maxValue == null ? '' : String(field.maxValue),
+    optionsText: Array.isArray(field.options) ? field.options.join('\n') : ''
   };
 }
 
@@ -234,6 +285,8 @@ Page({
     activeTab: TAB_LIST[0],
     loadingMap: {},
     scopeOptions: RULE_SCOPE_OPTIONS,
+    profileEditModeOptions: PROFILE_EDIT_MODE_OPTIONS,
+    profileFieldTypeOptions: PROFILE_FIELD_TYPE_OPTIONS,
     adminLevelOptions: ['普通管理员', '超级管理员'],
     adminCandidateKeyword: '',
     adminCandidateList: [],
@@ -297,6 +350,8 @@ Page({
     completionBoardPopupVisible: false,
     completionBoardPopupTitle: '',
     completionBoardPopupRows: [],
+    hrProfileTemplateForm: emptyHrProfileTemplateForm(),
+    hrProfileRows: [],
     hrForm: emptyHrForm(),
     hrList: [],
     adminForm: emptyAdminForm(),
@@ -354,6 +409,7 @@ Page({
     await this.loadActivityList();
     this.loadTemplateList();
     this.loadRuleList();
+    this.loadHrProfileAdminData();
     this.loadHrList();
     this.loadAdminList();
   },
@@ -375,6 +431,9 @@ Page({
     this.setData({ activeTab: tab });
     if (tab === 'results') {
       this.loadScoreResults();
+    }
+    if (tab === 'profile') {
+      this.loadHrProfileAdminData();
     }
   },
 
@@ -2206,6 +2265,276 @@ Page({
     } finally {
       this.setLoading('generateRules', false);
     }
+  },
+
+  async loadHrProfileAdminData() {
+    this.setLoading('profile', true);
+    try {
+      const result = await this.callCloud('listHrProfileAdminData');
+      if (result.status !== 'success') {
+        wx.showToast({
+          title: result.message || '加载人事信息模板失败',
+          icon: 'none'
+        });
+        return;
+      }
+
+      const template = result.template || null;
+      this.setData({
+        hrProfileTemplateForm: template ? {
+          description: template.description || '',
+          editMode: template.editMode || PROFILE_EDIT_MODE_OPTIONS[0].value,
+          editModeLabel: (PROFILE_EDIT_MODE_OPTIONS.find((item) => item.value === (template.editMode || PROFILE_EDIT_MODE_OPTIONS[0].value)) || PROFILE_EDIT_MODE_OPTIONS[0]).label,
+          fields: Array.isArray(template.fields) && template.fields.length
+            ? template.fields.map((item) => normalizeHrProfileFieldForForm(item))
+            : [createEmptyProfileField()]
+        } : emptyHrProfileTemplateForm(),
+        hrProfileRows: result.rows || []
+      });
+    } catch (error) {
+      wx.showToast({
+        title: '加载人事信息模板失败',
+        icon: 'none'
+      });
+    } finally {
+      this.setLoading('profile', false);
+    }
+  },
+
+  onHrProfileTemplateInput(e) {
+    const { field } = e.currentTarget.dataset;
+    const value = e.detail.value;
+    this.setData({
+      hrProfileTemplateForm: {
+        ...this.data.hrProfileTemplateForm,
+        [field]: value
+      }
+    });
+  },
+
+  onHrProfileFieldInput(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const field = String(e.currentTarget.dataset.field || '');
+    const fields = [...(this.data.hrProfileTemplateForm.fields || [])];
+    if (!fields[index]) {
+      return;
+    }
+
+    fields[index] = {
+      ...fields[index],
+      [field]: e.detail.value
+    };
+
+    this.setData({
+      'hrProfileTemplateForm.fields': fields
+    });
+  },
+
+  onHrProfileFieldRequiredChange(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const fields = [...(this.data.hrProfileTemplateForm.fields || [])];
+    if (!fields[index]) {
+      return;
+    }
+
+    fields[index] = {
+      ...fields[index],
+      required: !!e.detail.value
+    };
+
+    this.setData({
+      'hrProfileTemplateForm.fields': fields
+    });
+  },
+
+  onHrProfileEditModeChange(e) {
+    const option = PROFILE_EDIT_MODE_OPTIONS[Number(e.detail.value)] || PROFILE_EDIT_MODE_OPTIONS[0];
+    this.setData({
+      hrProfileTemplateForm: {
+        ...this.data.hrProfileTemplateForm,
+        editMode: option.value,
+        editModeLabel: option.label
+      }
+    });
+  },
+
+  onHrProfileFieldTypeChange(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const option = PROFILE_FIELD_TYPE_OPTIONS[Number(e.detail.value)] || PROFILE_FIELD_TYPE_OPTIONS[0];
+    const fields = [...(this.data.hrProfileTemplateForm.fields || [])];
+    if (!fields[index]) {
+      return;
+    }
+
+    fields[index] = {
+      ...fields[index],
+      type: option.value,
+      typeLabel: option.label
+    };
+
+    this.setData({
+      'hrProfileTemplateForm.fields': fields
+    });
+  },
+
+  addHrProfileField() {
+    this.setData({
+      'hrProfileTemplateForm.fields': [
+        ...(this.data.hrProfileTemplateForm.fields || []),
+        createEmptyProfileField()
+      ]
+    });
+  },
+
+  removeHrProfileField(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const fields = [...(this.data.hrProfileTemplateForm.fields || [])];
+    if (!fields[index]) {
+      return;
+    }
+
+    fields.splice(index, 1);
+    this.setData({
+      'hrProfileTemplateForm.fields': fields.length ? fields : [createEmptyProfileField()]
+    });
+  },
+
+  async saveHrProfileTemplate() {
+    const form = this.data.hrProfileTemplateForm || emptyHrProfileTemplateForm();
+    const fields = (form.fields || []).map((item) => ({
+      id: item.id,
+      label: String(item.label || '').trim(),
+      type: item.type,
+      required: item.required === true,
+      minLength: item.minLength === '' ? null : Number(item.minLength),
+      maxLength: item.maxLength === '' ? null : Number(item.maxLength),
+      minValue: item.minValue === '' ? null : Number(item.minValue),
+      maxValue: item.maxValue === '' ? null : Number(item.maxValue),
+      options: String(item.optionsText || '')
+        .split('\n')
+        .map((option) => option.trim())
+        .filter(Boolean)
+    }));
+
+    if (!fields.length || fields.some((item) => !item.label)) {
+      wx.showToast({
+        title: '请填写完整的字段名称',
+        icon: 'none'
+      });
+      return;
+    }
+
+    this.setLoading('saveProfileTemplate', true);
+    try {
+      const result = await this.callCloud('saveHrProfileTemplate', {
+        description: String(form.description || '').trim(),
+        editMode: form.editMode,
+        fields
+      });
+
+      if (result.status !== 'success') {
+        wx.showToast({
+          title: result.message || '保存人事信息模板失败',
+          icon: 'none'
+        });
+        return;
+      }
+
+      await this.loadHrProfileAdminData();
+      wx.showToast({
+        title: '人事信息模板已保存',
+        icon: 'success'
+      });
+    } catch (error) {
+      wx.showToast({
+        title: '保存人事信息模板失败',
+        icon: 'none'
+      });
+    } finally {
+      this.setLoading('saveProfileTemplate', false);
+    }
+  },
+
+  approveHrProfileChange(e) {
+    const studentId = String(e.currentTarget.dataset.studentId || '').trim();
+    if (!studentId) {
+      return;
+    }
+
+    wx.showModal({
+      title: '通过审核',
+      content: '确认将待审核的人事信息修改正式生效吗？',
+      success: async (res) => {
+        if (!res.confirm) {
+          return;
+        }
+
+        try {
+          const result = await this.callCloud('reviewHrProfileChange', {
+            studentId,
+            action: 'approve'
+          });
+          if (result.status !== 'success') {
+            wx.showToast({
+              title: result.message || '审核失败',
+              icon: 'none'
+            });
+            return;
+          }
+          await this.loadHrProfileAdminData();
+          wx.showToast({
+            title: '已通过审核',
+            icon: 'success'
+          });
+        } catch (error) {
+          wx.showToast({
+            title: '审核失败',
+            icon: 'none'
+          });
+        }
+      }
+    });
+  },
+
+  rejectHrProfileChange(e) {
+    const studentId = String(e.currentTarget.dataset.studentId || '').trim();
+    if (!studentId) {
+      return;
+    }
+
+    wx.showModal({
+      title: '驳回修改',
+      content: '确认驳回这次待审核的人事信息修改吗？',
+      success: async (res) => {
+        if (!res.confirm) {
+          return;
+        }
+
+        try {
+          const result = await this.callCloud('reviewHrProfileChange', {
+            studentId,
+            action: 'reject'
+          });
+          if (result.status !== 'success') {
+            wx.showToast({
+              title: result.message || '驳回失败',
+              icon: 'none'
+            });
+            return;
+          }
+          await this.loadHrProfileAdminData();
+          wx.showToast({
+            title: '已驳回修改',
+            icon: 'success'
+          });
+        } catch (error) {
+          wx.showToast({
+            title: '驳回失败',
+            icon: 'none'
+          });
+        }
+      }
+    });
   },
 
   onHrFieldInput(e) {

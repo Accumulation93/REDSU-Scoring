@@ -5,72 +5,203 @@
     <view class="hero-subtitle">{{heroSubtitle}}</view>
   </view>
 
-  <view class="card activity-card">
-    <view class="info-head">
-      <view class="section-title">当前评分活动</view>
-    </view>
-
-    <view class="activity-name" wx:if="{{currentActivityText}}">
-      {{currentActivityText}}
-    </view>
-
-    <view class="activity-desc" wx:if="{{currentActivity && currentActivity.description}}">
-      {{currentActivity.description}}
+  <view class="tabs-card" wx:if="{{hasUser && !isAdminRole}}">
+    <view
+      class="feature-tab {{activeTab === item.key ? 'feature-tab-active' : ''}}"
+      wx:for="{{userTabs}}"
+      wx:key="key"
+      data-tab="{{item.key}}"
+      bindtap="switchUserTab"
+    >
+      {{item.label}}
     </view>
   </view>
 
-  <view class="card" wx:if="{{hasUser}}">
-    <view class="info-grid">
-      <view class="info-block">
-        <view class="info-label">姓名</view>
-        <view class="info-value">{{user.name}}</view>
+  <view class="panel {{activeTab === 'scoring' ? 'panel-active' : ''}}" wx:if="{{isAdminRole || !hasUser || activeTab === 'scoring'}}">
+    <view class="card activity-card">
+      <view class="info-head">
+        <view class="section-title">当前评分活动</view>
       </view>
-      <view class="info-block">
-        <view class="info-label">身份</view>
-        <view class="info-value">{{heroIdentity}}</view>
+
+      <view class="activity-name" wx:if="{{currentActivityText}}">
+        {{currentActivityText}}
       </view>
-      <view class="info-block info-block-full" wx:if="{{user.department}}">
-        <view class="info-label">部门</view>
-        <view class="info-value">{{user.department}}</view>
-      </view>
-      <view class="info-block info-block-full" wx:if="{{showWorkGroup}}">
-        <view class="info-label">工作分工</view>
-        <view class="info-value">{{user.workGroup}}</view>
+
+      <view class="activity-desc" wx:if="{{currentActivity && currentActivity.description}}">
+        {{currentActivity.description}}
       </view>
     </view>
-  </view>
 
-  <view class="card targets-card" wx:if="{{hasUser && !isAdminRole}}">
-    <view class="info-head">
-      <view class="section-title">被评分人</view>
+    <view class="card" wx:if="{{hasUser}}">
+      <view class="info-head">
+        <view class="section-title">评分人信息</view>
+      </view>
+
+      <view class="info-grid">
+        <view class="info-block">
+          <view class="info-label">姓名</view>
+          <view class="info-value">{{user.name}}</view>
+        </view>
+        <view class="info-block">
+          <view class="info-label">身份</view>
+          <view class="info-value">{{heroIdentity}}</view>
+        </view>
+        <view class="info-block info-block-full" wx:if="{{user.department}}">
+          <view class="info-label">部门</view>
+          <view class="info-value">{{user.department}}</view>
+        </view>
+        <view class="info-block info-block-full" wx:if="{{showWorkGroup}}">
+          <view class="info-label">工作分工</view>
+          <view class="info-value">{{user.workGroup}}</view>
+        </view>
+      </view>
     </view>
 
-    <view class="target-state" wx:if="{{targetsLoading}}">加载中...</view>
+    <view class="card targets-card" wx:if="{{hasUser && !isAdminRole && activeTab === 'scoring'}}">
+      <view class="info-head">
+        <view class="section-title">被评分人</view>
+      </view>
 
-    <scroll-view class="target-scroll" scroll-y wx:if="{{!targetsLoading && targetList.length}}">
-      <view
-        class="target-card {{selectedTargetId === item.id ? 'target-card-active' : ''}}"
-        wx:for="{{targetList}}"
-        wx:key="id"
-        data-id="{{item.id}}"
-        data-name="{{item.name}}"
-        bindtap="selectTarget"
-      >
-        <view class="target-main">
-          <view class="target-name">{{item.name}}</view>
-          <view class="target-tags">
-            <view class="target-identity">{{item.identity}}</view>
-            <view class="target-status {{item.scoreStatus === 'scored' ? 'target-status-scored' : 'target-status-pending'}}">
-              {{item.scoreStatusText}}
+      <view class="target-state" wx:if="{{targetsLoading}}">加载中...</view>
+
+      <scroll-view class="target-scroll" scroll-y wx:if="{{!targetsLoading && targetList.length}}">
+        <view
+          class="target-card {{selectedTargetId === item.id ? 'target-card-active' : ''}}"
+          wx:for="{{targetList}}"
+          wx:key="id"
+          data-id="{{item.id}}"
+          data-name="{{item.name}}"
+          bindtap="selectTarget"
+        >
+          <view class="target-main">
+            <view class="target-name">{{item.name}}</view>
+            <view class="target-tags">
+              <view class="target-identity">{{item.identity}}</view>
+              <view class="target-status {{item.scoreStatus === 'scored' ? 'target-status-scored' : 'target-status-pending'}}">
+                {{item.scoreStatusText}}
+              </view>
             </view>
           </view>
+          <view class="target-meta">{{item.department}}</view>
+          <view class="target-meta" wx:if="{{item.workGroup}}">{{item.workGroup}}</view>
         </view>
-        <view class="target-meta">{{item.department}}</view>
-        <view class="target-meta" wx:if="{{item.workGroup}}">{{item.workGroup}}</view>
-      </view>
-    </scroll-view>
+      </scroll-view>
 
-    <view class="target-state" wx:if="{{!targetsLoading && !targetList.length}}">{{targetsEmptyText}}</view>
+      <view class="target-state" wx:if="{{!targetsLoading && !targetList.length}}">{{targetsEmptyText}}</view>
+    </view>
+  </view>
+
+  <view class="panel {{activeTab === 'profile' ? 'panel-active' : ''}}" wx:if="{{hasUser && !isAdminRole && activeTab === 'profile'}}">
+    <view class="card profile-card">
+      <view class="info-head">
+        <view class="section-title">人事信息</view>
+        <view class="mode-chip {{hrProfile.template && hrProfile.template.editMode === 'audit' ? 'mode-chip-audit' : ''}} {{hrProfile.template && hrProfile.template.editMode === 'readonly' ? 'mode-chip-readonly' : ''}}">
+          {{hrProfile.template ? hrProfile.template.modeText : '未配置模板'}}
+        </view>
+      </view>
+
+      <view class="profile-banner" wx:if="{{hrProfile.template && hrProfile.template.description}}">
+        {{hrProfile.template.description}}
+      </view>
+
+      <view class="profile-status" wx:if="{{hrProfile.loaded}}">
+        <view class="status-title">{{hrProfile.statusText}}</view>
+        <view class="status-desc" wx:if="{{hrProfile.auditStatus === 'pending'}}">已提交的内容会在管理员审核通过后正式生效，重新提交会覆盖当前待审核内容。</view>
+        <view class="status-desc" wx:if="{{hrProfile.auditStatus === 'rejected' && hrProfile.rejectionReason}}">驳回原因：{{hrProfile.rejectionReason}}</view>
+      </view>
+
+      <view class="field-grid">
+        <view class="info-block">
+          <view class="info-label">姓名</view>
+          <view class="info-value">{{user.name}}</view>
+        </view>
+        <view class="info-block">
+          <view class="info-label">学号</view>
+          <view class="info-value">{{user.studentId}}</view>
+        </view>
+        <view class="info-block info-block-full" wx:if="{{user.department}}">
+          <view class="info-label">所属部门</view>
+          <view class="info-value">{{user.department}}</view>
+        </view>
+        <view class="info-block">
+          <view class="info-label">身份</view>
+          <view class="info-value">{{user.identity}}</view>
+        </view>
+        <view class="info-block">
+          <view class="info-label">工作分工</view>
+          <view class="info-value">{{user.workGroup || '未设置'}}</view>
+        </view>
+      </view>
+
+      <view class="readonly-tip">姓名、学号、身份、所属部门、工作分工（职能组）涉及权限控制，仅支持管理员在后台修改。</view>
+
+      <view class="target-state" wx:if="{{hrProfile.loading}}">正在加载人事信息...</view>
+      <view class="empty-card profile-empty" wx:if="{{!hrProfile.loading && hrProfile.loaded && (!hrProfile.template || !hrProfile.template.fields.length)}}">
+        <view class="empty-title">管理员尚未配置扩展字段</view>
+        <view class="empty-desc">当前仅展示只读基础信息。</view>
+      </view>
+
+      <view class="profile-form" wx:if="{{!hrProfile.loading && hrProfile.template && hrProfile.template.fields.length}}">
+        <view class="profile-field" wx:for="{{hrProfile.template.fields}}" wx:key="id">
+          <view class="profile-field-head">
+            <view class="profile-field-title">{{item.label}}<text class="field-required" wx:if="{{item.required}}">*</text></view>
+            <view class="profile-field-type">{{item.type === 'sequence' ? '序列选择' : (item.type === 'number' ? '数字字段' : '文本字段')}}</view>
+          </view>
+
+          <picker
+            wx:if="{{item.type === 'sequence'}}"
+            range="{{item.options}}"
+            bindchange="onHrProfileOptionChange"
+            data-index="{{index}}"
+          >
+            <view class="picker-value">{{item.value || '请选择'}}</view>
+          </picker>
+
+          <input
+            wx:elif="{{item.type === 'number'}}"
+            class="field-input"
+            type="digit"
+            data-index="{{index}}"
+            bindinput="onHrProfileInput"
+            value="{{item.value}}"
+            placeholder="请输入数字"
+            disabled="{{hrProfile.template.editMode === 'readonly'}}"
+          />
+
+          <input
+            wx:else
+            class="field-input"
+            data-index="{{index}}"
+            bindinput="onHrProfileInput"
+            value="{{item.value}}"
+            placeholder="请输入{{item.label}}"
+            disabled="{{hrProfile.template.editMode === 'readonly'}}"
+          />
+
+          <view class="field-hint" wx:if="{{item.type === 'text' && (item.minLength || item.maxLength)}}">
+            长度限制：
+            <text wx:if="{{item.minLength != null}}">最少 {{item.minLength}}</text>
+            <text wx:if="{{item.minLength != null && item.maxLength != null}}">，</text>
+            <text wx:if="{{item.maxLength != null}}">最多 {{item.maxLength}}</text>
+          </view>
+          <view class="field-hint" wx:if="{{item.type === 'number' && (item.minValue != null || item.maxValue != null)}}">
+            数值范围：
+            <text wx:if="{{item.minValue != null}}">最小 {{item.minValue}}</text>
+            <text wx:if="{{item.minValue != null && item.maxValue != null}}">，</text>
+            <text wx:if="{{item.maxValue != null}}">最大 {{item.maxValue}}</text>
+          </view>
+        </view>
+
+        <button
+          class="primary-btn profile-submit-btn {{hrProfile.template.editMode === 'audit' ? 'profile-submit-btn-audit' : ''}}"
+          bindtap="submitHrProfile"
+          loading="{{hrProfile.saving}}"
+          disabled="{{hrProfile.template.editMode === 'readonly'}}"
+        >
+          {{hrProfile.template.editMode === 'audit' ? '提交审核' : '保存人事信息'}}
+        </button>
+      </view>
+    </view>
   </view>
 
   <view class="card empty-card" wx:if="{{!hasUser}}">

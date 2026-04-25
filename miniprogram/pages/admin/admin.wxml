@@ -1,8 +1,8 @@
 <view class="page">
-  <view class="hero" wx:if="{{hasPermission}}">
+  <view class="hero hero-admin" wx:if="{{hasPermission}}">
     <view class="hero-badge">管理端</view>
     <view class="hero-title">评分管理工作台</view>
-    <view class="hero-subtitle">{{user.name}} - {{isSuperAdmin ? '超级管理员' : '普通管理员'}}</view>
+    <view class="hero-subtitle hero-admin-subtitle">{{user.name}} - {{isSuperAdmin ? '超级管理员' : '普通管理员'}}</view>
   </view>
 
   <view class="empty-card" wx:if="{{!hasPermission}}">
@@ -16,6 +16,7 @@
       <view class="tab {{activeTab === 'templates' ? 'tab-active' : ''}}" data-tab="templates" bindtap="switchTab">评分问题</view>
       <view class="tab {{activeTab === 'rules' ? 'tab-active' : ''}}" data-tab="rules" bindtap="switchTab">评分人类别</view>
       <view class="tab {{activeTab === 'results' ? 'tab-active' : ''}}" data-tab="results" bindtap="switchTab">结果查看</view>
+      <view class="tab {{activeTab === 'profile' ? 'tab-active' : ''}}" data-tab="profile" bindtap="switchTab">信息模板</view>
       <view class="tab {{activeTab === 'hr' ? 'tab-active' : ''}}" data-tab="hr" bindtap="switchTab">人事成员</view>
       <view class="tab {{activeTab === 'admins' ? 'tab-active' : ''}}" data-tab="admins" bindtap="switchTab">管理员</view>
     </view>
@@ -453,6 +454,105 @@
             </view>
           </view>
           <view class="empty-inline" wx:if="{{!scoreResultsView.recordRows.length}}">当前筛选条件下暂无评分记录。</view>
+        </scroll-view>
+      </view>
+    </view>
+
+    <view class="section" wx:if="{{activeTab === 'profile'}}">
+      <view class="edit-box">
+        <view class="template-section-head">
+          <view class="list-title">模板配置</view>
+          <view class="template-section-tip">基础敏感字段仍由后台统一维护，模板只负责扩展资料采集。</view>
+        </view>
+        <view class="field">
+          <view class="field-label">填写说明</view>
+          <textarea class="field-textarea" auto-height maxlength="-1" data-field="description" bindinput="onHrProfileTemplateInput" value="{{hrProfileTemplateForm.description}}" placeholder="告诉普通用户这份人事信息用于什么、如何填写" />
+        </view>
+        <view class="field">
+          <view class="field-label">修改模式</view>
+          <picker range="{{profileEditModeOptions}}" range-key="label" bindchange="onHrProfileEditModeChange">
+            <view class="picker-value">{{hrProfileTemplateForm.editModeLabel}}</view>
+          </picker>
+        </view>
+
+        <view class="list-card nested-card">
+          <view class="list-title">扩展字段</view>
+          <scroll-view class="inner-scroll large-scroll" scroll-y>
+            <view class="question-card" wx:for="{{hrProfileTemplateForm.fields}}" wx:key="id">
+              <view class="question-title">字段 {{index + 1}}</view>
+              <view class="field">
+                <view class="field-label">字段名称</view>
+                <input class="field-input" data-index="{{index}}" data-field="label" bindinput="onHrProfileFieldInput" value="{{item.label}}" placeholder="例如：宿舍号 / 籍贯 / 年级" />
+              </view>
+              <view class="field">
+                <view class="field-label">字段类型</view>
+                <picker range="{{profileFieldTypeOptions}}" range-key="label" bindchange="onHrProfileFieldTypeChange" data-index="{{index}}">
+                  <view class="picker-value">{{item.typeLabel}}</view>
+                </picker>
+              </view>
+              <view class="field">
+                <view class="field-label">是否必填</view>
+                <switch checked="{{item.required}}" color="#2563eb" data-index="{{index}}" bindchange="onHrProfileFieldRequiredChange" />
+              </view>
+              <view class="field field-row" wx:if="{{item.type === 'text'}}">
+                <view class="field field-half">
+                  <view class="field-label">最短长度</view>
+                  <input class="field-input" data-index="{{index}}" data-field="minLength" bindinput="onHrProfileFieldInput" value="{{item.minLength}}" placeholder="可留空" />
+                </view>
+                <view class="field field-half">
+                  <view class="field-label">最大长度</view>
+                  <input class="field-input" data-index="{{index}}" data-field="maxLength" bindinput="onHrProfileFieldInput" value="{{item.maxLength}}" placeholder="可留空" />
+                </view>
+              </view>
+              <view class="field field-row" wx:if="{{item.type === 'number'}}">
+                <view class="field field-half">
+                  <view class="field-label">最小值</view>
+                  <input class="field-input" data-index="{{index}}" data-field="minValue" bindinput="onHrProfileFieldInput" value="{{item.minValue}}" placeholder="可留空" />
+                </view>
+                <view class="field field-half">
+                  <view class="field-label">最大值</view>
+                  <input class="field-input" data-index="{{index}}" data-field="maxValue" bindinput="onHrProfileFieldInput" value="{{item.maxValue}}" placeholder="可留空" />
+                </view>
+              </view>
+              <view class="field" wx:if="{{item.type === 'sequence'}}">
+                <view class="field-label">序列选项</view>
+                <textarea class="field-textarea question-textarea" auto-height maxlength="-1" data-index="{{index}}" data-field="optionsText" bindinput="onHrProfileFieldInput" value="{{item.optionsText}}" placeholder="每行一个选项，例如：&#10;本科&#10;硕士&#10;博士" />
+              </view>
+              <view class="button-row compact-row">
+                <button class="secondary-btn" data-index="{{index}}" bindtap="removeHrProfileField">删除字段</button>
+              </view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <view class="button-row">
+          <button class="secondary-btn" bindtap="addHrProfileField">新增字段</button>
+          <button class="primary-btn template-save-btn" loading="{{loadingMap.saveProfileTemplate}}" bindtap="saveHrProfileTemplate">保存模板配置</button>
+        </view>
+      </view>
+
+      <view class="list-card">
+        <view class="template-section-head">
+          <view class="list-title">用户资料与审核</view>
+          <view class="template-section-tip">待审核资料会在通过后正式生效，驳回后用户可重新提交。</view>
+        </view>
+        <scroll-view class="inner-scroll large-scroll" scroll-y>
+          <view class="list-item" wx:for="{{hrProfileRows}}" wx:key="id">
+            <view class="list-main">
+              <view class="list-name">{{item.name}} - {{item.identity}}</view>
+              <view class="list-desc">{{item.studentId}} - {{item.department}} {{item.workGroup}}</view>
+              <view class="list-desc">当前资料：{{item.currentSummary}}</view>
+              <view class="list-desc" wx:if="{{item.pendingSummary}}">待审核：{{item.pendingSummary}}</view>
+              <view class="list-desc" wx:if="{{item.rejectionReason}}">驳回原因：{{item.rejectionReason}}</view>
+              <view class="chip-row">
+                <view class="status-chip current-chip">{{item.auditStatusText}}</view>
+              </view>
+            </view>
+            <view class="inline-actions" wx:if="{{item.hasPending}}">
+              <text class="link" data-student-id="{{item.studentId}}" bindtap="approveHrProfileChange">通过</text>
+              <text class="link danger" data-student-id="{{item.studentId}}" bindtap="rejectHrProfileChange">驳回</text>
+            </view>
+          </view>
         </scroll-view>
       </view>
     </view>

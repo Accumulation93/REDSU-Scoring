@@ -1,6 +1,10 @@
 const STORAGE_KEY = 'roleProfiles';
 const ACTIVE_ROLE_KEY = 'activeRole';
 const LEADER_IDENTITIES = ['部门主要负责人', '部门负责人'];
+const USER_TABS = [
+  { key: 'scoring', label: '考核评分' },
+  { key: 'profile', label: '人事信息' }
+];
 
 function shouldShowWorkGroup(user) {
   if (!user || !user.workGroup) {
@@ -22,6 +26,59 @@ function getDisplayIdentity(user, activeRole) {
   return user.identity || '未设置身份';
 }
 
+function emptyHrProfileState() {
+  return {
+    loading: false,
+    saving: false,
+    loaded: false,
+    template: null,
+    pendingValues: {},
+    auditStatus: 'none',
+    statusText: '尚未提交扩展资料',
+    rejectionReason: ''
+  };
+}
+
+function validateProfileField(field = {}, rawValue) {
+  const value = rawValue == null ? '' : String(rawValue).trim();
+
+  if (field.required && !value) {
+    return `${field.label}不能为空`;
+  }
+
+  if (!value) {
+    return '';
+  }
+
+  if (field.type === 'text') {
+    if (field.minLength != null && value.length < field.minLength) {
+      return `${field.label}长度不能少于 ${field.minLength}`;
+    }
+    if (field.maxLength != null && value.length > field.maxLength) {
+      return `${field.label}长度不能超过 ${field.maxLength}`;
+    }
+  }
+
+  if (field.type === 'number') {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue)) {
+      return `${field.label}必须是数字`;
+    }
+    if (field.minValue != null && numberValue < field.minValue) {
+      return `${field.label}不能小于 ${field.minValue}`;
+    }
+    if (field.maxValue != null && numberValue > field.maxValue) {
+      return `${field.label}不能大于 ${field.maxValue}`;
+    }
+  }
+
+  if (field.type === 'sequence' && Array.isArray(field.options) && field.options.length && field.options.indexOf(value) === -1) {
+    return `${field.label}必须从预设选项中选择`;
+  }
+
+  return '';
+}
+
 Page({
   data: {
     user: null,
@@ -39,7 +96,10 @@ Page({
     targetsLoading: false,
     targetsEmptyText: '暂无被评分人',
     showUnbindDialog: false,
-    unbindLoading: false
+    unbindLoading: false,
+    userTabs: USER_TABS,
+    activeTab: USER_TABS[0].key,
+    hrProfile: emptyHrProfileState()
   },
 
   onShow() {
@@ -76,11 +136,29 @@ Page({
       targetList: [],
       selectedTargetId: '',
       targetsEmptyText: '暂无被评分人',
-      targetsLoading: false
+      targetsLoading: false,
+      activeTab: isAdminRole ? 'scoring' : this.data.activeTab,
+      hrProfile: emptyHrProfileState()
     });
 
     if (currentUser && activeRole === 'user') {
       this.fetchRateTargets(activeRole);
+      this.loadUserHrProfile();
+    }
+  },
+
+  switchUserTab(e) {
+    const tab = String(e.currentTarget.dataset.tab || '');
+    if (!tab || tab === this.data.activeTab) {
+      return;
+    }
+
+    this.setData({
+      activeTab: tab
+    });
+
+    if (tab === 'profile' && this.data.activeRole === 'user' && !this.data.hrProfile.loaded) {
+      this.loadUserHrProfile();
     }
   },
 
@@ -150,6 +228,184 @@ Page({
       complete: () => {
         this.setData({
           targetsLoading: false
+        });
+      }
+    });
+  },
+
+  loadUserHrProfile() {
+    if (this.data.activeRole !== 'user' || !this.data.hasUser) {
+      return;
+    }
+
+    this.setData({
+      'hrProfile.loading': true
+    });
+
+    wx.cloud.callFunction({
+      name: 'getUserHrProfile',
+      success: (res) => {
+        const result = res.result || {};
+        if (result.status !== 'success') {
+          this.setData({
+            hrProfile: {
+              ...emptyHrProfileState(),
+              loaded: true
+            }
+          });
+          wx.showToast({
+            title: result.message || '加载人事信息失败',
+            icon: 'none'
+          });
+          return;
+        }
+
+        const template = result.template || null;
+        const baseValues = result.values || {};
+        const pendingValues = result.pendingValues || {};
+        const formValues = result.auditStatus === 'pending'
+          ? { ...baseValues, ...pendingValues }
+          : { ...baseValues };
+        const nextTemplate = template ? {
+          ...template,
+          fields: (template.fields || []).map((field) => ({
+            ...field,
+            value: formValues[field.id] || ''
+          }))
+        } : null;
+
+        this.setData({
+          hrProfile: {
+            loading: false,
+            saving: false,
+            loaded: true,
+            template: nextTemplate,
+            pendingValues,
+            auditStatus: result.auditStatus || 'none',
+            statusText: result.statusText || '尚未提交扩展资料',
+            rejectionReason: result.rejectionReason || ''
+          }
+        });
+      },
+      fail: () => {
+        this.setData({
+          hrProfile: {
+            ...emptyHrProfileState(),
+            loaded: true
+          }
+        });
+        wx.showToast({
+          title: '加载人事信息失败',
+          icon: 'none'
+        });
+      }
+    });
+  },
+
+  onHrProfileInput(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const fields = [...((this.data.hrProfile.template && this.data.hrProfile.template.fields) || [])];
+    if (!fields[index]) {
+      return;
+    }
+
+    fields[index] = {
+      ...fields[index],
+      value: String(e.detail.value || '')
+    };
+
+    this.setData({
+      'hrProfile.template.fields': fields
+    });
+  },
+
+  onHrProfileOptionChange(e) {
+    const fieldIndex = Number(e.currentTarget.dataset.index);
+    const optionIndex = Number(e.detail.value);
+    const fields = [...((this.data.hrProfile.template && this.data.hrProfile.template.fields) || [])];
+    const field = fields[fieldIndex];
+    const nextValue = field && Array.isArray(field.options) ? field.options[optionIndex] : '';
+    if (!field || !nextValue) {
+      return;
+    }
+
+    fields[fieldIndex] = {
+      ...field,
+      value: nextValue
+    };
+
+    this.setData({
+      'hrProfile.template.fields': fields
+    });
+  },
+
+  submitHrProfile() {
+    const hrProfile = this.data.hrProfile || emptyHrProfileState();
+    const template = hrProfile.template;
+    if (!template || !Array.isArray(template.fields) || !template.fields.length) {
+      wx.showToast({
+        title: '管理员尚未配置人事信息模板',
+        icon: 'none'
+      });
+      return;
+    }
+
+    if (template.editMode === 'readonly') {
+      wx.showToast({
+        title: '当前不允许自行修改，请联系管理员',
+        icon: 'none'
+      });
+      return;
+    }
+
+    const values = {};
+    for (let i = 0; i < template.fields.length; i += 1) {
+      const field = template.fields[i];
+      values[field.id] = field.value == null ? '' : String(field.value).trim();
+      const errorMessage = validateProfileField(field, values[field.id]);
+      if (errorMessage) {
+        wx.showToast({
+          title: errorMessage,
+          icon: 'none'
+        });
+        return;
+      }
+    }
+
+    this.setData({
+      'hrProfile.saving': true
+    });
+
+    wx.cloud.callFunction({
+      name: 'submitUserHrProfile',
+      data: {
+        values
+      },
+      success: (res) => {
+        const result = res.result || {};
+        if (result.status !== 'success') {
+          wx.showToast({
+            title: result.message || '保存人事信息失败',
+            icon: 'none'
+          });
+          return;
+        }
+
+        wx.showToast({
+          title: result.message || '人事信息已保存',
+          icon: 'success'
+        });
+        this.loadUserHrProfile();
+      },
+      fail: () => {
+        wx.showToast({
+          title: '保存人事信息失败',
+          icon: 'none'
+        });
+      },
+      complete: () => {
+        this.setData({
+          'hrProfile.saving': false
         });
       }
     });
