@@ -39,6 +39,114 @@ function emptyHrProfileState() {
   };
 }
 
+function showShortToast(title, icon = 'none') {
+  wx.showToast({
+    title,
+    icon
+  });
+}
+
+function isValidDateString(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  const [year, month, day] = value.split('-').map((item) => Number(item));
+  return date.getFullYear() === year
+    && date.getMonth() + 1 === month
+    && date.getDate() === day;
+}
+
+function getNumericLength(value) {
+  return String(value || '').replace(/^[+-]/, '').replace('.', '').length;
+}
+
+function getProfileFieldTypeLabel(type) {
+  if (type === 'number') {
+    return '数字字段';
+  }
+  if (type === 'sequence') {
+    return '序列选择';
+  }
+  if (type === 'date') {
+    return '日期字段';
+  }
+  if (type === 'phone') {
+    return '手机号字段';
+  }
+  if (type === 'email') {
+    return '邮箱字段';
+  }
+  return '文本字段';
+}
+
+function buildFieldHint(field = {}) {
+  if (field.type === 'text' && (field.minLength != null || field.maxLength != null)) {
+    const parts = [];
+    if (field.minLength != null) {
+      parts.push(`最短 ${field.minLength}`);
+    }
+    if (field.maxLength != null) {
+      parts.push(`最长 ${field.maxLength}`);
+    }
+    return `长度限制：${parts.join('，')}`;
+  }
+
+  if (field.type === 'number') {
+    const decimalText = field.allowDecimal === false ? '仅整数' : '允许小数';
+    if (field.numberRule === 'length_range' && (field.minDigits != null || field.maxDigits != null)) {
+      const parts = [];
+      if (field.minDigits != null) {
+        parts.push(`最短 ${field.minDigits}`);
+      }
+      if (field.maxDigits != null) {
+        parts.push(`最长 ${field.maxDigits}`);
+      }
+      return `数字长度：${parts.join('，')}，${decimalText}`;
+    }
+    if (field.minValue != null || field.maxValue != null) {
+      const parts = [];
+      if (field.minValue != null) {
+        parts.push(`最小 ${field.minValue}`);
+      }
+      if (field.maxValue != null) {
+        parts.push(`最大 ${field.maxValue}`);
+      }
+      return `数值范围：${parts.join('，')}，${decimalText}`;
+    }
+    return decimalText;
+  }
+
+  if (field.type === 'date') {
+    return '格式：YYYY-MM-DD';
+  }
+
+  if (field.type === 'phone') {
+    return '请输入 11 位手机号';
+  }
+
+  if (field.type === 'email') {
+    return '示例：name@example.com';
+  }
+
+  return '';
+}
+
+function normalizeDisplayField(field = {}, valueMap = {}) {
+  const id = field.id || '';
+  return {
+    ...field,
+    value: valueMap[id] || '',
+    typeLabel: getProfileFieldTypeLabel(field.type),
+    hintText: buildFieldHint(field)
+  };
+}
+
 function validateProfileField(field = {}, rawValue) {
   const value = rawValue == null ? '' : String(rawValue).trim();
 
@@ -60,20 +168,45 @@ function validateProfileField(field = {}, rawValue) {
   }
 
   if (field.type === 'number') {
+    if (field.allowDecimal === false && !/^[+-]?\d+$/.test(value)) {
+      return `${field.label}必须是整数`;
+    }
     const numberValue = Number(value);
     if (!Number.isFinite(numberValue)) {
       return `${field.label}必须是数字`;
     }
-    if (field.minValue != null && numberValue < field.minValue) {
-      return `${field.label}不能小于 ${field.minValue}`;
-    }
-    if (field.maxValue != null && numberValue > field.maxValue) {
-      return `${field.label}不能大于 ${field.maxValue}`;
+    if (field.numberRule === 'length_range') {
+      const numericLength = getNumericLength(value);
+      if (field.minDigits != null && numericLength < field.minDigits) {
+        return `${field.label}长度不能少于 ${field.minDigits}`;
+      }
+      if (field.maxDigits != null && numericLength > field.maxDigits) {
+        return `${field.label}长度不能超过 ${field.maxDigits}`;
+      }
+    } else {
+      if (field.minValue != null && numberValue < field.minValue) {
+        return `${field.label}不能小于 ${field.minValue}`;
+      }
+      if (field.maxValue != null && numberValue > field.maxValue) {
+        return `${field.label}不能大于 ${field.maxValue}`;
+      }
     }
   }
 
   if (field.type === 'sequence' && Array.isArray(field.options) && field.options.length && field.options.indexOf(value) === -1) {
     return `${field.label}必须从预设选项中选择`;
+  }
+
+  if (field.type === 'date' && !isValidDateString(value)) {
+    return `${field.label}必须是有效日期`;
+  }
+
+  if (field.type === 'phone' && !/^1[3-9]\d{9}$/.test(value)) {
+    return `${field.label}必须是有效手机号`;
+  }
+
+  if (field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+    return `${field.label}必须是有效邮箱`;
   }
 
   return '';
@@ -268,10 +401,7 @@ Page({
           : { ...baseValues };
         const nextTemplate = template ? {
           ...template,
-          fields: (template.fields || []).map((field) => ({
-            ...field,
-            value: formValues[field.id] || ''
-          }))
+          fields: (template.fields || []).map((field) => normalizeDisplayField(field, formValues))
         } : null;
 
         this.setData({
@@ -339,6 +469,23 @@ Page({
     });
   },
 
+  onHrProfileDateChange(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const fields = [...((this.data.hrProfile.template && this.data.hrProfile.template.fields) || [])];
+    if (!fields[index]) {
+      return;
+    }
+
+    fields[index] = {
+      ...fields[index],
+      value: String(e.detail.value || '')
+    };
+
+    this.setData({
+      'hrProfile.template.fields': fields
+    });
+  },
+
   submitHrProfile() {
     const hrProfile = this.data.hrProfile || emptyHrProfileState();
     const template = hrProfile.template;
@@ -384,24 +531,15 @@ Page({
       success: (res) => {
         const result = res.result || {};
         if (result.status !== 'success') {
-          wx.showToast({
-            title: result.message || '保存人事信息失败',
-            icon: 'none'
-          });
+          showShortToast('更新失败');
           return;
         }
 
-        wx.showToast({
-          title: result.message || '人事信息已保存',
-          icon: 'success'
-        });
+        showShortToast('已更新', 'success');
         this.loadUserHrProfile();
       },
       fail: () => {
-        wx.showToast({
-          title: '保存人事信息失败',
-          icon: 'none'
-        });
+        showShortToast('更新失败');
       },
       complete: () => {
         this.setData({

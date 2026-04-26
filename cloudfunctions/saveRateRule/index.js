@@ -5,6 +5,7 @@ cloud.init({
 });
 
 const db = cloud.database();
+const CACHE_META_COLLECTIONS = ['score_results_cache_meta', 'scorer_task_cache_meta'];
 const VALID_SCOPES = [
   'same_department_identity',
   'same_department_all',
@@ -16,6 +17,23 @@ const VALID_SCOPES = [
 
 function safeString(value) {
   return String(value == null ? '' : value).trim();
+}
+
+async function invalidateActivityCaches(activityId) {
+  if (!activityId) {
+    return;
+  }
+  await Promise.all(CACHE_META_COLLECTIONS.map((collectionName) => (
+    db.collection(collectionName)
+      .where({ activityId })
+      .update({
+        data: {
+          isInvalid: true,
+          invalidatedAt: db.serverDate()
+        }
+      })
+      .catch(() => null)
+  )));
 }
 
 function toBoolean(value) {
@@ -166,6 +184,8 @@ exports.main = async (event) => {
       });
     }
   }
+
+  await invalidateActivityCaches(activityId);
 
   return {
     status: 'success'

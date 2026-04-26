@@ -13,6 +13,12 @@ const MODE_TEXT_MAP = {
   readonly: '不允许自行修改'
 };
 
+const FIELD_NAME = '姓名';
+const FIELD_STUDENT_ID = '学号';
+const FIELD_DEPARTMENT = '所属部门';
+const FIELD_IDENTITY = '身份';
+const FIELD_WORK_GROUP = '工作分工（职能组）';
+
 function normalizeTemplateField(field = {}) {
   return {
     id: String(field.id || '').trim(),
@@ -21,6 +27,10 @@ function normalizeTemplateField(field = {}) {
     required: field.required === true,
     minLength: field.minLength == null ? null : Number(field.minLength),
     maxLength: field.maxLength == null ? null : Number(field.maxLength),
+    numberRule: String(field.numberRule || 'value_range').trim(),
+    allowDecimal: field.allowDecimal !== false,
+    minDigits: field.minDigits == null ? null : Number(field.minDigits),
+    maxDigits: field.maxDigits == null ? null : Number(field.maxDigits),
     minValue: field.minValue == null ? null : Number(field.minValue),
     maxValue: field.maxValue == null ? null : Number(field.maxValue),
     options: Array.isArray(field.options) ? field.options.map((item) => String(item || '').trim()).filter(Boolean) : []
@@ -38,6 +48,30 @@ function summarizeValues(fields = [], values = {}) {
     })
     .filter(Boolean)
     .join('；');
+}
+
+function normalizeHrRecord(item = {}) {
+  return {
+    id: item._id || '',
+    name: String(item.name || item[FIELD_NAME] || '').trim(),
+    studentId: String(item.studentId || item[FIELD_STUDENT_ID] || '').trim(),
+    department: String(item.department || item[FIELD_DEPARTMENT] || '').trim(),
+    identity: String(item.identity || item[FIELD_IDENTITY] || '').trim(),
+    workGroup: String(item.workGroup || item[FIELD_WORK_GROUP] || '').trim()
+  };
+}
+
+function getAuditStatusText(auditStatus) {
+  if (auditStatus === 'pending') {
+    return '待审核';
+  }
+  if (auditStatus === 'approved') {
+    return '已生效';
+  }
+  if (auditStatus === 'rejected') {
+    return '已驳回';
+  }
+  return '未提交';
 }
 
 exports.main = async () => {
@@ -82,34 +116,28 @@ exports.main = async () => {
   } catch (error) {}
 
   const rows = (hrRes.data || []).map((item) => {
-    const studentId = String(item.studentId || item['学号'] || '');
-    const record = recordMap.get(studentId) || {};
+    const hr = normalizeHrRecord(item);
+    const record = recordMap.get(hr.studentId) || {};
     const values = record.values && typeof record.values === 'object' ? record.values : {};
     const pendingValues = record.pendingValues && typeof record.pendingValues === 'object' ? record.pendingValues : {};
-    const auditStatus = record.auditStatus || 'none';
+    const auditStatus = String(record.auditStatus || 'none').trim() || 'none';
 
     return {
-      id: studentId || item._id,
+      id: hr.studentId || hr.id,
       recordId: record._id || '',
-      name: item.name || item['姓名'] || '',
-      studentId,
-      department: item.department || item['所属部门'] || '',
-      identity: item.identity || item['身份'] || '',
-      workGroup: item.workGroup || item['工作分工（职能组）'] || '',
+      name: hr.name,
+      studentId: hr.studentId,
+      department: hr.department,
+      identity: hr.identity,
+      workGroup: hr.workGroup,
       currentSummary: summarizeValues(fields, values) || '暂无扩展资料',
       pendingSummary: summarizeValues(fields, pendingValues),
       auditStatus,
-      auditStatusText: auditStatus === 'pending'
-        ? '待审核'
-        : auditStatus === 'approved'
-          ? '已生效'
-          : auditStatus === 'rejected'
-            ? '已驳回'
-            : '未提交',
-      rejectionReason: record.rejectionReason || '',
-      hasPending: auditStatus === 'pending' && !!Object.keys(pendingValues).length
+      auditStatusText: getAuditStatusText(auditStatus),
+      rejectionReason: String(record.rejectionReason || '').trim(),
+      hasPending: auditStatus === 'pending' && Object.keys(pendingValues).length > 0
     };
-  }).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN'));
+  });
 
   return {
     status: 'success',

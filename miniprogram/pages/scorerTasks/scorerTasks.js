@@ -2,6 +2,11 @@ function buildOptions(values = []) {
   return ['全部', ...values.filter(Boolean)];
 }
 
+function getErrorText(error, fallback) {
+  const text = String((error && (error.errMsg || error.message)) || '').trim();
+  return text || fallback;
+}
+
 function formatActivityName(name) {
   return String(name || '').trim();
 }
@@ -129,44 +134,85 @@ Page({
       });
       return;
     }
-
-    this.setData({ loading: true });
+  
+    const loadToken = Date.now();
+    this.taskLoadToken = loadToken;
+  
+    this.setData({
+      loading: true,
+      scorerRows: []
+    });
+  
     try {
-      const result = await this.callCloud('getScorerTaskStatus', {
-        activityId: this.data.activityId,
-        filters: {
-          department: this.data.filters.department,
-          identity: this.data.filters.identity,
-          workGroup: this.data.filters.workGroup,
-          keyword: this.data.keyword
-        }
-      });
-
-      if (result.status !== 'success') {
-        wx.showToast({
-          title: result.message || '加载失败',
-          icon: 'none'
+      let offset = 0;
+      let hasMore = true;
+      let requestCount = 0;
+      const maxRequests = 100;
+      const mergedRows = [];
+      let latestResult = null;
+  
+      while (hasMore && requestCount < maxRequests) {
+        const result = await this.callCloud('getScorerTaskStatus', {
+          activityId: this.data.activityId,
+          offset,
+          filters: {
+            department: this.data.filters.department,
+            identity: this.data.filters.identity,
+            workGroup: this.data.filters.workGroup,
+            keyword: this.data.keyword
+          }
         });
-        return;
-      }
-
-      this.setData({
-        activityName: formatActivityName(result.activityName) || this.data.activityName,
-        stats: result.stats || { totalPendingScorers: 0 },
-        scorerRows: normalizeScorerRows(result.scorers || []),
-        filterOptions: {
-          departments: buildOptions((result.filterOptions && result.filterOptions.departments) || []),
-          identities: buildOptions((result.filterOptions && result.filterOptions.identities) || []),
-          workGroups: buildOptions((result.filterOptions && result.filterOptions.workGroups) || [])
+  
+        if (this.taskLoadToken !== loadToken) {
+          return;
         }
-      });
+  
+        if (result.status !== 'success') {
+          wx.showToast({
+            title: result.message || '加载失败',
+            icon: 'none'
+          });
+          return;
+        }
+  
+        latestResult = result;
+  
+        const batchRows = result.scorers || [];
+        mergedRows.push(...batchRows);
+  
+        this.setData({
+          activityName: formatActivityName(result.activityName) || this.data.activityName,
+          stats: result.stats || { totalPendingScorers: 0 },
+          scorerRows: normalizeScorerRows(mergedRows),
+          filterOptions: {
+            departments: buildOptions((result.filterOptions && result.filterOptions.departments) || []),
+            identities: buildOptions((result.filterOptions && result.filterOptions.identities) || []),
+            workGroups: buildOptions((result.filterOptions && result.filterOptions.workGroups) || [])
+          }
+        });
+  
+        hasMore = !!(result.pagination && result.pagination.hasMore);
+  
+        const nextOffset = result.pagination ? Number(result.pagination.nextOffset || 0) : 0;
+  
+        if (!batchRows.length || nextOffset <= offset) {
+          hasMore = false;
+        } else {
+          offset = nextOffset;
+        }
+  
+        requestCount += 1;
+  
+      }
     } catch (error) {
       wx.showToast({
-        title: '加载失败',
+        title: getErrorText(error, '加载失败'),
         icon: 'none'
       });
     } finally {
-      this.setData({ loading: false });
+      if (this.taskLoadToken === loadToken) {
+        this.setData({ loading: false });
+      }
     }
   },
 
@@ -273,7 +319,7 @@ Page({
       });
     } catch (error) {
       wx.showToast({
-        title: '导出失败',
+        title: getErrorText(error, '导出失败'),
         icon: 'none'
       });
     } finally {

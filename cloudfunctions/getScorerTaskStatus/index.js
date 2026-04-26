@@ -5,6 +5,10 @@ cloud.init({
 });
 
 const db = cloud.database();
+const PAGE_SIZE = 100;
+const TASK_CACHE_META = 'scorer_task_cache_meta';
+const TASK_CACHE_CHUNKS = 'scorer_task_cache_chunks';
+const CACHE_CHUNK_SAFE_LIMIT = 650 * 1024;
 
 const FIELD_NAME = '姓名';
 const FIELD_STUDENT_ID = '学号';
@@ -15,6 +19,34 @@ const DEFAULT_WORK_GROUP = '未分组';
 
 function safeString(value) {
   return String(value == null ? '' : value).trim();
+}
+
+function toNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+async function getAllRecords(query) {
+  const list = [];
+  let skip = 0;
+
+  while (true) {
+    const res = await query.skip(skip).limit(PAGE_SIZE).get().catch((error) => {
+      const message = safeString(error && (error.message || error.errMsg));
+      if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
+        return { data: [] };
+      }
+      throw error;
+    });
+    const batch = res.data || [];
+    list.push(...batch);
+    if (batch.length < PAGE_SIZE) {
+      break;
+    }
+    skip += batch.length;
+  }
+
+  return list;
 }
 
 function normalizeMember(record = {}) {
@@ -189,7 +221,13 @@ function applyFilters(rows, filters = {}) {
   const identity = safeString(filters.identity);
   const workGroup = safeString(filters.workGroup);
   const keyword = safeString(filters.keyword).toLowerCase();
-  const isAll = (value) => !value || value === '全部';
+  const isAll = (value) => !value
+    || value === '全部'
+    || value === '全部部门'
+    || value === '全部身份'
+    || value === '全部工作分工'
+    || value === '全部工作分工（职能组）'
+    || value === '鍏ㄩ儴';
 
   return rows.filter((row) => {
     if (!isAll(department) && safeString(row.department) !== department) {
@@ -214,6 +252,241 @@ function applyFilters(rows, filters = {}) {
     return searchText.includes(keyword);
   });
 }
+const RESPONSE_SAFE_LIMIT = 850 * 1024;
+
+function estimateBytes(payload) {
+  return Buffer.byteLength(JSON.stringify(payload), 'utf8');
+}
+
+function sliceRowsBySize(rows, offset, basePayload) {
+  const start = Math.max(0, Math.floor(toNumber(offset, 0)));
+  const selected = [];
+
+  for (let i = start; i < rows.length; i += 1) {
+    selected.push(rows[i]);
+
+    const testPayload = {
+      ...basePayload,
+      scorers: selected
+    };
+
+    if (estimateBytes(testPayload) > RESPONSE_SAFE_LIMIT) {
+      selected.pop();
+      return {
+        rows: selected,
+        nextOffset: i,
+        hasMore: true,
+        total: rows.length
+      };
+    }
+  }
+
+  return {
+    rows: selected,
+    nextOffset: rows.length,
+    hasMore: false,
+    total: rows.length
+  };
+}
+
+function buildRowChunks(rows) {
+  const chunks = [];
+  let current = [];
+
+  rows.forEach((row) => {
+    current.push(row);
+    if (estimateBytes({ rows: current }) > CACHE_CHUNK_SAFE_LIMIT && current.length > 1) {
+      const overflow = current.pop();
+      chunks.push(current);
+      current = [overflow];
+    }
+  });
+
+  if (current.length) {
+    chunks.push(current);
+  }
+
+  return chunks.length ? chunks : [[]];
+}
+
+function buildChunkMeta(chunks) {
+  let rowStart = 0;
+  return chunks.map((rows, chunkIndex) => {
+    const rowCount = rows.length;
+    const meta = {
+      chunkIndex,
+      rowStart,
+      rowCount
+    };
+    rowStart += rowCount;
+    return meta;
+  });
+}
+
+function isUnfiltered(filters = {}) {
+  const isAll = (value) => !value
+    || value === '全部'
+    || value === '全部部门'
+    || value === '全部身份'
+    || value === '全部工作分工'
+    || value === '全部工作分工（职能组）';
+  return isAll(safeString(filters.department))
+    && isAll(safeString(filters.identity))
+    && isAll(safeString(filters.workGroup))
+    && !safeString(filters.keyword);
+}
+
+async function removeQueryRecords(collectionName, where) {
+  while (true) {
+    const res = await db.collection(collectionName).where(where).limit(100).get().catch((error) => {
+      const message = safeString(error && (error.message || error.errMsg));
+      if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
+        return { data: [] };
+      }
+      throw error;
+    });
+    const rows = res.data || [];
+    if (!rows.length) {
+      break;
+    }
+    await Promise.all(rows.map((item) => db.collection(collectionName).doc(item._id).remove()));
+    if (rows.length < 100) {
+      break;
+    }
+  }
+}
+
+async function upsertByActivity(collectionName, activityId, data) {
+  const res = await db.collection(collectionName).where({ activityId }).limit(1).get().catch((error) => {
+    const message = safeString(error && (error.message || error.errMsg));
+    if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
+      return { data: [] };
+    }
+    throw error;
+  });
+  if (res.data && res.data.length) {
+    await db.collection(collectionName).doc(res.data[0]._id).update({ data });
+    return res.data[0]._id;
+  }
+  const addRes = await db.collection(collectionName).add({
+    data: {
+      activityId,
+      ...data
+    }
+  });
+  return addRes._id;
+}
+
+async function writeTaskCache(activityId, payload) {
+  await removeQueryRecords(TASK_CACHE_CHUNKS, { activityId });
+  const chunks = buildRowChunks(payload.scorers || []);
+
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+    await db.collection(TASK_CACHE_CHUNKS).add({
+      data: {
+        activityId,
+        chunkIndex,
+        rows: chunks[chunkIndex],
+        updatedAt: db.serverDate()
+      }
+    });
+  }
+
+  await upsertByActivity(TASK_CACHE_META, activityId, {
+    activityName: payload.activityName,
+    stats: payload.stats,
+    filterOptions: payload.filterOptions,
+    chunkMap: buildChunkMeta(chunks),
+    total: (payload.scorers || []).length,
+    isInvalid: false,
+    updatedAt: db.serverDate()
+  });
+}
+
+async function readTaskCache(activityId, offset, filters) {
+  const metaRes = await db.collection(TASK_CACHE_META)
+    .where({ activityId, isInvalid: false })
+    .limit(1)
+    .get()
+    .catch(() => ({ data: [] }));
+
+  if (!metaRes.data || !metaRes.data.length) {
+    return null;
+  }
+
+  const meta = metaRes.data[0];
+  const chunkMetaList = Array.isArray(meta.chunkMap) ? meta.chunkMap : [];
+  let chunks = [];
+  let cacheRowStart = 0;
+  const cacheTotal = toNumber(meta.total, 0);
+
+  if (isUnfiltered(filters) && chunkMetaList.length) {
+    const targetChunkMeta = chunkMetaList.find((item) => (
+      offset >= toNumber(item.rowStart, 0)
+      && offset < toNumber(item.rowStart, 0) + toNumber(item.rowCount, 0)
+    )) || chunkMetaList[chunkMetaList.length - 1];
+    cacheRowStart = toNumber(targetChunkMeta.rowStart, 0);
+    const chunkRes = await db.collection(TASK_CACHE_CHUNKS)
+      .where({ activityId, chunkIndex: toNumber(targetChunkMeta.chunkIndex, 0) })
+      .limit(1)
+      .get()
+      .catch(() => ({ data: [] }));
+    chunks = chunkRes.data || [];
+  } else {
+    chunks = await getAllRecords(db.collection(TASK_CACHE_CHUNKS).where({ activityId }));
+  }
+
+  if (!chunks.length) {
+    return null;
+  }
+  chunks.sort((a, b) => toNumber(a.chunkIndex, 0) - toNumber(b.chunkIndex, 0));
+
+  return {
+    activityName: meta.activityName || '',
+    stats: meta.stats || {},
+    filterOptions: meta.filterOptions || {},
+    _cacheRowStart: cacheRowStart,
+    _cacheTotal: cacheTotal,
+    _cachePartial: isUnfiltered(filters) && chunkMetaList.length,
+    scorers: chunks.flatMap((item) => Array.isArray(item.rows) ? item.rows : [])
+  };
+}
+
+function buildTaskResponseFromPayload(payload, filters, offset) {
+  const filteredRows = applyFilters(payload.scorers || [], filters);
+  const cachePartial = payload._cachePartial === true;
+  const cacheRowStart = cachePartial ? toNumber(payload._cacheRowStart, 0) : 0;
+  const cacheTotal = cachePartial ? toNumber(payload._cacheTotal, filteredRows.length) : filteredRows.length;
+  const sliceOffset = cachePartial ? Math.max(0, offset - cacheRowStart) : offset;
+  const basePayload = {
+    status: 'success',
+    activityName: payload.activityName || '',
+    stats: {
+      totalPendingScorers: cacheTotal
+    },
+    filterOptions: payload.filterOptions || {},
+    scorers: [],
+    pagination: {
+      offset,
+      nextOffset: offset,
+      total: cacheTotal,
+      hasMore: false,
+      returnedCount: 0
+    }
+  };
+
+  const pageResult = sliceRowsBySize(filteredRows, sliceOffset, basePayload);
+  basePayload.scorers = pageResult.rows;
+  basePayload.pagination = {
+    offset,
+    nextOffset: cachePartial ? cacheRowStart + pageResult.nextOffset : pageResult.nextOffset,
+    total: cacheTotal,
+    hasMore: cachePartial ? (cacheRowStart + pageResult.nextOffset < cacheTotal) : pageResult.hasMore,
+    returnedCount: pageResult.rows.length
+  };
+
+  return basePayload;
+}
 
 async function ensureAdmin(openid) {
   const res = await db.collection('admin_info')
@@ -224,61 +497,73 @@ async function ensureAdmin(openid) {
 }
 
 exports.main = async (event) => {
-  const wxContext = cloud.getWXContext();
-  const openid = wxContext.OPENID;
-  const activityId = safeString(event.activityId);
-  const filters = event.filters || {};
+  try {
+    const wxContext = cloud.getWXContext();
+    const openid = wxContext.OPENID;
+    const activityId = safeString(event.activityId);
+    const filters = event.filters || {};
+    const offset = Math.max(0, Math.floor(toNumber(event.offset, 0)));
 
-  if (!activityId) {
+    if (!activityId) {
+      return {
+        status: 'invalid_params',
+        message: '请先选择评分活动'
+      };
+    }
+
+    const admin = await ensureAdmin(openid);
+    if (!admin) {
+      return {
+        status: 'forbidden',
+        message: '没有管理权限'
+      };
+    }
+
+    const cachedPayload = await readTaskCache(activityId, offset, filters);
+    if (cachedPayload) {
+      return buildTaskResponseFromPayload(cachedPayload, filters, offset);
+    }
+
+    const [activityRes, membersRaw, rulesRaw, records] = await Promise.all([
+      db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null })),
+      getAllRecords(db.collection('hr_info')),
+      getAllRecords(db.collection('rate_target_rules').where({ activityId })),
+      getAllRecords(db.collection('score_records').where({ activityId }))
+    ]);
+
+    if (!activityRes.data) {
+      return {
+        status: 'activity_not_found',
+        message: '未找到对应的评分活动'
+      };
+    }
+
+    const members = membersRaw.map((item) => normalizeMember(item));
+    const rules = rulesRaw.map((item) => ({
+      _id: item._id,
+      scorerKey: safeString(item.scorerKey),
+      clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause)) : []
+    }));
+    const allRows = buildTaskRows(members, rules, records);
+    const fullPayload = {
+      activityName: safeString(activityRes.data.name),
+      stats: {
+        totalPendingScorers: allRows.length
+      },
+      filterOptions: {
+        departments: Array.from(new Set(allRows.map((item) => item.department).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+        identities: Array.from(new Set(allRows.map((item) => item.identity).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+        workGroups: Array.from(new Set(allRows.map((item) => item.workGroup || DEFAULT_WORK_GROUP).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+      },
+      scorers: allRows
+    };
+
+    await writeTaskCache(activityId, fullPayload).catch(() => null);
+    return buildTaskResponseFromPayload(fullPayload, filters, offset);
+  } catch (error) {
     return {
-      status: 'invalid_params',
-      message: '请先选择评分活动'
+      status: 'error',
+      message: safeString(error && (error.message || error.errMsg)) || '获取未完成评分任务失败'
     };
   }
-
-  const admin = await ensureAdmin(openid);
-  if (!admin) {
-    return {
-      status: 'forbidden',
-      message: '没有管理权限'
-    };
-  }
-
-  const [activityRes, hrRes, ruleRes, recordRes] = await Promise.all([
-    db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null })),
-    db.collection('hr_info').limit(1000).get(),
-    db.collection('rate_target_rules').where({ activityId }).limit(1000).get(),
-    db.collection('score_records').where({ activityId }).limit(1000).get()
-  ]);
-
-  if (!activityRes.data) {
-    return {
-      status: 'activity_not_found',
-      message: '未找到对应的评分活动'
-    };
-  }
-
-  const members = (hrRes.data || []).map((item) => normalizeMember(item));
-  const rules = (ruleRes.data || []).map((item) => ({
-    _id: item._id,
-    scorerKey: safeString(item.scorerKey),
-    clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause)) : []
-  }));
-  const records = recordRes.data || [];
-  const allRows = buildTaskRows(members, rules, records);
-  const filteredRows = applyFilters(allRows, filters);
-
-  return {
-    status: 'success',
-    activityName: safeString(activityRes.data.name),
-    stats: {
-      totalPendingScorers: filteredRows.length
-    },
-    filterOptions: {
-      departments: Array.from(new Set(allRows.map((item) => item.department).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
-      identities: Array.from(new Set(allRows.map((item) => item.identity).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
-      workGroups: Array.from(new Set(allRows.map((item) => item.workGroup || DEFAULT_WORK_GROUP).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN'))
-    },
-    scorers: filteredRows
-  };
 };

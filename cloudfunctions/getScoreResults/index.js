@@ -5,6 +5,10 @@ cloud.init({
 });
 
 const db = cloud.database();
+const PAGE_SIZE = 100;
+const SCORE_CACHE_META = 'score_results_cache_meta';
+const SCORE_CACHE_CHUNKS = 'score_results_cache_chunks';
+const CACHE_CHUNK_SAFE_LIMIT = 650 * 1024;
 
 const FIELD_NAME = '姓名';
 const FIELD_STUDENT_ID = '学号';
@@ -15,6 +19,29 @@ const DEFAULT_WORK_GROUP = '未分组';
 
 function safeString(value) {
   return String(value == null ? '' : value).trim();
+}
+
+async function getAllRecords(query) {
+  const list = [];
+  let skip = 0;
+
+  while (true) {
+    const res = await query.skip(skip).limit(PAGE_SIZE).get().catch((error) => {
+      const message = safeString(error && (error.message || error.errMsg));
+      if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
+        return { data: [] };
+      }
+      throw error;
+    });
+    const batch = res.data || [];
+    list.push(...batch);
+    if (batch.length < PAGE_SIZE) {
+      break;
+    }
+    skip += batch.length;
+  }
+
+  return list;
 }
 
 function toNumber(value, fallback = 0) {
@@ -398,7 +425,13 @@ function applyFiltersToRows(payload, filters = {}) {
   const department = safeString(filters.department);
   const identity = safeString(filters.identity);
   const workGroup = safeString(filters.workGroup);
-  const isAll = (value) => !value || value === '全部';
+  const isAll = (value) => !value
+    || value === '全部'
+    || value === '全部部门'
+    || value === '全部身份'
+    || value === '全部工作分工'
+    || value === '全部工作分工（职能组）'
+    || value === '鍏ㄩ儴';
 
   const matches = (row) => {
     if (!isAll(department) && safeString(row.department) !== department) {
@@ -420,25 +453,314 @@ function applyFiltersToRows(payload, filters = {}) {
   const scorerCompletionRows = (payload.scorerCompletionRows || []).filter(matches);
 
   return {
-    ...payload,
     overviewRows,
     calculationRows,
     detailRows,
     recordRows,
-    scorerCompletionRows,
+    scorerCompletionRows
+  };
+}
+
+const RESPONSE_SAFE_LIMIT = 850 * 1024; // 留余量，别卡 1MB 极限
+
+function estimateBytes(payload) {
+  return Buffer.byteLength(JSON.stringify(payload), 'utf8');
+}
+
+function sliceRowsBySize(rows, offset, basePayload, rowFieldName) {
+  const start = Math.max(0, Math.floor(toNumber(offset, 0)));
+  const selected = [];
+
+  for (let i = start; i < rows.length; i += 1) {
+    selected.push(rows[i]);
+
+    const testPayload = {
+      ...basePayload,
+      [rowFieldName]: selected
+    };
+
+    if (estimateBytes(testPayload) > RESPONSE_SAFE_LIMIT) {
+      selected.pop();
+      return {
+        rows: selected,
+        nextOffset: i,
+        hasMore: true,
+        total: rows.length
+      };
+    }
+  }
+
+  return {
+    rows: selected,
+    nextOffset: rows.length,
+    hasMore: false,
+    total: rows.length
+  };
+}
+
+function getRowFieldName(dataType) {
+  if (dataType === 'calculation') {
+    return 'calculationRows';
+  }
+  if (dataType === 'detail') {
+    return 'detailRows';
+  }
+  if (dataType === 'records' || dataType === 'record') {
+    return 'recordRows';
+  }
+  if (dataType === 'completion') {
+    return 'scorerCompletionRows';
+  }
+  return 'overviewRows';
+}
+
+function buildRowChunks(rows) {
+  const chunks = [];
+  let current = [];
+
+  rows.forEach((row) => {
+    current.push(row);
+    if (estimateBytes({ rows: current }) > CACHE_CHUNK_SAFE_LIMIT && current.length > 1) {
+      const overflow = current.pop();
+      chunks.push(current);
+      current = [overflow];
+    }
+  });
+
+  if (current.length) {
+    chunks.push(current);
+  }
+
+  return chunks.length ? chunks : [[]];
+}
+
+function buildChunkMeta(chunks) {
+  let rowStart = 0;
+  return chunks.map((rows, chunkIndex) => {
+    const rowCount = rows.length;
+    const meta = {
+      chunkIndex,
+      rowStart,
+      rowCount
+    };
+    rowStart += rowCount;
+    return meta;
+  });
+}
+
+function isUnfiltered(filters = {}) {
+  const isAll = (value) => !value
+    || value === '全部'
+    || value === '全部部门'
+    || value === '全部身份'
+    || value === '全部工作分工'
+    || value === '全部工作分工（职能组）';
+  return isAll(safeString(filters.department))
+    && isAll(safeString(filters.identity))
+    && isAll(safeString(filters.workGroup));
+}
+
+async function removeQueryRecords(collectionName, where) {
+  while (true) {
+    const res = await db.collection(collectionName).where(where).limit(100).get().catch((error) => {
+      const message = safeString(error && (error.message || error.errMsg));
+      if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
+        return { data: [] };
+      }
+      throw error;
+    });
+    const rows = res.data || [];
+    if (!rows.length) {
+      break;
+    }
+    await Promise.all(rows.map((item) => db.collection(collectionName).doc(item._id).remove()));
+    if (rows.length < 100) {
+      break;
+    }
+  }
+}
+
+async function upsertByActivity(collectionName, activityId, data) {
+  const res = await db.collection(collectionName).where({ activityId }).limit(1).get().catch((error) => {
+    const message = safeString(error && (error.message || error.errMsg));
+    if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
+      return { data: [] };
+    }
+    throw error;
+  });
+  if (res.data && res.data.length) {
+    await db.collection(collectionName).doc(res.data[0]._id).update({ data });
+    return res.data[0]._id;
+  }
+  const addRes = await db.collection(collectionName).add({
+    data: {
+      activityId,
+      ...data
+    }
+  });
+  return addRes._id;
+}
+
+async function writeScoreCache(activityId, payload) {
+  await removeQueryRecords(SCORE_CACHE_CHUNKS, { activityId });
+
+  const dataTypes = [
+    { dataType: 'overview', rows: payload.overviewRows || [] },
+    { dataType: 'calculation', rows: payload.calculationRows || [] },
+    { dataType: 'detail', rows: payload.detailRows || [] },
+    { dataType: 'records', rows: payload.recordRows || [] },
+    { dataType: 'completion', rows: payload.scorerCompletionRows || [] }
+  ];
+  const chunkMap = {};
+
+  for (const item of dataTypes) {
+    const chunks = buildRowChunks(item.rows);
+    chunkMap[item.dataType] = buildChunkMeta(chunks);
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+      await db.collection(SCORE_CACHE_CHUNKS).add({
+        data: {
+          activityId,
+          dataType: item.dataType,
+          chunkIndex,
+          rows: chunks[chunkIndex],
+          updatedAt: db.serverDate()
+        }
+      });
+    }
+  }
+
+  await upsertByActivity(SCORE_CACHE_META, activityId, {
+    activity: payload.activity,
+    stats: payload.stats,
+    filterOptions: payload.filterOptions,
+    chunkMap,
+    totals: {
+      overview: (payload.overviewRows || []).length,
+      calculation: (payload.calculationRows || []).length,
+      detail: (payload.detailRows || []).length,
+      records: (payload.recordRows || []).length,
+      completion: (payload.scorerCompletionRows || []).length
+    },
+    isInvalid: false,
+    updatedAt: db.serverDate()
+  });
+}
+
+async function readScoreCache(activityId, dataType, offset, filters) {
+  const metaRes = await db.collection(SCORE_CACHE_META)
+    .where({ activityId, isInvalid: false })
+    .limit(1)
+    .get()
+    .catch(() => ({ data: [] }));
+
+  if (!metaRes.data || !metaRes.data.length) {
+    return null;
+  }
+
+  const meta = metaRes.data[0];
+  const rowFieldName = getRowFieldName(dataType);
+  const chunkMetaList = meta.chunkMap && Array.isArray(meta.chunkMap[dataType])
+    ? meta.chunkMap[dataType]
+    : [];
+  let chunks = [];
+  let cacheRowStart = 0;
+  const cacheTotal = meta.totals && meta.totals[dataType] != null
+    ? toNumber(meta.totals[dataType], 0)
+    : 0;
+
+  if (isUnfiltered(filters) && chunkMetaList.length) {
+    const targetChunkMeta = chunkMetaList.find((item) => (
+      offset >= toNumber(item.rowStart, 0)
+      && offset < toNumber(item.rowStart, 0) + toNumber(item.rowCount, 0)
+    )) || chunkMetaList[chunkMetaList.length - 1];
+    cacheRowStart = toNumber(targetChunkMeta.rowStart, 0);
+    const chunkRes = await db.collection(SCORE_CACHE_CHUNKS)
+      .where({ activityId, dataType, chunkIndex: toNumber(targetChunkMeta.chunkIndex, 0) })
+      .limit(1)
+      .get()
+      .catch(() => ({ data: [] }));
+    chunks = chunkRes.data || [];
+  } else {
+    chunks = await getAllRecords(db.collection(SCORE_CACHE_CHUNKS).where({ activityId, dataType }));
+  }
+
+  if (!chunks.length) {
+    return null;
+  }
+  chunks.sort((a, b) => toNumber(a.chunkIndex, 0) - toNumber(b.chunkIndex, 0));
+
+  return {
+    status: 'success',
+    activity: meta.activity || {},
+    stats: meta.stats || {},
+    filterOptions: meta.filterOptions || {},
+    _cacheRowStart: cacheRowStart,
+    _cacheTotal: cacheTotal,
+    _cachePartial: isUnfiltered(filters) && chunkMetaList.length,
+    overviewRows: [],
+    calculationRows: [],
+    detailRows: [],
+    recordRows: [],
+    scorerCompletionRows: [],
+    [rowFieldName]: chunks.flatMap((item) => Array.isArray(item.rows) ? item.rows : [])
+  };
+}
+
+function buildScoreResponseFromPayload(payload, filters, dataType, offset) {
+  const normalizedDataType = dataType === 'record' ? 'records' : (dataType || 'overview');
+  const rowFieldName = getRowFieldName(normalizedDataType);
+  const filteredData = applyFiltersToRows(payload, filters);
+  const sourceRows = filteredData[rowFieldName] || [];
+  const cachePartial = payload._cachePartial === true;
+  const cacheRowStart = cachePartial ? toNumber(payload._cacheRowStart, 0) : 0;
+  const cacheTotal = cachePartial ? toNumber(payload._cacheTotal, sourceRows.length) : sourceRows.length;
+  const sliceOffset = cachePartial ? Math.max(0, offset - cacheRowStart) : offset;
+
+  const basePayload = {
+    status: 'success',
+    activity: payload.activity || {},
+    overviewRows: [],
+    calculationRows: [],
+    detailRows: [],
+    recordRows: [],
+    scorerCompletionRows: [],
+    scorerTaskRows: [],
     completionBoards: {
-      departments: buildCompletionBoard(scorerCompletionRows, 'department'),
+      departments: [],
       identities: [],
       workGroups: []
     },
-    stats: {
-      totalMembers: overviewRows.length,
-      scoredMembers: overviewRows.filter((item) => Number(item.finalScore || 0) > 0).length,
-      recordCount: recordRows.length,
-      calculationItemCount: calculationRows.length,
-      completedMembers: scorerCompletionRows.filter((item) => Number(item.pendingCount || 0) === 0).length
+    stats: payload.stats || {},
+    filterOptions: payload.filterOptions || {},
+    pagination: {
+      offset,
+      nextOffset: offset,
+      total: 0,
+      hasMore: false,
+      returnedCount: 0
     }
   };
+
+  const pageResult = sliceRowsBySize(sourceRows, sliceOffset, basePayload, rowFieldName);
+  basePayload[rowFieldName] = pageResult.rows;
+
+  if (normalizedDataType === 'completion') {
+    basePayload.completionBoards = {
+      departments: buildCompletionBoard(pageResult.rows, 'department'),
+      identities: buildCompletionBoard(pageResult.rows, 'identity'),
+      workGroups: buildCompletionBoard(pageResult.rows, 'workGroup')
+    };
+  }
+
+  basePayload.pagination = {
+    offset,
+    nextOffset: cachePartial ? cacheRowStart + pageResult.nextOffset : pageResult.nextOffset,
+    total: cacheTotal,
+    hasMore: cachePartial ? (cacheRowStart + pageResult.nextOffset < cacheTotal) : pageResult.hasMore,
+    returnedCount: pageResult.rows.length
+  };
+
+  return basePayload;
 }
 
 async function ensureAdmin(openid) {
@@ -450,295 +772,313 @@ async function ensureAdmin(openid) {
 }
 
 exports.main = async (event) => {
-  const wxContext = cloud.getWXContext();
-  const openid = wxContext.OPENID;
-  const activityId = safeString(event.activityId);
-  const filters = event.filters || {};
+  try {
+    const wxContext = cloud.getWXContext();
+    const openid = wxContext.OPENID;
+    const activityId = safeString(event.activityId);
+    const filters = event.filters || {};
+    const page = Math.max(1, Math.floor(toNumber(event.page, 1)));
+    const offset = Math.max(0, Math.floor(toNumber(event.offset, 0)));
+    const dataType = safeString(event.dataType) || 'overview';
 
-  if (!activityId) {
-    return {
-      status: 'invalid_params',
-      message: '请先选择评分活动'
-    };
-  }
-
-  const admin = await ensureAdmin(openid);
-  if (!admin) {
-    return {
-      status: 'forbidden',
-      message: '没有管理权限'
-    };
-  }
-
-  const [activityRes, hrRes, ruleRes, recordRes] = await Promise.all([
-    db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null })),
-    db.collection('hr_info').limit(1000).get(),
-    db.collection('rate_target_rules').where({ activityId }).limit(1000).get(),
-    db.collection('score_records').where({ activityId }).limit(1000).get()
-  ]);
-
-  if (!activityRes.data) {
-    return {
-      status: 'activity_not_found',
-      message: '未找到对应的评分活动'
-    };
-  }
-
-  const members = (hrRes.data || []).map((item) => normalizeMember(item));
-  const hrMap = new Map(members.map((item) => [item.id, item]));
-  const rules = (ruleRes.data || []).map((item) => ({
-    ...item,
-    scorerKey: safeString(item.scorerKey),
-    scorerDepartment: safeString(item.scorerDepartment),
-    scorerIdentity: safeString(item.scorerIdentity),
-    clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause)) : []
-  }));
-  const records = recordRes.data || [];
-  const ruleById = new Map(rules.map((item) => [safeString(item._id), item]));
-
-  const taskData = buildTaskData(members, rules, records);
-  const resolveScorerKey = createScorerKeyResolver(members);
-  const scorerTaskRowMap = new Map((taskData.scorerTaskRows || []).map((item) => [item.scorerKey, item]));
-  const scorerCompletionRows = members.map((member) => {
-    const scorerKey = getScorerUniqueKey(member);
-    const taskRow = scorerTaskRowMap.get(scorerKey) || {};
-    const expectedCount = toNumber(taskRow.expectedCount, 0);
-    const submittedCount = toNumber(taskRow.submittedCount, 0);
-    const pendingCount = Math.max(expectedCount - submittedCount, 0);
-  
-    return {
-      scorerKey,
-      scorerId: member.id,
-      scorerName: member.name,
-      scorerStudentId: member.studentId,
-      department: member.department,
-      identity: member.identity,
-      workGroup: member.workGroup || DEFAULT_WORK_GROUP,
-      expectedCount,
-      submittedCount,
-      pendingCount,
-      completionRate: expectedCount
-        ? Number(((submittedCount / expectedCount) * 100).toFixed(2))
-        : 100
-    };
-  });
-  const invalidRuleScorerPairs = new Set();
-  taskData.invalidScorerClauseKeys.forEach((key) => {
-    const parts = key.split('::');
-    const ruleId = parts[0];
-    const scorerKey = parts.slice(2).join('::');
-    invalidRuleScorerPairs.add(`${ruleId}::${scorerKey}`);
-  });
-
-  const calculationMap = new Map();
-  const memberScoreMap = new Map();
-  const detailRows = [];
-  const recordRows = [];
-  const targetSubmittedScorerKeyMap = new Map();
-
-  records.forEach((record) => {
-    const targetBase = buildTargetBase(record, hrMap);
-    if (!targetBase.targetId) {
-      return;
+    if (!activityId) {
+      return {
+        status: 'invalid_params',
+        message: '请先选择评分活动'
+      };
     }
 
-    const rule = ruleById.get(safeString(record.ruleId)) || {};
-    const scorerDepartment = safeString(rule.scorerDepartment);
-    const scorerIdentity = safeString(rule.scorerIdentity || record.scorerIdentity);
-    const scorerCategoryKey = `${scorerDepartment}::${scorerIdentity}`;
-    const scorerCategoryLabel = [scorerDepartment, scorerIdentity].filter(Boolean).join(' / ') || '未匹配评分人类别';
-    const templateScores = Array.isArray(record.templateScores) ? record.templateScores : [];
-    const templateSummary = templateScores
-      .map((item) => `${safeString(item.templateName)} × ${toNumber(item.weight, 0)}`)
-      .filter(Boolean)
-      .join('；');
-    const scorerKey = resolveScorerKey(record);
-    const excludedByRequireAll = invalidRuleScorerPairs.has(`${safeString(record.ruleId)}::${scorerKey}`);
-
-    if (!excludedByRequireAll && scorerKey) {
-      if (!targetSubmittedScorerKeyMap.has(targetBase.targetId)) {
-        targetSubmittedScorerKeyMap.set(targetBase.targetId, new Set());
-      }
-      targetSubmittedScorerKeyMap.get(targetBase.targetId).add(scorerKey);
+    const admin = await ensureAdmin(openid);
+    if (!admin) {
+      return {
+        status: 'forbidden',
+        message: '没有管理权限'
+      };
     }
 
-    recordRows.push({
-      recordId: safeString(record._id),
-      activityId,
-      activityName: safeString(activityRes.data.name),
-      scorerId: safeString(record.scorerId),
-      scorerName: safeString(record.scorerName),
-      scorerStudentId: safeString(record.scorerStudentId),
-      scorerDepartment,
-      scorerIdentity,
-      scorerCategoryLabel,
-      targetId: targetBase.targetId,
-      name: targetBase.name,
-      studentId: targetBase.studentId,
-      department: targetBase.department,
-      identity: targetBase.identity,
-      workGroup: targetBase.workGroup || DEFAULT_WORK_GROUP,
-      templateSummary,
-      rawTotalScore: toNumber(record.rawTotalScore, 0),
-      weightedTotalScore: roundScore(record.weightedTotalScore),
-      submittedAt: formatDate(record.submittedAt),
-      excludedByRequireAll
+    const normalizedDataType = dataType === 'record' ? 'records' : dataType;
+    const cachedPayload = await readScoreCache(activityId, normalizedDataType, offset, filters);
+    if (cachedPayload) {
+      return buildScoreResponseFromPayload(cachedPayload, filters, normalizedDataType, offset);
+    }
+
+    const [activityRes, membersRaw, rulesRaw, records] = await Promise.all([
+      db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null })),
+      getAllRecords(db.collection('hr_info')),
+      getAllRecords(db.collection('rate_target_rules').where({ activityId })),
+      getAllRecords(db.collection('score_records').where({ activityId }))
+    ]);
+
+    if (!activityRes.data) {
+      return {
+        status: 'activity_not_found',
+        message: '未找到对应的评分活动'
+      };
+    }
+
+    const members = membersRaw.map((item) => normalizeMember(item));
+    const hrMap = new Map(members.map((item) => [item.id, item]));
+    const rules = rulesRaw.map((item) => ({
+      ...item,
+      scorerKey: safeString(item.scorerKey),
+      scorerDepartment: safeString(item.scorerDepartment),
+      scorerIdentity: safeString(item.scorerIdentity),
+      clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause)) : []
+    }));
+    const ruleById = new Map(rules.map((item) => [safeString(item._id), item]));
+
+    const taskData = buildTaskData(members, rules, records);
+    const resolveScorerKey = createScorerKeyResolver(members);
+    const scorerTaskRowMap = new Map((taskData.scorerTaskRows || []).map((item) => [item.scorerKey, item]));
+    const scorerCompletionRows = members.map((member) => {
+      const scorerKey = getScorerUniqueKey(member);
+      const taskRow = scorerTaskRowMap.get(scorerKey) || {};
+      const expectedCount = toNumber(taskRow.expectedCount, 0);
+      const submittedCount = toNumber(taskRow.submittedCount, 0);
+      const pendingCount = Math.max(expectedCount - submittedCount, 0);
+    
+      return {
+        scorerKey,
+        scorerId: member.id,
+        scorerName: member.name,
+        scorerStudentId: member.studentId,
+        department: member.department,
+        identity: member.identity,
+        workGroup: member.workGroup || DEFAULT_WORK_GROUP,
+        expectedCount,
+        submittedCount,
+        pendingCount,
+        completionRate: expectedCount
+          ? Number(((submittedCount / expectedCount) * 100).toFixed(2))
+          : 100
+      };
+    });
+    const invalidRuleScorerPairs = new Set();
+    taskData.invalidScorerClauseKeys.forEach((key) => {
+      const parts = key.split('::');
+      const ruleId = parts[0];
+      const scorerKey = parts.slice(2).join('::');
+      invalidRuleScorerPairs.add(`${ruleId}::${scorerKey}`);
     });
 
-    templateScores.forEach((templateItem) => {
-      const templateId = safeString(templateItem.templateId);
-      const templateName = safeString(templateItem.templateName);
-      const weight = toNumber(templateItem.weight, 0);
-      const templateScore = toNumber(templateItem.score, 0);
-      const weightedScore = roundScore(toNumber(templateItem.weightedScore, templateScore * weight));
-      const groupKey = [targetBase.targetId, scorerCategoryKey, templateId].join('||');
+    const calculationMap = new Map();
+    const memberScoreMap = new Map();
+    const detailRows = [];
+    const recordRows = [];
+    const targetSubmittedScorerKeyMap = new Map();
 
-      if (!calculationMap.has(groupKey)) {
-        calculationMap.set(groupKey, {
-          targetId: targetBase.targetId,
-          name: targetBase.name,
-          studentId: targetBase.studentId,
-          department: targetBase.department,
-          identity: targetBase.identity,
-          workGroup: targetBase.workGroup || DEFAULT_WORK_GROUP,
-          scorerDepartment,
-          scorerIdentity,
-          scorerCategoryKey,
-          scorerCategoryLabel,
-          templateId,
-          templateName,
-          weight,
-          recordCount: 0,
-          sumScore: 0
-        });
+    records.forEach((record) => {
+      const targetBase = buildTargetBase(record, hrMap);
+      if (!targetBase.targetId) {
+        return;
       }
 
-      if (!excludedByRequireAll) {
-        const bucket = calculationMap.get(groupKey);
-        bucket.recordCount += 1;
-        bucket.sumScore += templateScore;
+      const rule = ruleById.get(safeString(record.ruleId)) || {};
+      const scorerDepartment = safeString(rule.scorerDepartment);
+      const scorerIdentity = safeString(rule.scorerIdentity || record.scorerIdentity);
+      const scorerCategoryKey = `${scorerDepartment}::${scorerIdentity}`;
+      const scorerCategoryLabel = [scorerDepartment, scorerIdentity].filter(Boolean).join(' / ') || '未匹配评分人类别';
+      const templateScores = Array.isArray(record.templateScores) ? record.templateScores : [];
+      const templateSummary = templateScores
+        .map((item) => `${safeString(item.templateName)} × ${toNumber(item.weight, 0)}`)
+        .filter(Boolean)
+        .join('；');
+      const scorerKey = resolveScorerKey(record);
+      const excludedByRequireAll = invalidRuleScorerPairs.has(`${safeString(record.ruleId)}::${scorerKey}`);
+
+      if (!excludedByRequireAll && scorerKey) {
+        if (!targetSubmittedScorerKeyMap.has(targetBase.targetId)) {
+          targetSubmittedScorerKeyMap.set(targetBase.targetId, new Set());
+        }
+        targetSubmittedScorerKeyMap.get(targetBase.targetId).add(scorerKey);
       }
 
-      detailRows.push({
-        ...targetBase,
+      recordRows.push({
+        recordId: safeString(record._id),
+        activityId,
+        activityName: safeString(activityRes.data.name),
         scorerId: safeString(record.scorerId),
         scorerName: safeString(record.scorerName),
         scorerStudentId: safeString(record.scorerStudentId),
         scorerDepartment,
         scorerIdentity,
         scorerCategoryLabel,
-        ruleId: safeString(record.ruleId),
-        recordId: safeString(record._id),
-        templateId,
-        templateName,
-        weight,
-        templateScore,
-        weightedScore,
-        finalRecordScore: roundScore(record.weightedTotalScore),
+        targetId: targetBase.targetId,
+        name: targetBase.name,
+        studentId: targetBase.studentId,
+        department: targetBase.department,
+        identity: targetBase.identity,
+        workGroup: targetBase.workGroup || DEFAULT_WORK_GROUP,
+        templateSummary,
+        rawTotalScore: toNumber(record.rawTotalScore, 0),
+        weightedTotalScore: roundScore(record.weightedTotalScore),
         submittedAt: formatDate(record.submittedAt),
         excludedByRequireAll
       });
+
+      templateScores.forEach((templateItem) => {
+        const templateId = safeString(templateItem.templateId);
+        const templateName = safeString(templateItem.templateName);
+        const weight = toNumber(templateItem.weight, 0);
+        const templateScore = toNumber(templateItem.score, 0);
+        const weightedScore = roundScore(toNumber(templateItem.weightedScore, templateScore * weight));
+        const groupKey = [targetBase.targetId, scorerCategoryKey, templateId].join('||');
+
+        if (!calculationMap.has(groupKey)) {
+          calculationMap.set(groupKey, {
+            targetId: targetBase.targetId,
+            name: targetBase.name,
+            studentId: targetBase.studentId,
+            department: targetBase.department,
+            identity: targetBase.identity,
+            workGroup: targetBase.workGroup || DEFAULT_WORK_GROUP,
+            scorerDepartment,
+            scorerIdentity,
+            scorerCategoryKey,
+            scorerCategoryLabel,
+            templateId,
+            templateName,
+            weight,
+            recordCount: 0,
+            sumScore: 0
+          });
+        }
+
+        if (!excludedByRequireAll) {
+          const bucket = calculationMap.get(groupKey);
+          bucket.recordCount += 1;
+          bucket.sumScore += templateScore;
+        }
+
+        detailRows.push({
+          ...targetBase,
+          scorerId: safeString(record.scorerId),
+          scorerName: safeString(record.scorerName),
+          scorerStudentId: safeString(record.scorerStudentId),
+          scorerDepartment,
+          scorerIdentity,
+          scorerCategoryLabel,
+          ruleId: safeString(record.ruleId),
+          recordId: safeString(record._id),
+          templateId,
+          templateName,
+          weight,
+          templateScore,
+          weightedScore,
+          finalRecordScore: roundScore(record.weightedTotalScore),
+          submittedAt: formatDate(record.submittedAt),
+          excludedByRequireAll
+        });
+      });
     });
-  });
 
-  const calculationRows = Array.from(calculationMap.values())
-    .filter((item) => item.recordCount > 0)
-    .map((item) => {
-      const averageScore = item.recordCount ? item.sumScore / item.recordCount : 0;
-      const contributionScore = averageScore * item.weight;
-      const scoreStat = memberScoreMap.get(item.targetId) || {
-        finalScore: 0,
-        scoredRecordCount: 0,
-        scoredTemplateCount: 0
+    const calculationRows = Array.from(calculationMap.values())
+      .filter((item) => item.recordCount > 0)
+      .map((item) => {
+        const averageScore = item.recordCount ? item.sumScore / item.recordCount : 0;
+        const contributionScore = averageScore * item.weight;
+        const scoreStat = memberScoreMap.get(item.targetId) || {
+          finalScore: 0,
+          scoredRecordCount: 0,
+          scoredTemplateCount: 0
+        };
+        scoreStat.finalScore += contributionScore;
+        scoreStat.scoredRecordCount += item.recordCount;
+        scoreStat.scoredTemplateCount += 1;
+        memberScoreMap.set(item.targetId, scoreStat);
+
+        return {
+          targetId: item.targetId,
+          name: item.name,
+          studentId: item.studentId,
+          department: item.department,
+          identity: item.identity,
+          workGroup: item.workGroup || DEFAULT_WORK_GROUP,
+          scorerDepartment: item.scorerDepartment,
+          scorerIdentity: item.scorerIdentity,
+          scorerCategoryKey: item.scorerCategoryKey,
+          scorerCategoryLabel: item.scorerCategoryLabel,
+          templateId: item.templateId,
+          templateName: item.templateName,
+          weight: item.weight,
+          recordCount: item.recordCount,
+          averageScore: roundScore(averageScore),
+          contributionScore: roundScore(contributionScore)
+        };
+      });
+
+    const overviewRows = members.map((member) => {
+      const scoreStat = memberScoreMap.get(member.id) || {};
+      const pendingStat = taskData.targetPendingMap.get(member.id) || {
+        expectedScorerKeys: new Set(),
+        submittedScorerKeys: new Set(),
+        pendingScorerNames: []
       };
-      scoreStat.finalScore += contributionScore;
-      scoreStat.scoredRecordCount += item.recordCount;
-      scoreStat.scoredTemplateCount += 1;
-      memberScoreMap.set(item.targetId, scoreStat);
-
+      const submittedByRecords = (targetSubmittedScorerKeyMap.get(member.id) || new Set()).size;
+      const expectedScorerCount = Math.max(pendingStat.expectedScorerKeys.size, submittedByRecords);
+      const submittedScorerCount = submittedByRecords;
+      const pendingScorerCount = Math.max(expectedScorerCount - submittedScorerCount, 0);
       return {
-        targetId: item.targetId,
-        name: item.name,
-        studentId: item.studentId,
-        department: item.department,
-        identity: item.identity,
-        workGroup: item.workGroup || DEFAULT_WORK_GROUP,
-        scorerDepartment: item.scorerDepartment,
-        scorerIdentity: item.scorerIdentity,
-        scorerCategoryKey: item.scorerCategoryKey,
-        scorerCategoryLabel: item.scorerCategoryLabel,
-        templateId: item.templateId,
-        templateName: item.templateName,
-        weight: item.weight,
-        recordCount: item.recordCount,
-        averageScore: roundScore(averageScore),
-        contributionScore: roundScore(contributionScore)
+        id: member.id,
+        name: member.name,
+        studentId: member.studentId,
+        department: member.department,
+        identity: member.identity,
+        workGroup: member.workGroup || DEFAULT_WORK_GROUP,
+        finalScore: roundScore(scoreStat.finalScore),
+        scoredRecordCount: toNumber(scoreStat.scoredRecordCount, 0),
+        scoredTemplateCount: toNumber(scoreStat.scoredTemplateCount, 0),
+        expectedScorerCount,
+        submittedScorerCount,
+        pendingScorerCount,
+        completionRate: expectedScorerCount
+          ? Number(((submittedScorerCount / expectedScorerCount) * 100).toFixed(2))
+          : 0,
+        pendingScorerNames: (pendingStat.pendingScorerNames || []).join('、')
       };
     });
 
-  const overviewRows = members.map((member) => {
-    const scoreStat = memberScoreMap.get(member.id) || {};
-    const pendingStat = taskData.targetPendingMap.get(member.id) || {
-      expectedScorerKeys: new Set(),
-      submittedScorerKeys: new Set(),
-      pendingScorerNames: []
+    const fullPayload = {
+      status: 'success',
+      activity: {
+        id: activityRes.data._id,
+        name: safeString(activityRes.data.name),
+        description: safeString(activityRes.data.description)
+      },
+      overviewRows,
+      calculationRows,
+      detailRows,
+      recordRows,
+      scorerCompletionRows,
+      scorerTaskRows: [],
+      completionBoards: {
+        departments: [],
+        identities: [],
+        workGroups: []
+      },
+    
+      stats: {
+        totalMembers: overviewRows.length,
+        scoredMembers: overviewRows.filter((item) => Number(item.finalScore || 0) > 0).length,
+        recordCount: recordRows.length,
+        calculationItemCount: calculationRows.length,
+        completedMembers: scorerCompletionRows.filter((item) => Number(item.pendingCount || 0) === 0).length
+      },
+    
+      filterOptions: {
+        departments: Array.from(new Set(overviewRows.map((item) => item.department).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+        identities: Array.from(new Set(overviewRows.map((item) => item.identity).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+        workGroups: Array.from(new Set(overviewRows.map((item) => item.workGroup || DEFAULT_WORK_GROUP).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+      }
     };
-    const submittedByRecords = (targetSubmittedScorerKeyMap.get(member.id) || new Set()).size;
-    const expectedScorerCount = Math.max(pendingStat.expectedScorerKeys.size, submittedByRecords);
-    const submittedScorerCount = submittedByRecords;
-    const pendingScorerCount = Math.max(expectedScorerCount - submittedScorerCount, 0);
+
+    await writeScoreCache(activityId, fullPayload).catch(() => null);
+    return buildScoreResponseFromPayload(fullPayload, filters, normalizedDataType, offset);
+    
+  } catch (error) {
     return {
-      id: member.id,
-      name: member.name,
-      studentId: member.studentId,
-      department: member.department,
-      identity: member.identity,
-      workGroup: member.workGroup || DEFAULT_WORK_GROUP,
-      finalScore: roundScore(scoreStat.finalScore),
-      scoredRecordCount: toNumber(scoreStat.scoredRecordCount, 0),
-      scoredTemplateCount: toNumber(scoreStat.scoredTemplateCount, 0),
-      expectedScorerCount,
-      submittedScorerCount,
-      pendingScorerCount,
-      completionRate: expectedScorerCount
-        ? Number(((submittedScorerCount / expectedScorerCount) * 100).toFixed(2))
-        : 0,
-      pendingScorerNames: (pendingStat.pendingScorerNames || []).join('、')
+      status: 'error',
+      message: safeString(error && (error.message || error.errMsg)) || '获取评分结果失败'
     };
-  });
-
-  const payload = {
-    status: 'success',
-    activity: {
-      id: activityRes.data._id,
-      name: safeString(activityRes.data.name),
-      description: safeString(activityRes.data.description)
-    },
-    overviewRows,
-    calculationRows,
-    detailRows,
-    recordRows,
-    completionBoards: {
-      departments: buildCompletionBoard(scorerCompletionRows, 'department'),
-      identities: [],
-      workGroups: []
-    },
-    scorerTaskRows: taskData.scorerTaskRows,
-    scorerCompletionRows,
-    stats: {
-      totalMembers: overviewRows.length,
-      scoredMembers: overviewRows.filter((item) => Number(item.finalScore || 0) > 0).length,
-      recordCount: recordRows.length,
-      calculationItemCount: calculationRows.length,
-      completedMembers: scorerCompletionRows.filter((item) => Number(item.pendingCount || 0) === 0).length
-    },
-    filterOptions: {
-      departments: Array.from(new Set(overviewRows.map((item) => item.department).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
-      identities: Array.from(new Set(overviewRows.map((item) => item.identity).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
-      workGroups: Array.from(new Set(overviewRows.map((item) => item.workGroup || DEFAULT_WORK_GROUP).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN'))
-    }
-  };
-
-  return applyFiltersToRows(payload, filters);
+  }
 };
-

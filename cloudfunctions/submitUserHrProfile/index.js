@@ -16,10 +16,34 @@ function normalizeTemplateField(field = {}) {
     required: field.required === true,
     minLength: field.minLength == null ? null : Number(field.minLength),
     maxLength: field.maxLength == null ? null : Number(field.maxLength),
+    numberRule: String(field.numberRule || 'value_range').trim(),
+    allowDecimal: field.allowDecimal !== false,
+    minDigits: field.minDigits == null ? null : Number(field.minDigits),
+    maxDigits: field.maxDigits == null ? null : Number(field.maxDigits),
     minValue: field.minValue == null ? null : Number(field.minValue),
     maxValue: field.maxValue == null ? null : Number(field.maxValue),
     options: Array.isArray(field.options) ? field.options.map((item) => String(item || '').trim()).filter(Boolean) : []
   };
+}
+
+function isValidDateString(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  const [year, month, day] = value.split('-').map((item) => Number(item));
+  return date.getFullYear() === year
+    && date.getMonth() + 1 === month
+    && date.getDate() === day;
+}
+
+function getNumericLength(value) {
+  return String(value || '').replace(/^[+-]/, '').replace('.', '').length;
 }
 
 function validateFieldValue(field, rawValue) {
@@ -44,15 +68,30 @@ function validateFieldValue(field, rawValue) {
   }
 
   if (field.type === 'number') {
+    if (field.allowDecimal === false && !/^[+-]?\d+$/.test(value)) {
+      return `${field.label}必须是整数`;
+    }
+
     const numberValue = Number(value);
     if (!Number.isFinite(numberValue)) {
       return `${field.label}必须是数字`;
     }
-    if (field.minValue != null && numberValue < field.minValue) {
-      return `${field.label}不能小于 ${field.minValue}`;
-    }
-    if (field.maxValue != null && numberValue > field.maxValue) {
-      return `${field.label}不能大于 ${field.maxValue}`;
+
+    if (field.numberRule === 'length_range') {
+      const numericLength = getNumericLength(value);
+      if (field.minDigits != null && numericLength < field.minDigits) {
+        return `${field.label}长度不能少于 ${field.minDigits}`;
+      }
+      if (field.maxDigits != null && numericLength > field.maxDigits) {
+        return `${field.label}长度不能超过 ${field.maxDigits}`;
+      }
+    } else {
+      if (field.minValue != null && numberValue < field.minValue) {
+        return `${field.label}不能小于 ${field.minValue}`;
+      }
+      if (field.maxValue != null && numberValue > field.maxValue) {
+        return `${field.label}不能大于 ${field.maxValue}`;
+      }
     }
     return '';
   }
@@ -61,6 +100,19 @@ function validateFieldValue(field, rawValue) {
     if (field.options.indexOf(value) === -1) {
       return `${field.label}必须从预设选项中选择`;
     }
+    return '';
+  }
+
+  if (field.type === 'date' && !isValidDateString(value)) {
+    return `${field.label}必须是有效日期`;
+  }
+
+  if (field.type === 'phone' && !/^1[3-9]\d{9}$/.test(value)) {
+    return `${field.label}必须是有效手机号`;
+  }
+
+  if (field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+    return `${field.label}必须是有效邮箱`;
   }
 
   return '';

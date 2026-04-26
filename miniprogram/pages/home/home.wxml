@@ -145,7 +145,7 @@
         <view class="profile-field" wx:for="{{hrProfile.template.fields}}" wx:key="id">
           <view class="profile-field-head">
             <view class="profile-field-title">{{item.label}}<text class="field-required" wx:if="{{item.required}}">*</text></view>
-            <view class="profile-field-type">{{item.type === 'sequence' ? '序列选择' : (item.type === 'number' ? '数字字段' : '文本字段')}}</view>
+            <view class="profile-field-type">{{item.typeLabel}}</view>
           </view>
 
           <picker
@@ -168,6 +168,39 @@
             disabled="{{hrProfile.template.editMode === 'readonly'}}"
           />
 
+          <picker
+            wx:elif="{{item.type === 'date'}}"
+            mode="date"
+            value="{{item.value}}"
+            bindchange="onHrProfileDateChange"
+            data-index="{{index}}"
+            disabled="{{hrProfile.template.editMode === 'readonly'}}"
+          >
+            <view class="picker-value">{{item.value || '请选择日期'}}</view>
+          </picker>
+
+          <input
+            wx:elif="{{item.type === 'phone'}}"
+            class="field-input"
+            type="number"
+            maxlength="11"
+            data-index="{{index}}"
+            bindinput="onHrProfileInput"
+            value="{{item.value}}"
+            placeholder="请输入手机号"
+            disabled="{{hrProfile.template.editMode === 'readonly'}}"
+          />
+
+          <input
+            wx:elif="{{item.type === 'email'}}"
+            class="field-input"
+            data-index="{{index}}"
+            bindinput="onHrProfileInput"
+            value="{{item.value}}"
+            placeholder="请输入邮箱"
+            disabled="{{hrProfile.template.editMode === 'readonly'}}"
+          />
+
           <input
             wx:else
             class="field-input"
@@ -178,18 +211,7 @@
             disabled="{{hrProfile.template.editMode === 'readonly'}}"
           />
 
-          <view class="field-hint" wx:if="{{item.type === 'text' && (item.minLength || item.maxLength)}}">
-            长度限制：
-            <text wx:if="{{item.minLength != null}}">最少 {{item.minLength}}</text>
-            <text wx:if="{{item.minLength != null && item.maxLength != null}}">，</text>
-            <text wx:if="{{item.maxLength != null}}">最多 {{item.maxLength}}</text>
-          </view>
-          <view class="field-hint" wx:if="{{item.type === 'number' && (item.minValue != null || item.maxValue != null)}}">
-            数值范围：
-            <text wx:if="{{item.minValue != null}}">最小 {{item.minValue}}</text>
-            <text wx:if="{{item.minValue != null && item.maxValue != null}}">，</text>
-            <text wx:if="{{item.maxValue != null}}">最大 {{item.maxValue}}</text>
-          </view>
+          <view class="field-hint" wx:if="{{item.hintText}}">{{item.hintText}}</view>
         </view>
 
         <button

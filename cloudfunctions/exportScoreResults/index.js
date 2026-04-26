@@ -5,6 +5,7 @@ cloud.init({
 });
 
 const db = cloud.database();
+const PAGE_SIZE = 100;
 
 const FIELD_NAME = '姓名';
 const FIELD_STUDENT_ID = '学号';
@@ -15,6 +16,23 @@ const DEFAULT_WORK_GROUP = '未分组';
 
 function safeString(value) {
   return String(value == null ? '' : value).trim();
+}
+
+async function getAllRecords(query) {
+  const list = [];
+  let skip = 0;
+
+  while (true) {
+    const res = await query.skip(skip).limit(PAGE_SIZE).get();
+    const batch = res.data || [];
+    list.push(...batch);
+    if (batch.length < PAGE_SIZE) {
+      break;
+    }
+    skip += batch.length;
+  }
+
+  return list;
 }
 
 function toNumber(value, fallback = 0) {
@@ -152,7 +170,13 @@ function applyFiltersToRows(payload, filters = {}) {
   const department = safeString(filters.department);
   const identity = safeString(filters.identity);
   const workGroup = safeString(filters.workGroup);
-  const isAll = (value) => !value || value === '全部';
+  const isAll = (value) => !value
+    || value === '全部'
+    || value === '全部部门'
+    || value === '全部身份'
+    || value === '全部工作分工'
+    || value === '全部工作分工（职能组）'
+    || value === '鍏ㄩ儴';
   const matches = (row) => {
     if (!isAll(department) && safeString(row.department) !== department) {
       return false;
@@ -198,11 +222,11 @@ async function ensureAdmin(openid) {
 }
 
 async function buildScoreResultPayload(activityId) {
-  const [activityRes, hrRes, ruleRes, recordRes] = await Promise.all([
+  const [activityRes, hrListRaw, ruleListRaw, recordList] = await Promise.all([
     db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null })),
-    db.collection('hr_info').limit(1000).get(),
-    db.collection('rate_target_rules').where({ activityId }).limit(1000).get(),
-    db.collection('score_records').where({ activityId }).limit(1000).get()
+    getAllRecords(db.collection('hr_info')),
+    getAllRecords(db.collection('rate_target_rules').where({ activityId })),
+    getAllRecords(db.collection('score_records').where({ activityId }))
   ]);
 
   const activity = activityRes.data;
@@ -213,16 +237,16 @@ async function buildScoreResultPayload(activityId) {
     };
   }
 
-  const hrList = (hrRes.data || []).map((item) => normalizeMember(item));
+  const hrList = hrListRaw.map((item) => normalizeMember(item));
   const hrMap = new Map(hrList.map((item) => [item.id, item]));
-  const rules = (ruleRes.data || []).map((item) => ({
+  const rules = ruleListRaw.map((item) => ({
     ...item,
     scorerKey: safeString(item.scorerKey),
     scorerDepartment: safeString(item.scorerDepartment),
     scorerIdentity: safeString(item.scorerIdentity),
     clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause)) : []
   }));
-  const records = recordRes.data || [];
+  const records = recordList;
 
   const ruleById = new Map(rules.map((item) => [safeString(item._id), item]));
   const scorerMembersByRuleKey = hrList.reduce((map, member) => {

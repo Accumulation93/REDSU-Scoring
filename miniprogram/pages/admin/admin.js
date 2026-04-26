@@ -1,5 +1,5 @@
 ﻿const STORAGE_KEY = 'roleProfiles';
-const TAB_LIST = ['activities', 'templates', 'rules', 'results', 'profile', 'hr', 'admins'];
+const TAB_LIST = ['activities', 'templates', 'rules', 'results', 'profile', 'hr', 'departments', 'workGroups', 'identities', 'admins'];
 const RULE_SCOPE_OPTIONS = [
   { value: 'same_department_identity', label: '同一部门内的指定身份成员' },
   { value: 'same_department_all', label: '同一部门内的所有成员' },
@@ -16,7 +16,14 @@ const PROFILE_EDIT_MODE_OPTIONS = [
 const PROFILE_FIELD_TYPE_OPTIONS = [
   { value: 'text', label: '文本' },
   { value: 'number', label: '数字' },
-  { value: 'sequence', label: '序列' }
+  { value: 'sequence', label: '序列' },
+  { value: 'date', label: '日期' },
+  { value: 'phone', label: '手机号' },
+  { value: 'email', label: '邮箱' }
+];
+const NUMBER_RULE_OPTIONS = [
+  { value: 'value_range', label: '按数值范围' },
+  { value: 'length_range', label: '按长度范围' }
 ];
 
 const RULE_SCOPE_LABEL_MAP = RULE_SCOPE_OPTIONS.reduce((map, item) => {
@@ -106,6 +113,11 @@ function createEmptyProfileField() {
     required: false,
     minLength: '',
     maxLength: '',
+    numberRule: NUMBER_RULE_OPTIONS[0].value,
+    numberRuleLabel: NUMBER_RULE_OPTIONS[0].label,
+    allowDecimal: true,
+    minDigits: '',
+    maxDigits: '',
     minValue: '',
     maxValue: '',
     optionsText: ''
@@ -124,6 +136,8 @@ function emptyHrProfileTemplateForm() {
 function normalizeHrProfileFieldForForm(field = {}) {
   const type = field.type || PROFILE_FIELD_TYPE_OPTIONS[0].value;
   const typeOption = PROFILE_FIELD_TYPE_OPTIONS.find((item) => item.value === type) || PROFILE_FIELD_TYPE_OPTIONS[0];
+  const numberRule = field.numberRule || NUMBER_RULE_OPTIONS[0].value;
+  const numberRuleOption = NUMBER_RULE_OPTIONS.find((item) => item.value === numberRule) || NUMBER_RULE_OPTIONS[0];
   return {
     id: field.id || createEmptyProfileField().id,
     label: field.label || '',
@@ -132,6 +146,11 @@ function normalizeHrProfileFieldForForm(field = {}) {
     required: field.required === true,
     minLength: field.minLength == null ? '' : String(field.minLength),
     maxLength: field.maxLength == null ? '' : String(field.maxLength),
+    numberRule,
+    numberRuleLabel: numberRuleOption.label,
+    allowDecimal: field.allowDecimal !== false,
+    minDigits: field.minDigits == null ? '' : String(field.minDigits),
+    maxDigits: field.maxDigits == null ? '' : String(field.maxDigits),
     minValue: field.minValue == null ? '' : String(field.minValue),
     maxValue: field.maxValue == null ? '' : String(field.maxValue),
     optionsText: Array.isArray(field.options) ? field.options.join('\n') : ''
@@ -145,6 +164,33 @@ function emptyAdminForm() {
     studentId: '',
     adminLevel: 'admin',
     inviteCode: ''
+  };
+}
+
+function emptyDepartmentForm() {
+  return {
+    id: '',
+    name: '',
+    description: ''
+  };
+}
+
+function emptyWorkGroupForm() {
+  return {
+    id: '',
+    name: '',
+    departmentId: '',
+    departmentCode: '',
+    departmentName: '',
+    description: ''
+  };
+}
+
+function emptyIdentityForm() {
+  return {
+    id: '',
+    name: '',
+    description: ''
   };
 }
 
@@ -266,6 +312,109 @@ function buildResultFilterOptions(values = []) {
   return ['全部', ...values.filter(Boolean)];
 }
 
+function showShortToast(title, icon = 'none') {
+  wx.showToast({
+    title,
+    icon
+  });
+}
+
+function getErrorText(error, fallback) {
+  const text = String((error && (error.errMsg || error.message)) || '').trim();
+  return text || fallback;
+}
+
+const HR_PROFILE_STATUS_OPTIONS = ['全部状态', '待审核', '未提交', '已生效', '已驳回'];
+
+function emptyHrProfileFilters() {
+  return {
+    department: '全部部门',
+    identity: '全部身份',
+    workGroup: '全部工作分工',
+    status: '全部状态',
+    keyword: ''
+  };
+}
+
+function emptyHrProfileFilterOptions() {
+  return {
+    departments: ['全部部门'],
+    identities: ['全部身份'],
+    workGroups: ['全部工作分工'],
+    statuses: HR_PROFILE_STATUS_OPTIONS
+  };
+}
+
+function getHrProfileStatusOrder(auditStatus) {
+  if (auditStatus === 'pending') {
+    return 0;
+  }
+  if (auditStatus === 'none') {
+    return 1;
+  }
+  if (auditStatus === 'approved') {
+    return 2;
+  }
+  return 3;
+}
+
+function buildHrProfileFilterOptions(rows = []) {
+  const departments = [];
+  const identities = [];
+  const workGroups = [];
+
+  rows.forEach((item) => {
+    if (item.department) {
+      departments.push(item.department);
+    }
+    if (item.identity) {
+      identities.push(item.identity);
+    }
+    if (item.workGroup) {
+      workGroups.push(item.workGroup);
+    }
+  });
+
+  return {
+    departments: ['全部部门', ...[...new Set(departments)].sort((a, b) => String(a).localeCompare(String(b), 'zh-CN'))],
+    identities: ['全部身份', ...[...new Set(identities)].sort((a, b) => String(a).localeCompare(String(b), 'zh-CN'))],
+    workGroups: ['全部工作分工', ...[...new Set(workGroups)].sort((a, b) => String(a).localeCompare(String(b), 'zh-CN'))],
+    statuses: HR_PROFILE_STATUS_OPTIONS
+  };
+}
+
+function applyHrProfileFilters(rows = [], filters = emptyHrProfileFilters()) {
+  const keyword = String(filters.keyword || '').trim().toLowerCase();
+  return (rows || []).filter((item) => {
+    if (filters.department !== '全部部门' && item.department !== filters.department) {
+      return false;
+    }
+    if (filters.identity !== '全部身份' && item.identity !== filters.identity) {
+      return false;
+    }
+    if (filters.workGroup !== '全部工作分工' && item.workGroup !== filters.workGroup) {
+      return false;
+    }
+    if (filters.status !== '全部状态' && item.auditStatusText !== filters.status) {
+      return false;
+    }
+    if (keyword) {
+      const name = String(item.name || '').trim().toLowerCase();
+      const studentId = String(item.studentId || '').trim().toLowerCase();
+      if (!name.includes(keyword) && !studentId.includes(keyword)) {
+        return false;
+      }
+    }
+    return true;
+  }).sort((a, b) => {
+    const statusDiff = getHrProfileStatusOrder(a.auditStatus) - getHrProfileStatusOrder(b.auditStatus);
+    if (statusDiff !== 0) {
+      return statusDiff;
+    }
+    return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
+  });
+}
+
 function emptyResultFilters() {
   return {
     department: '全部',
@@ -287,6 +436,7 @@ Page({
     scopeOptions: RULE_SCOPE_OPTIONS,
     profileEditModeOptions: PROFILE_EDIT_MODE_OPTIONS,
     profileFieldTypeOptions: PROFILE_FIELD_TYPE_OPTIONS,
+    numberRuleOptions: NUMBER_RULE_OPTIONS,
     adminLevelOptions: ['普通管理员', '超级管理员'],
     adminCandidateKeyword: '',
     adminCandidateList: [],
@@ -322,6 +472,13 @@ Page({
       { value: 'workGroup_asc', label: '按职能组' }
     ],
     resultSortLabel: '按分数从高到低',
+    resultPagination: {
+      overview: { page: 0, pageSize: 0, hasMore: true, total: 0 },
+      calculation: { page: 0, pageSize: 0, hasMore: true, total: 0 },
+      detail: { page: 0, pageSize: 0, hasMore: true, total: 0 },
+      completion: { page: 0, pageSize: 0, hasMore: true, total: 0 },
+      records: { page: 0, pageSize: 0, hasMore: true, total: 0 }
+    },
     scoreResultsRaw: {
       overviewRows: [],
       calculationRows: [],
@@ -351,13 +508,25 @@ Page({
     completionBoardPopupTitle: '',
     completionBoardPopupRows: [],
     hrProfileTemplateForm: emptyHrProfileTemplateForm(),
+    hrProfileFilters: emptyHrProfileFilters(),
+    hrProfileFilterOptions: emptyHrProfileFilterOptions(),
+    hrProfileRawRows: [],
     hrProfileRows: [],
     hrForm: emptyHrForm(),
     hrList: [],
     adminForm: emptyAdminForm(),
     adminList: [],
     latestInviteCode: '',
-    csvName: ''
+    csvName: '',
+    departmentForm: emptyDepartmentForm(),
+    departmentList: [],
+    workGroupForm: emptyWorkGroupForm(),
+    workGroupList: [],
+    identityForm: emptyIdentityForm(),
+    identityList: [],
+    departmentOptions: [],
+    identityOptions: [],
+    workGroupOptions: []
   },
 
   onShow() {
@@ -412,6 +581,10 @@ Page({
     this.loadHrProfileAdminData();
     this.loadHrList();
     this.loadAdminList();
+    await this.loadDepartmentList();
+    await this.loadWorkGroupList();
+    await this.loadIdentityList();
+    this.updateHrFormOptions();
   },
 
   setLoading(key, value) {
@@ -434,6 +607,15 @@ Page({
     }
     if (tab === 'profile') {
       this.loadHrProfileAdminData();
+    }
+    if (tab === 'departments') {
+      this.loadDepartmentList();
+    }
+    if (tab === 'workGroups') {
+      this.loadWorkGroupList();
+    }
+    if (tab === 'identities') {
+      this.loadIdentityList();
     }
   },
 
@@ -603,106 +785,793 @@ Page({
     }
   },
 
-  async loadScoreResults() {
-    if (!this.data.currentActivityId) {
+  async loadDepartmentList() {
+    this.setLoading('departments', true);
+    try {
+      const result = await this.callCloud('listDepartments');
+      if (result.status !== 'success') {
+        throw new Error(result.message || '加载部门列表失败');
+      }
       this.setData({
-        scoreResultsRaw: {
-          overviewRows: [],
-          calculationRows: [],
-          detailRows: [],
-          recordRows: [],
-          scorerCompletionRows: [],
-          completionBoards: {
-            departments: [],
-            identities: [],
-            workGroups: []
-          },
-          stats: {}
-        },
-        scoreResultsView: {
-          overviewRows: [],
-          calculationRows: [],
-          detailRows: [],
-          recordRows: [],
-          scorerCompletionRows: [],
-          completionBoards: {
-            departments: [],
-            identities: [],
-            workGroups: []
-          }
-        },
-        resultFilterOptions: {
-          departments: ['全部'],
-          identities: ['全部'],
-          workGroups: ['全部']
-        },
-        completionBoardPopupVisible: false,
-        completionBoardPopupTitle: '',
-        completionBoardPopupRows: []
+        departmentList: result.departments || []
+      });
+    } catch (error) {
+      console.error('加载部门列表失败:', error);
+      // 不再显示错误提示，因为空数据库是正常情况
+      this.setData({
+        departmentList: []
+      });
+    } finally {
+      this.setLoading('departments', false);
+    }
+  },
+
+  async loadWorkGroupList() {
+    this.setLoading('workGroups', true);
+    try {
+      const result = await this.callCloud('listWorkGroups');
+      if (result.status !== 'success') {
+        throw new Error(result.message || '加载工作分工列表失败');
+      }
+      const workGroups = (result.workGroups || []).map((item) => {
+        const department = this.data.departmentList.find(d => (
+          d.id === item.departmentId || d.code === item.departmentCode
+        ));
+        return {
+          ...item,
+          departmentCode: item.departmentCode || (department ? department.code : ''),
+          departmentName: item.departmentName || (department ? department.name : '')
+        };
+      });
+      this.setData({
+        workGroupList: workGroups
+      });
+    } catch (error) {
+      console.error('加载工作分工列表失败:', error);
+      // 不再显示错误提示，因为空数据库是正常情况
+      this.setData({
+        workGroupList: []
+      });
+    } finally {
+      this.setLoading('workGroups', false);
+    }
+  },
+
+  async loadIdentityList() {
+    this.setLoading('identities', true);
+    try {
+      const result = await this.callCloud('listIdentities');
+      if (result.status !== 'success') {
+        throw new Error(result.message || '加载身份类别列表失败');
+      }
+      this.setData({
+        identityList: result.identities || []
+      });
+    } catch (error) {
+      console.error('加载身份类别列表失败:', error);
+      // 不再显示错误提示，因为空数据库是正常情况
+      this.setData({
+        identityList: []
+      });
+    } finally {
+      this.setLoading('identities', false);
+    }
+  },
+
+  onDepartmentFieldInput(e) {
+    const { field } = e.currentTarget.dataset;
+    const rawValue = e.detail.value;
+    const value = field === 'description' ? rawValue : rawValue.trim();
+    this.setData({
+      departmentForm: {
+        ...this.data.departmentForm,
+        [field]: value
+      }
+    });
+  },
+
+  startCreateDepartment() {
+    this.setData({
+      departmentForm: emptyDepartmentForm(),
+      activeTab: 'departments'
+    });
+  },
+
+  editDepartment(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const item = this.data.departmentList[index];
+    if (!item) {
+      return;
+    }
+
+    this.setData({
+      departmentForm: {
+        id: item.id,
+        name: item.name,
+        description: item.description || ''
+      },
+      activeTab: 'departments'
+    });
+  },
+
+  async saveDepartment() {
+    const form = this.data.departmentForm;
+    if (!form.name) {
+      wx.showToast({
+        title: '请填写部门名称',
+        icon: 'none'
       });
       return;
     }
 
-    this.setLoading('results', true);
+    this.setLoading('saveDepartment', true);
     try {
-      const result = await this.callCloud('getScoreResults', {
-        activityId: this.data.currentActivityId
+      const result = await this.callCloud('saveDepartment', {
+        id: form.id,
+        name: form.name,
+        description: form.description
       });
 
       if (result.status !== 'success') {
         wx.showToast({
-          title: result.message || '加载评分结果失败',
+          title: result.message || '保存部门失败',
           icon: 'none'
         });
         return;
       }
 
-      const filterOptions = {
-        departments: buildResultFilterOptions(result.filterOptions && result.filterOptions.departments || []),
-        identities: buildResultFilterOptions(result.filterOptions && result.filterOptions.identities || []),
-        workGroups: buildResultFilterOptions(result.filterOptions && result.filterOptions.workGroups || [])
-      };
-
-      this.setData({
-        scoreResultsRaw: {
-          overviewRows: result.overviewRows || [],
-          calculationRows: result.calculationRows || [],
-          detailRows: result.detailRows || [],
-          recordRows: result.recordRows || [],
-          scorerCompletionRows: result.scorerCompletionRows || [],
-          completionBoards: result.completionBoards || {
-            departments: [],
-            identities: [],
-            workGroups: []
-          },
-          stats: result.stats || {}
-        },
-        resultFilterOptions: filterOptions,
-        completionBoardPopupVisible: false,
-        completionBoardPopupTitle: '',
-        completionBoardPopupRows: []
+      this.setData({ departmentForm: emptyDepartmentForm() });
+      await this.loadDepartmentList();
+      await this.loadWorkGroupList();
+      this.updateHrFormOptions();
+      wx.showToast({
+        title: '部门信息已保存',
+        icon: 'success'
       });
-      this.applyScoreResultFilters();
     } catch (error) {
       wx.showToast({
-        title: '加载评分结果失败',
+        title: '保存部门失败',
         icon: 'none'
       });
     } finally {
-      this.setLoading('results', false);
+      this.setLoading('saveDepartment', false);
     }
   },
 
+  async deleteDepartment(e) {
+    const { id } = e.currentTarget.dataset;
+    if (!id) {
+      return;
+    }
+
+    const confirm = await new Promise((resolve) => {
+      wx.showModal({
+        title: '删除部门',
+        content: '确认删除这个部门吗？',
+        confirmText: '确认删除',
+        cancelText: '取消',
+        success: (res) => resolve(!!res.confirm),
+        fail: () => resolve(false)
+      });
+    });
+
+    if (!confirm) {
+      return;
+    }
+
+    try {
+      const result = await this.callCloud('deleteDepartment', { id });
+      if (result.status !== 'success') {
+        wx.showToast({
+          title: result.message || '删除部门失败',
+          icon: 'none'
+        });
+        return;
+      }
+
+      await this.loadDepartmentList();
+      await this.loadWorkGroupList();
+      this.updateHrFormOptions();
+      wx.showToast({
+        title: '部门已删除',
+        icon: 'success'
+      });
+    } catch (error) {
+      wx.showToast({
+        title: '删除部门失败',
+        icon: 'none'
+      });
+    }
+  },
+
+  onWorkGroupFieldInput(e) {
+    const { field } = e.currentTarget.dataset;
+    const rawValue = e.detail.value;
+    const value = field === 'description' ? rawValue : rawValue.trim();
+    this.setData({
+      workGroupForm: {
+        ...this.data.workGroupForm,
+        [field]: value
+      }
+    });
+  },
+
+  onWorkGroupDepartmentChange(e) {
+    const index = Number(e.detail.value);
+    const department = this.data.departmentList[index];
+    if (!department) {
+      return;
+    }
+
+    this.setData({
+      workGroupForm: {
+        ...this.data.workGroupForm,
+        departmentId: department.id,
+        departmentCode: department.code,
+        departmentName: department.name
+      }
+    });
+  },
+
+  startCreateWorkGroup() {
+    this.setData({
+      workGroupForm: emptyWorkGroupForm(),
+      activeTab: 'workGroups'
+    });
+  },
+
+  editWorkGroup(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const item = this.data.workGroupList[index];
+    if (!item) {
+      return;
+    }
+
+    this.setData({
+      workGroupForm: {
+        id: item.id,
+        name: item.name,
+        departmentId: item.departmentId,
+        departmentCode: item.departmentCode,
+        departmentName: item.departmentName,
+        description: item.description || ''
+      },
+      activeTab: 'workGroups'
+    });
+  },
+
+  async saveWorkGroup() {
+    const form = this.data.workGroupForm;
+    if (!form.name) {
+      wx.showToast({
+        title: '请填写工作分工名称',
+        icon: 'none'
+      });
+      return;
+    }
+
+    this.setLoading('saveWorkGroup', true);
+    try {
+      const result = await this.callCloud('saveWorkGroup', {
+        id: form.id,
+        name: form.name,
+        departmentId: form.departmentId,
+        departmentCode: form.departmentCode,
+        description: form.description
+      });
+
+      if (result.status !== 'success') {
+        wx.showToast({
+          title: result.message || '保存工作分工失败',
+          icon: 'none'
+        });
+        return;
+      }
+
+      this.setData({ workGroupForm: emptyWorkGroupForm() });
+      await this.loadWorkGroupList();
+      this.updateWorkGroupOptions();
+      wx.showToast({
+        title: '工作分工信息已保存',
+        icon: 'success'
+      });
+    } catch (error) {
+      wx.showToast({
+        title: '保存工作分工失败',
+        icon: 'none'
+      });
+    } finally {
+      this.setLoading('saveWorkGroup', false);
+    }
+  },
+
+  async deleteWorkGroup(e) {
+    const { id } = e.currentTarget.dataset;
+    if (!id) {
+      return;
+    }
+
+    const confirm = await new Promise((resolve) => {
+      wx.showModal({
+        title: '删除工作分工',
+        content: '确认删除这个工作分工吗？',
+        confirmText: '确认删除',
+        cancelText: '取消',
+        success: (res) => resolve(!!res.confirm),
+        fail: () => resolve(false)
+      });
+    });
+
+    if (!confirm) {
+      return;
+    }
+
+    try {
+      const result = await this.callCloud('deleteWorkGroup', { id });
+      if (result.status !== 'success') {
+        wx.showToast({
+          title: result.message || '删除工作分工失败',
+          icon: 'none'
+        });
+        return;
+      }
+
+      await this.loadWorkGroupList();
+      this.updateWorkGroupOptions();
+      wx.showToast({
+        title: '工作分工已删除',
+        icon: 'success'
+      });
+    } catch (error) {
+      wx.showToast({
+        title: '删除工作分工失败',
+        icon: 'none'
+      });
+    }
+  },
+
+  onIdentityFieldInput(e) {
+    const { field } = e.currentTarget.dataset;
+    const rawValue = e.detail.value;
+    const value = field === 'description' ? rawValue : rawValue.trim();
+    this.setData({
+      identityForm: {
+        ...this.data.identityForm,
+        [field]: value
+      }
+    });
+  },
+
+  startCreateIdentity() {
+    this.setData({
+      identityForm: emptyIdentityForm(),
+      activeTab: 'identities'
+    });
+  },
+
+  editIdentity(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const item = this.data.identityList[index];
+    if (!item) {
+      return;
+    }
+
+    this.setData({
+      identityForm: {
+        id: item.id,
+        name: item.name,
+        description: item.description || ''
+      },
+      activeTab: 'identities'
+    });
+  },
+
+  async saveIdentity() {
+    const form = this.data.identityForm;
+    if (!form.name) {
+      wx.showToast({
+        title: '请填写身份类别名称',
+        icon: 'none'
+      });
+      return;
+    }
+
+    this.setLoading('saveIdentity', true);
+    try {
+      const result = await this.callCloud('saveIdentity', {
+        id: form.id,
+        name: form.name,
+        description: form.description
+      });
+
+      if (result.status !== 'success') {
+        wx.showToast({
+          title: result.message || '保存身份类别失败',
+          icon: 'none'
+        });
+        return;
+      }
+
+      this.setData({ identityForm: emptyIdentityForm() });
+      await this.loadIdentityList();
+      wx.showToast({
+        title: '身份类别信息已保存',
+        icon: 'success'
+      });
+    } catch (error) {
+      wx.showToast({
+        title: '保存身份类别失败',
+        icon: 'none'
+      });
+    } finally {
+      this.setLoading('saveIdentity', false);
+    }
+  },
+
+  async deleteIdentity(e) {
+    const { id } = e.currentTarget.dataset;
+    if (!id) {
+      return;
+    }
+
+    const confirm = await new Promise((resolve) => {
+      wx.showModal({
+        title: '删除身份类别',
+        content: '确认删除这个身份类别吗？',
+        confirmText: '确认删除',
+        cancelText: '取消',
+        success: (res) => resolve(!!res.confirm),
+        fail: () => resolve(false)
+      });
+    });
+
+    if (!confirm) {
+      return;
+    }
+
+    try {
+      const result = await this.callCloud('deleteIdentity', { id });
+      if (result.status !== 'success') {
+        wx.showToast({
+          title: result.message || '删除身份类别失败',
+          icon: 'none'
+        });
+        return;
+      }
+
+      await this.loadIdentityList();
+      this.updateHrFormOptions();
+      wx.showToast({
+        title: '身份类别已删除',
+        icon: 'success'
+      });
+    } catch (error) {
+      wx.showToast({
+        title: '删除身份类别失败',
+        icon: 'none'
+      });
+    }
+  },
+
+  updateHrFormOptions() {
+    const departmentOptions = this.data.departmentList.map(item => item.name);
+    const identityOptions = this.data.identityList.map(item => item.name);
+    
+    this.setData({
+      departmentOptions,
+      identityOptions
+    });
+    
+    this.updateWorkGroupOptions();
+  },
+
+  updateWorkGroupOptions() {
+    const { department } = this.data.hrForm;
+    if (!department) {
+      this.setData({ workGroupOptions: [] });
+      return;
+    }
+
+    const departmentObj = this.data.departmentList.find(d => d.name === department);
+    if (!departmentObj) {
+      this.setData({ workGroupOptions: [] });
+      return;
+    }
+
+    const workGroupOptions = this.data.workGroupList
+      .filter(wg => (
+        wg.departmentCode === departmentObj.code || wg.departmentId === departmentObj.id
+      ))
+      .map(wg => wg.name);
+
+    this.setData({ workGroupOptions });
+  },
+
+  onHrDepartmentChange(e) {
+    const index = Number(e.detail.value);
+    const department = this.data.departmentOptions[index];
+    
+    this.setData({
+      hrForm: {
+        ...this.data.hrForm,
+        department,
+        workGroup: ''
+      }
+    });
+    
+    this.updateWorkGroupOptions();
+  },
+
+  onHrIdentityChange(e) {
+    const index = Number(e.detail.value);
+    const identity = this.data.identityOptions[index];
+    
+    this.setData({
+      hrForm: {
+        ...this.data.hrForm,
+        identity
+      }
+    });
+  },
+
+  onHrWorkGroupChange(e) {
+    const index = Number(e.detail.value);
+    const workGroup = this.data.workGroupOptions[index];
+    
+    this.setData({
+      hrForm: {
+        ...this.data.hrForm,
+        workGroup
+      }
+    });
+  },
+
+  async batchMaintainFromHrInfo() {
+    this.setLoading('batchMaintain', true);
+    try {
+      const result = await this.callCloud('batchMaintainFromHrInfo');
+      
+      if (result.status !== 'success') {
+        console.error('批量维护失败:', result.message);
+        wx.showToast({
+          title: result.message || '批量维护失败',
+          icon: 'none'
+        });
+        return;
+      }
+
+      await this.loadDepartmentList();
+      await this.loadWorkGroupList();
+      await this.loadIdentityList();
+      this.updateHrFormOptions();
+      
+      const stats = result.stats || {};
+      const changedCount = ['departmentsCreated', 'departmentsUpdated', 'identitiesCreated', 'identitiesUpdated', 'workGroupsCreated', 'workGroupsUpdated']
+        .reduce((sum, key) => sum + Number(stats[key] || 0), 0);
+      wx.showToast({
+        title: changedCount ? `已同步${changedCount}项` : '组织字典已同步',
+        icon: 'success'
+      });
+    } catch (error) {
+      console.error('批量维护失败:', error);
+      wx.showToast({
+        title: '批量维护失败',
+        icon: 'none'
+      });
+    } finally {
+      this.setLoading('batchMaintain', false);
+    }
+  },
+  reloadScoreResults() {
+    this.resetCurrentResultRows();
+    this.loadScoreResults();
+  },
+  
+  async loadScoreResults() {
+    const viewMode = this.data.resultFilters.viewMode || 'overview';
+    const pageSize = 100;
+    const loadToken = Date.now();
+    this.resultLoadToken = loadToken;
+  
+    if (!this.data.currentActivityId) return;
+  
+    this.setLoading('results', true);
+  
+    const mergedRows = {
+      overviewRows: [],
+      calculationRows: [],
+      detailRows: [],
+      recordRows: [],
+      scorerCompletionRows: []
+    };
+  
+    let offset = 0;
+    let hasMore = true;
+    let latestResult = null;
+    let requestCount = 0;
+    const maxRequests = 100;
+  
+    try {
+      while (hasMore && requestCount < maxRequests) {
+        const result = await this.callCloud('getScoreResults', {
+          activityId: this.data.currentActivityId,
+          dataType: viewMode,
+          offset,
+          filters: {
+            department: this.data.resultFilters.department,
+            identity: this.data.resultFilters.identity,
+            workGroup: this.data.resultFilters.workGroup
+          }
+        });
+  
+        if (this.resultLoadToken !== loadToken) {
+          return;
+        }
+  
+        if (result.status !== 'success') {
+          wx.showToast({
+            title: result.message || '加载评分结果失败',
+            icon: 'none'
+          });
+          return;
+        }
+  
+        latestResult = result;
+  
+        const batchMap = {
+          overview: result.overviewRows || [],
+          calculation: result.calculationRows || [],
+          detail: result.detailRows || [],
+          records: result.recordRows || [],
+          completion: result.scorerCompletionRows || []
+        };
+  
+        const batchRows = batchMap[viewMode] || [];
+  
+        if (viewMode === 'overview') {
+          mergedRows.overviewRows.push(...batchRows);
+        } else if (viewMode === 'calculation') {
+          mergedRows.calculationRows.push(...batchRows);
+        } else if (viewMode === 'detail') {
+          mergedRows.detailRows.push(...batchRows);
+        } else if (viewMode === 'records') {
+          mergedRows.recordRows.push(...batchRows);
+        } else if (viewMode === 'completion') {
+          mergedRows.scorerCompletionRows.push(...batchRows);
+        }
+  
+        const setDataObj = {
+          'scoreResultsRaw.stats': result.stats || {},
+          resultFilterOptions: {
+            departments: buildResultFilterOptions((result.filterOptions && result.filterOptions.departments) || []),
+            identities: buildResultFilterOptions((result.filterOptions && result.filterOptions.identities) || []),
+            workGroups: buildResultFilterOptions((result.filterOptions && result.filterOptions.workGroups) || [])
+          }
+        };
+        
+        if (viewMode === 'overview') {
+          setDataObj['scoreResultsRaw.overviewRows'] = mergedRows.overviewRows;
+        }
+        
+        if (viewMode === 'calculation') {
+          setDataObj['scoreResultsRaw.calculationRows'] = mergedRows.calculationRows;
+        }
+        
+        if (viewMode === 'detail') {
+          setDataObj['scoreResultsRaw.detailRows'] = mergedRows.detailRows;
+        }
+        
+        if (viewMode === 'records') {
+          setDataObj['scoreResultsRaw.recordRows'] = mergedRows.recordRows;
+        }
+        
+        if (viewMode === 'completion') {
+          setDataObj['scoreResultsRaw.scorerCompletionRows'] = mergedRows.scorerCompletionRows;
+          setDataObj['scoreResultsRaw.completionBoards'] = {
+            departments: [],
+            identities: [],
+            workGroups: []
+          };
+        }
+        
+        this.setData(setDataObj);
+  
+        this.applyScoreResultFilters();
+  
+        hasMore = !!(result.pagination && result.pagination.hasMore);
+        const nextOffset = result.pagination ? Number(result.pagination.nextOffset || 0) : 0;
+
+        if (!batchRows.length || nextOffset <= offset) {
+          hasMore = false;
+        } else {
+          offset = nextOffset;
+        }
+  
+        requestCount += 1;
+      }
+  
+      this.setData({
+        resultPagination: {
+          ...this.data.resultPagination,
+          [viewMode]: {
+            page: 1,
+            pageSize: latestResult && latestResult.pagination ? latestResult.pagination.returnedCount || 0 : 0,
+            hasMore: false,
+            total: latestResult && latestResult.pagination ? latestResult.pagination.total || 0 : 0
+          }
+        }
+      });
+    } catch (error) {
+      console.error('加载评分结果失败：', error);
+      wx.showToast({
+        title: getErrorText(error, '加载评分结果失败'),
+        icon: 'none'
+      });
+    } finally {
+      if (this.resultLoadToken === loadToken) {
+        this.setLoading('results', false);
+      }
+    }
+  },
+  
+  loadMoreScoreResults() {
+    // 已改成自动连续请求，不再依赖滚动触底加载
+  },
+  
+  resetCurrentResultRows() {
+    const viewMode = this.data.resultFilters.viewMode || 'overview';
+  
+    const nextRaw = {
+      ...this.data.scoreResultsRaw
+    };
+  
+    if (viewMode === 'overview') {
+      nextRaw.overviewRows = [];
+    } else if (viewMode === 'calculation') {
+      nextRaw.calculationRows = [];
+    } else if (viewMode === 'detail') {
+      nextRaw.detailRows = [];
+    } else if (viewMode === 'records') {
+      nextRaw.recordRows = [];
+    } else if (viewMode === 'completion') {
+      nextRaw.scorerCompletionRows = [];
+      nextRaw.completionBoards = {
+        departments: [],
+        identities: [],
+        workGroups: []
+      };
+    }
+  
+    this.setData({
+      scoreResultsRaw: nextRaw,
+      resultPagination: {
+        ...this.data.resultPagination,
+        [viewMode]: {
+          page: 0,
+          pageSize: 0,
+          hasMore: true,
+          total: 0
+        }
+      }
+    });
+  },
   applyScoreResultFilters() {
     const filters = this.data.resultFilters || emptyResultFilters();
+    const isAllValue = (value) => !value
+      || value === '全部'
+      || value === '全部部门'
+      || value === '全部身份'
+      || value === '全部工作分工'
+      || value === '全部工作分工（职能组）'
+      || value === '全部状态';
     const matches = (row) => {
-      if (filters.department !== '全部' && row.department !== filters.department) {
+      if (!isAllValue(filters.department) && row.department !== filters.department) {
         return false;
       }
-      if (filters.identity !== '全部' && row.identity !== filters.identity) {
+      if (!isAllValue(filters.identity) && row.identity !== filters.identity) {
         return false;
       }
-      if (filters.workGroup !== '全部' && (row.workGroup || '未分组') !== filters.workGroup) {
+      if (!isAllValue(filters.workGroup) && (row.workGroup || '未分组') !== filters.workGroup) {
         return false;
       }
       return true;
@@ -889,7 +1758,8 @@ Page({
         [field]: nextValue
       }
     });
-    this.applyScoreResultFilters();
+    this.resetCurrentResultRows();
+    this.loadScoreResults({ append: false });
   },
 
   async exportScoreResults(e) {
@@ -2280,6 +3150,9 @@ Page({
       }
 
       const template = result.template || null;
+      const rawRows = result.rows || [];
+      const hrProfileFilterOptions = buildHrProfileFilterOptions(rawRows);
+      const hrProfileRows = applyHrProfileFilters(rawRows, this.data.hrProfileFilters);
       this.setData({
         hrProfileTemplateForm: template ? {
           description: template.description || '',
@@ -2289,7 +3162,9 @@ Page({
             ? template.fields.map((item) => normalizeHrProfileFieldForForm(item))
             : [createEmptyProfileField()]
         } : emptyHrProfileTemplateForm(),
-        hrProfileRows: result.rows || []
+        hrProfileRawRows: rawRows,
+        hrProfileFilterOptions,
+        hrProfileRows
       });
     } catch (error) {
       wx.showToast({
@@ -2299,6 +3174,52 @@ Page({
     } finally {
       this.setLoading('profile', false);
     }
+  },
+
+  refreshHrProfileRows(nextFilters = this.data.hrProfileFilters, nextRawRows = this.data.hrProfileRawRows) {
+    this.setData({
+      hrProfileRows: applyHrProfileFilters(nextRawRows, nextFilters)
+    });
+  },
+
+  onHrProfileFilterChange(e) {
+    const field = String(e.currentTarget.dataset.field || '');
+    const options = this.data.hrProfileFilterOptions[field] || [];
+    const keyMap = {
+      departments: 'department',
+      identities: 'identity',
+      workGroups: 'workGroup',
+      statuses: 'status'
+    };
+    const valueKey = keyMap[field] || 'status';
+    const value = options[Number(e.detail.value)] || options[0] || '';
+    const nextFilters = {
+      ...this.data.hrProfileFilters,
+      [valueKey]: value
+    };
+    this.setData({
+      hrProfileFilters: nextFilters
+    });
+    this.refreshHrProfileRows(nextFilters);
+  },
+
+  onHrProfileKeywordInput(e) {
+    const nextFilters = {
+      ...this.data.hrProfileFilters,
+      keyword: e.detail.value
+    };
+    this.setData({
+      hrProfileFilters: nextFilters
+    });
+    this.refreshHrProfileRows(nextFilters);
+  },
+
+  resetHrProfileFilters() {
+    const nextFilters = emptyHrProfileFilters();
+    this.setData({
+      hrProfileFilters: nextFilters
+    });
+    this.refreshHrProfileRows(nextFilters);
   },
 
   onHrProfileTemplateInput(e) {
@@ -2377,6 +3298,42 @@ Page({
     });
   },
 
+  onHrProfileNumberRuleChange(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const option = NUMBER_RULE_OPTIONS[Number(e.detail.value)] || NUMBER_RULE_OPTIONS[0];
+    const fields = [...(this.data.hrProfileTemplateForm.fields || [])];
+    if (!fields[index]) {
+      return;
+    }
+
+    fields[index] = {
+      ...fields[index],
+      numberRule: option.value,
+      numberRuleLabel: option.label
+    };
+
+    this.setData({
+      'hrProfileTemplateForm.fields': fields
+    });
+  },
+
+  onHrProfileFieldAllowDecimalChange(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const fields = [...(this.data.hrProfileTemplateForm.fields || [])];
+    if (!fields[index]) {
+      return;
+    }
+
+    fields[index] = {
+      ...fields[index],
+      allowDecimal: !!e.detail.value
+    };
+
+    this.setData({
+      'hrProfileTemplateForm.fields': fields
+    });
+  },
+
   addHrProfileField() {
     this.setData({
       'hrProfileTemplateForm.fields': [
@@ -2408,6 +3365,10 @@ Page({
       required: item.required === true,
       minLength: item.minLength === '' ? null : Number(item.minLength),
       maxLength: item.maxLength === '' ? null : Number(item.maxLength),
+      numberRule: item.numberRule || NUMBER_RULE_OPTIONS[0].value,
+      allowDecimal: item.allowDecimal !== false,
+      minDigits: item.minDigits === '' ? null : Number(item.minDigits),
+      maxDigits: item.maxDigits === '' ? null : Number(item.maxDigits),
       minValue: item.minValue === '' ? null : Number(item.minValue),
       maxValue: item.maxValue === '' ? null : Number(item.maxValue),
       options: String(item.optionsText || '')
@@ -2425,6 +3386,10 @@ Page({
     }
 
     this.setLoading('saveProfileTemplate', true);
+    wx.showLoading({
+      title: '更新中...',
+      mask: true
+    });
     try {
       const result = await this.callCloud('saveHrProfileTemplate', {
         description: String(form.description || '').trim(),
@@ -2433,24 +3398,16 @@ Page({
       });
 
       if (result.status !== 'success') {
-        wx.showToast({
-          title: result.message || '保存人事信息模板失败',
-          icon: 'none'
-        });
+        showShortToast('更新失败');
         return;
       }
 
       await this.loadHrProfileAdminData();
-      wx.showToast({
-        title: '人事信息模板已保存',
-        icon: 'success'
-      });
+      showShortToast('已更新', 'success');
     } catch (error) {
-      wx.showToast({
-        title: '保存人事信息模板失败',
-        icon: 'none'
-      });
+      showShortToast('更新失败');
     } finally {
+      wx.hideLoading();
       this.setLoading('saveProfileTemplate', false);
     }
   },

@@ -5,10 +5,129 @@ cloud.init({
 });
 
 const db = cloud.database();
+const _ = db.command;
+const CACHE_META_COLLECTIONS = ['score_results_cache_meta', 'scorer_task_cache_meta'];
+const SCORER_TASK_CACHE_CHUNKS = 'scorer_task_cache_chunks';
 
 function toNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+async function markScoreCachesTouched(activityId) {
+  if (!activityId) {
+    return;
+  }
+  await Promise.all(CACHE_META_COLLECTIONS.map((collectionName) => (
+    db.collection(collectionName)
+      .where({ activityId })
+      .update({
+        data: {
+          hasScoreUpdates: true,
+          scoreUpdatedAt: db.serverDate()
+        }
+      })
+      .catch(() => null)
+  )));
+}
+
+async function incrementallyUpdateScorerTaskCache(activityId, scorerKey, targetId) {
+  if (!activityId || !scorerKey || !targetId) {
+    return;
+  }
+
+  const chunkRes = await db.collection(SCORER_TASK_CACHE_CHUNKS)
+    .where({ activityId })
+    .limit(100)
+    .get()
+    .catch(() => ({ data: [] }));
+
+  for (const chunk of chunkRes.data || []) {
+    const rows = Array.isArray(chunk.rows) ? [...chunk.rows] : [];
+    const rowIndex = rows.findIndex((row) => String(row.scorerKey || '') === scorerKey);
+    if (rowIndex === -1) {
+      continue;
+    }
+
+    const row = {
+      ...rows[rowIndex],
+      pendingList: Array.isArray(rows[rowIndex].pendingList) ? [...rows[rowIndex].pendingList] : []
+    };
+    const before = row.pendingList.length;
+    row.pendingList = row.pendingList.filter((item) => String(item.targetId || '') !== targetId);
+    if (row.pendingList.length === before) {
+      return;
+    }
+
+    row.submittedCount = Number(row.submittedCount || 0) + 1;
+    row.pendingCount = Math.max(Number(row.expectedCount || 0) - row.submittedCount, 0);
+    row.completionRate = row.expectedCount
+      ? Number(((row.submittedCount / row.expectedCount) * 100).toFixed(2))
+      : 100;
+
+    if (row.pendingCount > 0) {
+      rows[rowIndex] = row;
+    } else {
+      rows.splice(rowIndex, 1);
+      await db.collection('scorer_task_cache_meta')
+        .where({ activityId })
+        .update({
+          data: {
+            'stats.totalPendingScorers': _.inc(-1),
+            total: _.inc(-1),
+            updatedAt: db.serverDate()
+          }
+        })
+        .catch(() => null);
+    }
+
+    await db.collection(SCORER_TASK_CACHE_CHUNKS)
+      .doc(chunk._id)
+      .update({
+        data: {
+          rows,
+          updatedAt: db.serverDate()
+        }
+      })
+      .catch(() => null);
+    return;
+  }
+}
+
+async function refreshScorerTaskCacheMeta(activityId) {
+  if (!activityId) {
+    return;
+  }
+
+  const chunkRes = await db.collection(SCORER_TASK_CACHE_CHUNKS)
+    .where({ activityId })
+    .limit(100)
+    .get()
+    .catch(() => ({ data: [] }));
+  const chunks = (chunkRes.data || []).sort((a, b) => Number(a.chunkIndex || 0) - Number(b.chunkIndex || 0));
+  let rowStart = 0;
+  const chunkMap = chunks.map((chunk) => {
+    const rowCount = Array.isArray(chunk.rows) ? chunk.rows.length : 0;
+    const meta = {
+      chunkIndex: Number(chunk.chunkIndex || 0),
+      rowStart,
+      rowCount
+    };
+    rowStart += rowCount;
+    return meta;
+  });
+
+  await db.collection('scorer_task_cache_meta')
+    .where({ activityId })
+    .update({
+      data: {
+        chunkMap,
+        total: rowStart,
+        'stats.totalPendingScorers': rowStart,
+        updatedAt: db.serverDate()
+      }
+    })
+    .catch(() => null);
 }
 
 function normalizePerson(record) {
@@ -394,6 +513,12 @@ exports.main = async (event) => {
     });
     recordId = addRes._id;
   }
+
+  await Promise.all([
+    markScoreCachesTouched(activityId),
+    incrementallyUpdateScorerTaskCache(activityId, getRuleKey(scorer), targetDoc._id)
+  ]);
+  await refreshScorerTaskCacheMeta(activityId);
 
   return {
     status: 'success',

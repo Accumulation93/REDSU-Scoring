@@ -32,6 +32,10 @@ function normalizeTemplateField(field = {}) {
     required: field.required === true,
     minLength: field.minLength == null ? null : Number(field.minLength),
     maxLength: field.maxLength == null ? null : Number(field.maxLength),
+    numberRule: String(field.numberRule || 'value_range').trim(),
+    allowDecimal: field.allowDecimal !== false,
+    minDigits: field.minDigits == null ? null : Number(field.minDigits),
+    maxDigits: field.maxDigits == null ? null : Number(field.maxDigits),
     minValue: field.minValue == null ? null : Number(field.minValue),
     maxValue: field.maxValue == null ? null : Number(field.maxValue),
     options: Array.isArray(field.options) ? field.options.map((item) => String(item || '').trim()).filter(Boolean) : []

@@ -8,7 +8,8 @@ const db = cloud.database();
 
 const TEMPLATE_KEY = 'default_hr_profile_template';
 const EDIT_MODES = ['direct', 'audit', 'readonly'];
-const FIELD_TYPES = ['text', 'number', 'sequence'];
+const FIELD_TYPES = ['text', 'number', 'sequence', 'date', 'phone', 'email'];
+const NUMBER_RULE_TYPES = ['value_range', 'length_range'];
 
 function normalizeField(field = {}, index = 0) {
   const id = String(field.id || `field_${Date.now()}_${index}`).trim();
@@ -17,6 +18,10 @@ function normalizeField(field = {}, index = 0) {
   const required = field.required === true;
   const minLength = field.minLength === '' || field.minLength == null ? null : Number(field.minLength);
   const maxLength = field.maxLength === '' || field.maxLength == null ? null : Number(field.maxLength);
+  const numberRule = String(field.numberRule || 'value_range').trim();
+  const allowDecimal = field.allowDecimal !== false;
+  const minDigits = field.minDigits === '' || field.minDigits == null ? null : Number(field.minDigits);
+  const maxDigits = field.maxDigits === '' || field.maxDigits == null ? null : Number(field.maxDigits);
   const minValue = field.minValue === '' || field.minValue == null ? null : Number(field.minValue);
   const maxValue = field.maxValue === '' || field.maxValue == null ? null : Number(field.maxValue);
   const options = Array.isArray(field.options)
@@ -30,6 +35,10 @@ function normalizeField(field = {}, index = 0) {
     required,
     minLength: Number.isFinite(minLength) ? minLength : null,
     maxLength: Number.isFinite(maxLength) ? maxLength : null,
+    numberRule: NUMBER_RULE_TYPES.includes(numberRule) ? numberRule : 'value_range',
+    allowDecimal,
+    minDigits: Number.isFinite(minDigits) ? minDigits : null,
+    maxDigits: Number.isFinite(maxDigits) ? maxDigits : null,
     minValue: Number.isFinite(minValue) ? minValue : null,
     maxValue: Number.isFinite(maxValue) ? maxValue : null,
     options
@@ -58,7 +67,19 @@ function validateField(field = {}) {
   }
 
   if (field.type === 'number') {
-    if (field.minValue != null && field.maxValue != null && field.minValue > field.maxValue) {
+    if (!NUMBER_RULE_TYPES.includes(field.numberRule)) {
+      return '数字限制方式不合法';
+    }
+    if (field.minDigits != null && field.minDigits < 0) {
+      return '数字最短长度不能小于 0';
+    }
+    if (field.maxDigits != null && field.maxDigits <= 0) {
+      return '数字最长长度必须大于 0';
+    }
+    if (field.minDigits != null && field.maxDigits != null && field.minDigits > field.maxDigits) {
+      return '数字最短长度不能大于最长长度';
+    }
+    if (field.numberRule === 'value_range' && field.minValue != null && field.maxValue != null && field.minValue > field.maxValue) {
       return '数字最小值不能大于最大值';
     }
   }

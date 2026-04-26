@@ -5,6 +5,24 @@ cloud.init({
 });
 
 const db = cloud.database();
+const CACHE_META_COLLECTIONS = ['score_results_cache_meta', 'scorer_task_cache_meta'];
+
+async function invalidateActivityCaches(activityId) {
+  if (!activityId) {
+    return;
+  }
+  await Promise.all(CACHE_META_COLLECTIONS.map((collectionName) => (
+    db.collection(collectionName)
+      .where({ activityId })
+      .update({
+        data: {
+          isInvalid: true,
+          invalidatedAt: db.serverDate()
+        }
+      })
+      .catch(() => null)
+  )));
+}
 
 async function runInBatches(items, handler, batchSize = 20) {
   for (let i = 0; i < items.length; i += batchSize) {
@@ -114,6 +132,8 @@ exports.main = async (event) => {
       }
     })
   ));
+
+  await invalidateActivityCaches(activityId);
 
   return {
     status: 'success',

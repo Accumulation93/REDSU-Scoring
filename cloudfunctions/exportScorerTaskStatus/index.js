@@ -5,6 +5,7 @@ cloud.init({
 });
 
 const db = cloud.database();
+const PAGE_SIZE = 100;
 
 const FIELD_NAME = '姓名';
 const FIELD_STUDENT_ID = '学号';
@@ -15,6 +16,23 @@ const DEFAULT_WORK_GROUP = '未分组';
 
 function safeString(value) {
   return String(value == null ? '' : value).trim();
+}
+
+async function getAllRecords(query) {
+  const list = [];
+  let skip = 0;
+
+  while (true) {
+    const res = await query.skip(skip).limit(PAGE_SIZE).get();
+    const batch = res.data || [];
+    list.push(...batch);
+    if (batch.length < PAGE_SIZE) {
+      break;
+    }
+    skip += batch.length;
+  }
+
+  return list;
 }
 
 function normalizeMember(record = {}) {
@@ -181,7 +199,13 @@ function applyFilters(rows, filters = {}) {
   const identity = safeString(filters.identity);
   const workGroup = safeString(filters.workGroup);
   const keyword = safeString(filters.keyword).toLowerCase();
-  const isAll = (value) => !value || value === '全部';
+  const isAll = (value) => !value
+    || value === '全部'
+    || value === '全部部门'
+    || value === '全部身份'
+    || value === '全部工作分工'
+    || value === '全部工作分工（职能组）'
+    || value === '鍏ㄩ儴';
 
   return rows.filter((row) => {
     if (!isAll(department) && safeString(row.department) !== department) {
@@ -326,60 +350,66 @@ function buildReportDefinition(activityName, reportType, rows) {
 }
 
 exports.main = async (event) => {
-  const wxContext = cloud.getWXContext();
-  const openid = wxContext.OPENID;
-  const activityId = safeString(event.activityId);
-  const reportType = safeString(event.reportType) || 'summary';
-  const format = safeString(event.format) || 'csv';
-  const filters = event.filters || {};
+  try {
+    const wxContext = cloud.getWXContext();
+    const openid = wxContext.OPENID;
+    const activityId = safeString(event.activityId);
+    const reportType = safeString(event.reportType) || 'summary';
+    const format = safeString(event.format) || 'csv';
+    const filters = event.filters || {};
 
-  if (!activityId) {
+    if (!activityId) {
+      return {
+        status: 'invalid_params',
+        message: '请先选择评分活动'
+      };
+    }
+
+    const admin = await ensureAdmin(openid);
+    if (!admin) {
+      return {
+        status: 'forbidden',
+        message: '没有管理权限'
+      };
+    }
+
+    const [activityRes, membersRaw, rulesRaw, records] = await Promise.all([
+      db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null })),
+      getAllRecords(db.collection('hr_info')),
+      getAllRecords(db.collection('rate_target_rules').where({ activityId })),
+      getAllRecords(db.collection('score_records').where({ activityId }))
+    ]);
+
+    if (!activityRes.data) {
+      return {
+        status: 'activity_not_found',
+        message: '未找到对应的评分活动'
+      };
+    }
+
+    const members = membersRaw.map((item) => normalizeMember(item));
+    const rules = rulesRaw.map((item) => ({
+      scorerKey: safeString(item.scorerKey),
+      clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause)) : []
+    }));
+
+    const rows = applyFilters(buildTaskRows(members, rules, records), filters);
+    const activityName = safeString(activityRes.data.name) || '评分活动';
+    const report = buildReportDefinition(activityName, reportType, rows);
+    const fileContent = format === 'excel'
+      ? buildExcelXml(report.sheetName, report.headers, report.rows)
+      : buildCsv(report.headers, report.rows);
+
     return {
-      status: 'invalid_params',
-      message: '请先选择评分活动'
+      status: 'success',
+      fileName: report.fileName,
+      extension: format === 'excel' ? 'xls' : 'csv',
+      fileContent
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: safeString(error && (error.message || error.errMsg)) || '导出未完成评分任务失败'
     };
   }
-
-  const admin = await ensureAdmin(openid);
-  if (!admin) {
-    return {
-      status: 'forbidden',
-      message: '没有管理权限'
-    };
-  }
-
-  const [activityRes, hrRes, ruleRes, recordRes] = await Promise.all([
-    db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null })),
-    db.collection('hr_info').limit(1000).get(),
-    db.collection('rate_target_rules').where({ activityId }).limit(1000).get(),
-    db.collection('score_records').where({ activityId }).limit(1000).get()
-  ]);
-
-  if (!activityRes.data) {
-    return {
-      status: 'activity_not_found',
-      message: '未找到对应的评分活动'
-    };
-  }
-
-  const members = (hrRes.data || []).map((item) => normalizeMember(item));
-  const rules = (ruleRes.data || []).map((item) => ({
-    scorerKey: safeString(item.scorerKey),
-    clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause)) : []
-  }));
-  const records = recordRes.data || [];
-
-  const rows = applyFilters(buildTaskRows(members, rules, records), filters);
-  const activityName = safeString(activityRes.data.name) || '评分活动';
-  const report = buildReportDefinition(activityName, reportType, rows);
-  const fileContent = format === 'excel'
-    ? buildExcelXml(report.sheetName, report.headers, report.rows)
-    : buildCsv(report.headers, report.rows);
-
-  return {
-    status: 'success',
-    fileName: report.fileName,
-    extension: format === 'excel' ? 'xls' : 'csv',
-    fileContent
-  };
 };

@@ -5,6 +5,34 @@ cloud.init({
 });
 
 const db = cloud.database();
+const CACHE_META_COLLECTIONS = ['score_results_cache_meta', 'scorer_task_cache_meta'];
+
+async function invalidateAllScoreCaches() {
+  for (const collectionName of CACHE_META_COLLECTIONS) {
+    while (true) {
+      const res = await db.collection(collectionName)
+        .where({ isInvalid: false })
+        .limit(100)
+        .get()
+        .catch(() => ({ data: [] }));
+      const rows = res.data || [];
+      if (!rows.length) {
+        break;
+      }
+      await Promise.all(rows.map((item) => (
+        db.collection(collectionName).doc(item._id).update({
+          data: {
+            isInvalid: true,
+            invalidatedAt: db.serverDate()
+          }
+        }).catch(() => null)
+      )));
+      if (rows.length < 100) {
+        break;
+      }
+    }
+  }
+}
 
 exports.main = async (event) => {
   const wxContext = cloud.getWXContext();
@@ -51,6 +79,8 @@ exports.main = async (event) => {
         .remove();
     }
   }
+
+  await invalidateAllScoreCaches();
 
   return {
     status: 'success'
