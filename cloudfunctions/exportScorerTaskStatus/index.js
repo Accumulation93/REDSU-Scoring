@@ -6,50 +6,89 @@ cloud.init({
 
 const db = cloud.database();
 const PAGE_SIZE = 100;
+const MAX_PARALLEL_PAGES = 20;
 
-const FIELD_NAME = '姓名';
-const FIELD_STUDENT_ID = '学号';
-const FIELD_DEPARTMENT = '所属部门';
-const FIELD_IDENTITY = '身份';
-const FIELD_WORK_GROUP = '工作分工（职能组）';
-const DEFAULT_WORK_GROUP = '未分组';
+const DEFAULT_WORK_GROUP = '';
 
 function safeString(value) {
   return String(value == null ? '' : value).trim();
 }
 
 async function getAllRecords(query) {
-  const list = [];
-  let skip = 0;
+  const countRes = await query.count().catch(() => ({ total: 0 }));
+  const total = countRes.total || 0;
+  if (total === 0) return [];
 
-  while (true) {
-    const res = await query.skip(skip).limit(PAGE_SIZE).get();
-    const batch = res.data || [];
-    list.push(...batch);
-    if (batch.length < PAGE_SIZE) {
-      break;
-    }
-    skip += batch.length;
+  const pageSize = 100;
+  const totalPages = Math.min(Math.ceil(total / pageSize), MAX_PARALLEL_PAGES);
+  const promises = [];
+  for (let i = 0; i < totalPages; i++) {
+    promises.push(query.skip(i * pageSize).limit(pageSize).get());
   }
-
-  return list;
+  const results = await Promise.all(promises);
+  return results.flatMap((res) => res.data || []);
 }
 
-function normalizeMember(record = {}) {
+function buildOrgMap(rows = []) {
+  const map = new Map();
+  rows.forEach((row) => {
+    const id = safeString(row && row._id);
+    if (!id) return;
+    map.set(id, { id, name: safeString(row.name) });
+  });
+  return map;
+}
+
+async function fetchOrgLookups() {
+  const [departments, identities, workGroups] = await Promise.all([
+    getAllRecords(db.collection('departments')),
+    getAllRecords(db.collection('identities')),
+    getAllRecords(db.collection('work_groups'))
+  ]);
   return {
-    id: safeString(record._id),
-    name: safeString(record.name || record[FIELD_NAME]),
-    studentId: safeString(record.studentId || record[FIELD_STUDENT_ID]),
-    department: safeString(record.department || record[FIELD_DEPARTMENT]),
-    identity: safeString(record.identity || record[FIELD_IDENTITY]),
-    workGroup: safeString(record.workGroup || record[FIELD_WORK_GROUP]) || DEFAULT_WORK_GROUP
+    departmentsById: buildOrgMap(departments),
+    identitiesById: buildOrgMap(identities),
+    workGroupsById: buildOrgMap(workGroups)
   };
 }
 
-function normalizeRuleClause(rawClause = {}) {
+function getLookupName(map, id) {
+  const row = map && map.get(safeString(id));
+  return row ? safeString(row.name) : '';
+}
+
+function makeOrgRuleKey(departmentId, identityId) {
+  const depId = safeString(departmentId);
+  const idId = safeString(identityId);
+  return depId && idId ? depId + '::' + idId : '';
+}
+
+function normalizeMember(record = {}, orgLookups = {}) {
+  const departmentId = safeString(record.departmentId);
+  const identityId = safeString(record.identityId);
+  const workGroupId = safeString(record.workGroupId);
+  const department = getLookupName(orgLookups.departmentsById, departmentId);
+  const identity = getLookupName(orgLookups.identitiesById, identityId);
+  const workGroup = getLookupName(orgLookups.workGroupsById, workGroupId) || DEFAULT_WORK_GROUP;
+  return {
+    id: safeString(record._id),
+    name: safeString(record.name),
+    studentId: safeString(record.studentId),
+    departmentId,
+    department,
+    identityId,
+    identity,
+    workGroupId,
+    workGroup
+  };
+}
+
+function normalizeRuleClause(rawClause = {}, orgLookups = {}) {
+  const targetIdentityId = safeString(rawClause.targetIdentityId);
   return {
     scopeType: safeString(rawClause.scopeType),
-    targetIdentity: safeString(rawClause.targetIdentity),
+    targetIdentityId,
+    targetIdentity: getLookupName(orgLookups.identitiesById, targetIdentityId),
     templateConfigs: Array.isArray(rawClause.templateConfigs)
       ? rawClause.templateConfigs.filter((item) => safeString(item.templateId))
       : []
@@ -57,35 +96,33 @@ function normalizeRuleClause(rawClause = {}) {
 }
 
 function getMemberRuleKey(member = {}) {
-  return `${safeString(member.department)}::${safeString(member.identity)}`;
+  return makeOrgRuleKey(member.departmentId, member.identityId);
 }
 
 function getScorerUniqueKey(memberOrRecord = {}) {
-  return safeString(memberOrRecord.scorerStudentId || memberOrRecord.studentId)
-    || safeString(memberOrRecord.scorerId || memberOrRecord.id);
+  return safeString(memberOrRecord.scorerId || memberOrRecord.id)
+    || safeString(memberOrRecord.studentId);
+}
+
+function sameDepartment(left = {}, right = {}) {
+  return safeString(left.departmentId) && safeString(left.departmentId) === safeString(right.departmentId);
+}
+
+function sameWorkGroup(left = {}, right = {}) {
+  return safeString(left.workGroupId) && safeString(left.workGroupId) === safeString(right.workGroupId);
+}
+
+function matchesTargetIdentity(target = {}, clause = {}) {
+  return safeString(target.identityId) && safeString(target.identityId) === safeString(clause.targetIdentityId);
 }
 
 function matchesClauseTarget(target, scorer, clause) {
-  if (clause.scopeType === 'same_department_identity') {
-    return target.department === scorer.department && target.identity === clause.targetIdentity;
-  }
-  if (clause.scopeType === 'same_department_all') {
-    return target.department === scorer.department;
-  }
-  if (clause.scopeType === 'same_work_group_identity') {
-    return target.department === scorer.department
-      && target.workGroup === scorer.workGroup
-      && target.identity === clause.targetIdentity;
-  }
-  if (clause.scopeType === 'same_work_group_all') {
-    return target.department === scorer.department && target.workGroup === scorer.workGroup;
-  }
-  if (clause.scopeType === 'identity_only') {
-    return target.identity === clause.targetIdentity;
-  }
-  if (clause.scopeType === 'all_people') {
-    return true;
-  }
+  if (clause.scopeType === 'same_department_identity') return sameDepartment(target, scorer) && matchesTargetIdentity(target, clause);
+  if (clause.scopeType === 'same_department_all') return sameDepartment(target, scorer);
+  if (clause.scopeType === 'same_work_group_identity') return sameDepartment(target, scorer) && sameWorkGroup(target, scorer) && matchesTargetIdentity(target, clause);
+  if (clause.scopeType === 'same_work_group_all') return sameDepartment(target, scorer) && sameWorkGroup(target, scorer);
+  if (clause.scopeType === 'identity_only') return matchesTargetIdentity(target, clause);
+  if (clause.scopeType === 'all_people') return true;
   return false;
 }
 
@@ -373,11 +410,12 @@ exports.main = async (event) => {
       };
     }
 
-    const [activityRes, membersRaw, rulesRaw, records] = await Promise.all([
+    const [activityRes, membersRaw, rulesRaw, records, orgLookups] = await Promise.all([
       db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null })),
       getAllRecords(db.collection('hr_info')),
       getAllRecords(db.collection('rate_target_rules').where({ activityId })),
-      getAllRecords(db.collection('score_records').where({ activityId }))
+      getAllRecords(db.collection('score_records').where({ activityId })),
+      fetchOrgLookups()
     ]);
 
     if (!activityRes.data) {
@@ -387,11 +425,17 @@ exports.main = async (event) => {
       };
     }
 
-    const members = membersRaw.map((item) => normalizeMember(item));
-    const rules = rulesRaw.map((item) => ({
-      scorerKey: safeString(item.scorerKey),
-      clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause)) : []
-    }));
+    const members = membersRaw.map((item) => normalizeMember(item, orgLookups));
+    const rules = rulesRaw.map((item) => {
+      const scorerDepartmentId = safeString(item.scorerDepartmentId);
+      const scorerIdentityId = safeString(item.scorerIdentityId);
+      const scorerDepartment = getLookupName(orgLookups.departmentsById, scorerDepartmentId);
+      const scorerIdentity = getLookupName(orgLookups.identitiesById, scorerIdentityId);
+      return {
+        scorerKey: makeOrgRuleKey(scorerDepartmentId, scorerIdentityId) || safeString(item.scorerKey),
+        clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause, orgLookups)) : []
+      };
+    });
 
     const rows = applyFilters(buildTaskRows(members, rules, records), filters);
     const activityName = safeString(activityRes.data.name) || '评分活动';

@@ -1,4 +1,18 @@
-<view class="page">
+<view class="page page-with-keyboard">
+  <input
+    class="physical-keyboard-capture"
+    type="text"
+    value="{{physicalInputValue}}"
+    focus="{{physicalInputFocus}}"
+    adjust-position="{{false}}"
+    cursor-spacing="0"
+    hold-keyboard="{{true}}"
+    bindinput="onPhysicalInput"
+    bindconfirm="onPhysicalConfirm"
+    bindblur="onPhysicalInputBlur"
+    bindkeydown="onPhysicalKeyDown"
+    bindkeyup="onPhysicalKeyUp"
+  />
   <view class="hero">
     <view class="hero-badge">评分</view>
     <view class="hero-title">填写评分</view>
@@ -44,42 +58,154 @@
         <view class="template-chip" wx:if="{{item.showTemplateHeader}}">
           {{item.templateSortOrder}}. {{item.templateName}}
         </view>
-        <view class="question-card" id="question-{{index}}">
+        <view
+          class="question-card {{!keyboardCollapsed && currentQuestionIndex === index ? 'question-card-current' : ''}}"
+          id="question-{{index}}"
+          data-index="{{index}}"
+          bindtap="focusQuestion"
+        >
           <view class="question-title">{{index + 1}}. {{item.question}}（{{item.maxValue}}分）</view>
           <view class="question-meta" wx:if="{{item.scoreLabel}}">{{item.scoreLabel}}</view>
           <view class="question-meta">
             评分范围：{{item.minValue}} - {{item.maxValue}} · 起评分：{{item.startValue}} · 步进值：{{item.stepValue}}
           </view>
 
-          <view class="score-entry">
-            <input
-              class="score-input {{item.errorText ? 'score-input-error' : ''}}"
-              type="digit"
-              data-index="{{index}}"
-              bindinput="onScoreInput"
-              value="{{item.score}}"
-              placeholder="请输入分值"
-            />
-            <picker
-              class="score-picker"
-              range="{{item.scoreOptions}}"
-              bindchange="onScoreOptionChange"
-              data-index="{{index}}"
-            >
-              <view class="score-picker-value">快速选择</view>
-            </picker>
+          <view class="score-display" data-index="{{index}}" bindtap="focusQuestion">
+            <view class="score-display-value" wx:if="{{item.score !== ''}}">
+              <text class="score-display-number">{{item.score}}</text>
+              <text class="score-display-unit">分</text>
+            </view>
+            <view class="score-display-placeholder" wx:else>点击此处输入分值</view>
+            <view class="score-display-indicator" wx:if="{{!keyboardCollapsed && currentQuestionIndex === index}}">▼ 当前编辑</view>
           </view>
 
           <view class="score-warning" wx:if="{{item.errorText}}">
             <text class="score-warning-icon">!</text>
             <text class="score-warning-text">{{item.errorText}}</text>
           </view>
+
+          <view class="template-footer" wx:if="{{item.showTemplateFooter}}">
+            <view class="template-footer-row">
+              <text class="template-footer-label">{{item.templateName}} 小计</text>
+              <text class="template-footer-score">{{item.templateFooterScore}} / {{item.templateFooterMax}} 分</text>
+            </view>
+          </view>
         </view>
       </block>
     </view>
 
-    <view class="actions">
-      <button class="primary-btn" loading="{{submitting}}" bindtap="submitScore">提交评分</button>
+    <view class="card" wx:if="{{!loading && !loadFailed && questionList.length > 0}}">
+      <view class="section-title">评分汇总</view>
+      <view class="summary-list" wx:if="{{templateSummaries.length > 1}}">
+        <view class="summary-item" wx:for="{{templateSummaries}}" wx:key="templateId">
+          <text class="summary-name">{{item.templateSortOrder}}. {{item.templateName}}</text>
+          <text class="summary-score">{{item.totalScore}} / {{item.totalMax}} 分</text>
+        </view>
+      </view>
+      <view class="summary-total">
+        <text class="summary-total-label">总计</text>
+        <text class="summary-total-score">{{pageTotalScore}} / {{pageTotalMax}} 分</text>
+      </view>
+    </view>
+
+    <view class="page-submit-bar" wx:if="{{!loading && !loadFailed && questionList.length > 0}}">
+      <button class="page-submit-btn" loading="{{submitting}}" bindtap="submitScore">提交评分结果</button>
+    </view>
+  </view>
+
+  <!-- Keyboard: collapsed state -->
+  <view class="custom-keyboard custom-keyboard-collapsed" wx:if="{{!loading && !loadFailed && questionList.length > 0 && keyboardCollapsed}}">
+    <view class="kb-collapsed-bar" bindtap="expandKeyboard">
+      <text class="kb-collapsed-icon">⌨</text>
+      <text class="kb-collapsed-text">展开键盘</text>
+      <text class="kb-collapsed-arrow">▲</text>
+    </view>
+  </view>
+
+  <!-- Keyboard: expanded state -->
+  <view class="custom-keyboard" wx:if="{{!loading && !loadFailed && questionList.length > 0 && currentQuestion && !keyboardCollapsed}}">
+    <view class="kb-nav-row">
+      <view class="kb-nav-btn {{currentQuestionIndex === 0 ? 'kb-nav-btn-disabled' : ''}} {{physicalKeyActive === 'prev' ? 'kb-nav-btn-active' : ''}}" bindtap="goToPrevious">
+        <text class="kb-nav-arrow">◀</text>
+        <text class="kb-nav-label">上一题</text>
+      </view>
+      <view class="kb-nav-display">
+        <view class="kb-nav-display-hint" wx:if="{{!currentQuestion.score}}">
+          第 {{currentQuestionIndex + 1}} 题
+        </view>
+        <view class="kb-nav-display-value" wx:else>
+          <text class="kb-nav-display-number">{{currentQuestion.score}}</text>
+          <text class="kb-nav-display-unit">分</text>
+        </view>
+      </view>
+      <view class="kb-nav-btn kb-nav-btn-next {{currentQuestionIndex >= questionList.length - 1 ? 'kb-nav-btn-disabled' : ''}} {{physicalKeyActive === 'next' ? 'kb-nav-btn-next-active' : ''}}" bindtap="goToNext">
+        <text class="kb-nav-label">下一题</text>
+        <text class="kb-nav-arrow">▶</text>
+      </view>
+    </view>
+
+    <view class="kb-action-row">
+      <view class="kb-toggle-btn" bindtap="toggleKeyboardMode" wx:if="{{quickScoreRows.length > 0}}">
+        <view class="kb-toggle-switch">
+          <view class="kb-toggle-track {{keyboardMode === 'quick' ? 'kb-toggle-track-on' : ''}}">
+            <view class="kb-toggle-thumb {{keyboardMode === 'quick' ? 'kb-toggle-thumb-on' : ''}}"></view>
+          </view>
+        </view>
+        <text class="kb-toggle-label">快捷输入</text>
+      </view>
+      <view wx:else></view>
+
+      <view class="kb-nav-btn kb-nav-btn-submit {{physicalKeyActive === 'submit' ? 'kb-nav-btn-submit-active' : ''}}" bindtap="submitScore">
+        <view class="kb-submit-inner" wx:if="{{submitting}}">
+          <text class="kb-submit-spinner"></text>
+        </view>
+        <block wx:else>
+          <text class="kb-nav-label">提交</text>
+          <text class="kb-nav-arrow">✓</text>
+        </block>
+      </view>
+
+      <view class="kb-collapse-btn" bindtap="collapseKeyboard">
+        <text class="kb-collapse-icon">▼ 收起</text>
+      </view>
+    </view>
+
+    <scroll-view class="kb-quick-scroll" scroll-y wx:if="{{keyboardMode === 'quick' && quickScoreRows.length > 0}}">
+      <view class="kb-quick-row" wx:for="{{quickScoreRows}}" wx:key="index" wx:for-item="row">
+        <view
+          class="kb-quick-btn"
+          wx:for="{{row}}"
+          wx:key="*this"
+          wx:for-item="qs"
+          data-value="{{qs}}"
+          bindtap="onQuickScoreTap"
+        >{{qs}}</view>
+      </view>
+    </scroll-view>
+
+    <view class="kb-numpad" wx:if="{{keyboardMode === 'numpad'}}">
+      <view class="kb-row">
+        <view class="kb-key {{physicalKeyActive === '1' ? 'kb-key-active' : ''}}" data-key="1" bindtap="onKeyboardTap">1</view>
+        <view class="kb-key {{physicalKeyActive === '2' ? 'kb-key-active' : ''}}" data-key="2" bindtap="onKeyboardTap">2</view>
+        <view class="kb-key {{physicalKeyActive === '3' ? 'kb-key-active' : ''}}" data-key="3" bindtap="onKeyboardTap">3</view>
+      </view>
+      <view class="kb-row">
+        <view class="kb-key {{physicalKeyActive === '4' ? 'kb-key-active' : ''}}" data-key="4" bindtap="onKeyboardTap">4</view>
+        <view class="kb-key {{physicalKeyActive === '5' ? 'kb-key-active' : ''}}" data-key="5" bindtap="onKeyboardTap">5</view>
+        <view class="kb-key {{physicalKeyActive === '6' ? 'kb-key-active' : ''}}" data-key="6" bindtap="onKeyboardTap">6</view>
+      </view>
+      <view class="kb-row">
+        <view class="kb-key {{physicalKeyActive === '7' ? 'kb-key-active' : ''}}" data-key="7" bindtap="onKeyboardTap">7</view>
+        <view class="kb-key {{physicalKeyActive === '8' ? 'kb-key-active' : ''}}" data-key="8" bindtap="onKeyboardTap">8</view>
+        <view class="kb-key {{physicalKeyActive === '9' ? 'kb-key-active' : ''}}" data-key="9" bindtap="onKeyboardTap">9</view>
+      </view>
+      <view class="kb-row">
+        <view class="kb-key {{physicalKeyActive === '.' ? 'kb-key-active' : ''}}" data-key="." bindtap="onKeyboardTap">.</view>
+        <view class="kb-key {{physicalKeyActive === '0' ? 'kb-key-active' : ''}}" data-key="0" bindtap="onKeyboardTap">0</view>
+        <view class="kb-key kb-key-backspace {{physicalKeyActive === 'backspace' ? 'kb-key-backspace-active' : ''}}" bindtap="onKeyboardBackspace">
+          <text class="kb-backspace-icon">⌫</text>
+        </view>
+      </view>
     </view>
   </view>
 </view>

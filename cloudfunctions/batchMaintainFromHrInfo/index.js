@@ -6,20 +6,9 @@ cloud.init({
 
 const db = cloud.database();
 const PAGE_SIZE = 100;
-const ORG_COLLECTIONS = [
-  { name: 'departments', legacyCodeFields: ['部门编码'] },
-  { name: 'work_groups', legacyCodeFields: ['工作分工编码'] },
-  { name: 'identities', legacyCodeFields: ['身份类别编码'] }
-];
 
 function safeString(value) {
   return String(value == null ? '' : value).trim();
-}
-
-function createCodeCandidate(prefix) {
-  const timePart = Date.now().toString(36).toUpperCase();
-  const randomPart = Math.random().toString(36).slice(2, 10).toUpperCase();
-  return `${prefix}_${timePart}_${randomPart}`;
 }
 
 async function getAllRecords(query) {
@@ -27,7 +16,7 @@ async function getAllRecords(query) {
   let skip = 0;
 
   while (true) {
-    const res = await query.skip(skip).limit(PAGE_SIZE).get();
+    const res = await query.where({}).skip(skip).limit(PAGE_SIZE).get();
     const batch = res.data || [];
     list.push(...batch);
     if (batch.length < PAGE_SIZE) break;
@@ -35,51 +24,6 @@ async function getAllRecords(query) {
   }
 
   return list;
-}
-
-async function getCollectionRows(collectionName) {
-  try {
-    return await getAllRecords(db.collection(collectionName));
-  } catch (e) {
-    return [];
-  }
-}
-
-async function isCodeAvailable(code, currentCollection, currentId) {
-  for (const collection of ORG_COLLECTIONS) {
-    const rows = await getCollectionRows(collection.name);
-    const duplicated = rows.some((item) => {
-      const sameRecord = collection.name === currentCollection
-        && (safeString(item._id) === currentId || safeString(item.code) === currentId);
-      if (sameRecord) return false;
-      const codes = [item._id, item.code, ...collection.legacyCodeFields.map((field) => item[field])].map(safeString);
-      return codes.includes(code);
-    });
-    if (duplicated) return false;
-  }
-  return true;
-}
-
-async function generateUniqueOrgCode(prefix, currentCollection, currentId = '') {
-  for (let i = 0; i < 30; i += 1) {
-    const code = createCodeCandidate(prefix);
-    if (await isCodeAvailable(code, currentCollection, currentId)) {
-      return code;
-    }
-  }
-  throw new Error('生成唯一编码失败，请重试');
-}
-
-async function ensureValidCode(record, name, prefix, collectionName, legacyCodeField) {
-  const recordId = safeString(record && record._id);
-  const oldCode = safeString(record && (record.code || record[legacyCodeField]));
-  if (oldCode && oldCode !== name && await isCodeAvailable(oldCode, collectionName, recordId)) {
-    return { code: oldCode, changed: false };
-  }
-  return {
-    code: await generateUniqueOrgCode(prefix, collectionName, recordId),
-    changed: true
-  };
 }
 
 async function ensureAdmin(openid) {
@@ -90,214 +34,99 @@ async function ensureAdmin(openid) {
   return res.data[0] || null;
 }
 
-function buildNameMap(rows, legacyNameField) {
-  const map = new Map();
-  rows.forEach((item) => {
-    const name = safeString(item.name || item[legacyNameField]);
-    if (name && !map.has(name)) {
-      map.set(name, item);
-    }
-  });
-  return map;
+function buildIdSet(rows = []) {
+  return new Set(rows.map((item) => safeString(item && item._id)).filter(Boolean));
 }
 
 exports.main = async () => {
+  let currentStep = '初始化';
   try {
     const wxContext = cloud.getWXContext();
     const openid = wxContext.OPENID;
 
+    currentStep = '校验管理员权限';
     const admin = await ensureAdmin(openid);
     if (!admin) {
       return { status: 'forbidden', message: '没有管理权限' };
     }
 
-    const hrData = await getCollectionRows('hr_info');
-    const departmentNames = new Set();
-    const identityNames = new Set();
-    const workGroupKeys = new Map();
+    currentStep = '读取人事成员和组织字典';
+    const [hrRows, departmentRows, identityRows, workGroupRows] = await Promise.all([
+      getAllRecords(db.collection('hr_info')),
+      getAllRecords(db.collection('departments')),
+      getAllRecords(db.collection('identities')),
+      getAllRecords(db.collection('work_groups'))
+    ]);
 
-    hrData.forEach((item) => {
-      const department = safeString(item.department || item['所属部门']);
-      const identity = safeString(item.identity || item['身份']);
-      const workGroup = safeString(item.workGroup || item['工作分工（职能组）']);
-
-      if (department) departmentNames.add(department);
-      if (identity) identityNames.add(identity);
-      if (department && workGroup) {
-        workGroupKeys.set(`${department}::${workGroup}`, { department, workGroup });
-      }
-    });
+    const departmentIds = buildIdSet(departmentRows);
+    const identityIds = buildIdSet(identityRows);
+    const workGroupIds = buildIdSet(workGroupRows);
+    const workGroupsById = new Map(workGroupRows.map((item) => [safeString(item._id), item]));
 
     const stats = {
-      departmentsCreated: 0,
-      departmentsUpdated: 0,
-      identitiesCreated: 0,
-      identitiesUpdated: 0,
-      workGroupsCreated: 0,
-      workGroupsUpdated: 0,
-      skipped: 0
+      checkedMembers: hrRows.length,
+      referencedDepartments: 0,
+      referencedIdentities: 0,
+      referencedWorkGroups: 0,
+      missingDepartments: 0,
+      missingIdentities: 0,
+      missingWorkGroups: 0,
+      wrongDepartmentWorkGroups: 0
     };
-    const now = new Date();
 
-    let departmentRows = await getCollectionRows('departments');
-    let departmentMap = buildNameMap(departmentRows, '部门名称');
-    for (const name of departmentNames) {
-      const existing = departmentMap.get(name);
-      if (existing) {
-        const { code, changed } = await ensureValidCode(existing, name, 'DEP', 'departments', '部门编码');
-        if (changed) {
-          await db.collection('departments').doc(existing._id).update({
-            data: { code, 部门编码: code, updatedAt: now }
-          });
-          stats.departmentsUpdated += 1;
-        } else {
-          stats.skipped += 1;
+    const seenDepartments = new Set();
+    const seenIdentities = new Set();
+    const seenWorkGroups = new Set();
+
+    currentStep = '复查组织字典完整性';
+    for (const item of hrRows) {
+      const departmentId = safeString(item.departmentId);
+      const identityId = safeString(item.identityId);
+      const workGroupId = safeString(item.workGroupId);
+
+      if (departmentId) seenDepartments.add(departmentId);
+      if (identityId) seenIdentities.add(identityId);
+      if (workGroupId) seenWorkGroups.add(workGroupId);
+
+      if (departmentId && !departmentIds.has(departmentId)) stats.missingDepartments += 1;
+      if (identityId && !identityIds.has(identityId)) stats.missingIdentities += 1;
+      if (workGroupId && !workGroupIds.has(workGroupId)) {
+        stats.missingWorkGroups += 1;
+      } else if (workGroupId) {
+        const workGroup = workGroupsById.get(workGroupId);
+        if (safeString(workGroup && workGroup.departmentId) !== departmentId) {
+          stats.wrongDepartmentWorkGroups += 1;
         }
-        existing.code = code;
-        existing['部门编码'] = code;
-        continue;
       }
-
-      const code = await generateUniqueOrgCode('DEP', 'departments');
-      const row = {
-        _id: code,
-        部门名称: name,
-        部门编码: code,
-        排序顺序: 0,
-        部门描述: '',
-        name,
-        code,
-        sortOrder: 0,
-        description: '',
-        createdAt: now,
-        updatedAt: now
-      };
-      await db.collection('departments').add({ data: row });
-      departmentMap.set(name, row);
-      stats.departmentsCreated += 1;
     }
 
-    let identityRows = await getCollectionRows('identities');
-    const identityMap = buildNameMap(identityRows, '身份类别名称');
-    for (const name of identityNames) {
-      const existing = identityMap.get(name);
-      if (existing) {
-        const { code, changed } = await ensureValidCode(existing, name, 'IDT', 'identities', '身份类别编码');
-        if (changed) {
-          await db.collection('identities').doc(existing._id).update({
-            data: { code, 身份类别编码: code, updatedAt: now }
-          });
-          stats.identitiesUpdated += 1;
-        } else {
-          stats.skipped += 1;
-        }
-        existing.code = code;
-        existing['身份类别编码'] = code;
-        continue;
-      }
+    stats.referencedDepartments = seenDepartments.size;
+    stats.referencedIdentities = seenIdentities.size;
+    stats.referencedWorkGroups = seenWorkGroups.size;
 
-      const code = await generateUniqueOrgCode('IDT', 'identities');
-      const row = {
-        _id: code,
-        身份类别名称: name,
-        身份类别编码: code,
-        排序顺序: 0,
-        身份类别描述: '',
-        name,
-        code,
-        sortOrder: 0,
-        description: '',
-        createdAt: now,
-        updatedAt: now
+    if (
+      stats.missingDepartments ||
+      stats.missingIdentities ||
+      stats.missingWorkGroups ||
+      stats.wrongDepartmentWorkGroups
+    ) {
+      return {
+        status: 'error',
+        message: `组织字典未补齐：部门${stats.missingDepartments}条，身份${stats.missingIdentities}条，工作分工${stats.missingWorkGroups}条，部门不匹配工作分工${stats.wrongDepartmentWorkGroups}条`,
+        stats
       };
-      await db.collection('identities').add({ data: row });
-      identityMap.set(name, row);
-      stats.identitiesCreated += 1;
-    }
-
-    departmentRows = await getCollectionRows('departments');
-    departmentMap = buildNameMap(departmentRows, '部门名称');
-    const workGroupRows = await getCollectionRows('work_groups');
-    const workGroupMap = new Map();
-    workGroupRows.forEach((item) => {
-      const name = safeString(item.name || item['工作分工名称']);
-      const departmentCode = safeString(item.departmentCode || item['所属部门编码']);
-      const departmentId = safeString(item.departmentId || item['所属部门ID']);
-      const key = `${departmentCode || departmentId}::${name}`;
-      if (name && !workGroupMap.has(key)) {
-        workGroupMap.set(key, item);
-      }
-    });
-
-    for (const { department, workGroup } of workGroupKeys.values()) {
-      const departmentRow = departmentMap.get(department);
-      if (!departmentRow) {
-        stats.skipped += 1;
-        continue;
-      }
-      const departmentId = safeString(departmentRow._id);
-      const departmentCode = safeString(departmentRow.code || departmentRow['部门编码'] || departmentRow._id);
-      const existing = workGroupMap.get(`${departmentCode}::${workGroup}`)
-        || workGroupMap.get(`${departmentId}::${workGroup}`);
-
-      if (existing) {
-        const { code, changed } = await ensureValidCode(existing, workGroup, 'WG', 'work_groups', '工作分工编码');
-        const needsDepartmentCode = !safeString(existing.departmentCode || existing['所属部门编码']);
-        if (changed || needsDepartmentCode) {
-          await db.collection('work_groups').doc(existing._id).update({
-            data: {
-              code,
-              工作分工编码: code,
-              departmentId,
-              departmentCode,
-              departmentName: department,
-              所属部门ID: departmentId,
-              所属部门编码: departmentCode,
-              所属部门名称: department,
-              updatedAt: now
-            }
-          });
-          stats.workGroupsUpdated += 1;
-        } else {
-          stats.skipped += 1;
-        }
-        continue;
-      }
-
-      const code = await generateUniqueOrgCode('WG', 'work_groups');
-      await db.collection('work_groups').add({
-        data: {
-          _id: code,
-          工作分工名称: workGroup,
-          工作分工编码: code,
-          所属部门ID: departmentId,
-          所属部门编码: departmentCode,
-          所属部门名称: department,
-          排序顺序: 0,
-          工作分工描述: '',
-          name: workGroup,
-          code,
-          departmentId,
-          departmentCode,
-          departmentName: department,
-          sortOrder: 0,
-          description: '',
-          createdAt: now,
-          updatedAt: now
-        }
-      });
-      stats.workGroupsCreated += 1;
     }
 
     return {
       status: 'success',
-      message: '组织字典已从人事成员同步',
+      message: '组织字典引用完整',
       stats
     };
   } catch (error) {
+    const detail = safeString(error && (error.message || error.errMsg));
     return {
       status: 'error',
-      message: safeString(error && (error.message || error.errMsg)) || '批量同步组织字典失败'
+      message: detail ? `${currentStep}失败：${detail}` : `${currentStep}失败`
     };
   }
 };

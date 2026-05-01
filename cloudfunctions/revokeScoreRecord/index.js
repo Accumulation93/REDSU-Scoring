@@ -5,27 +5,9 @@ cloud.init({
 });
 
 const db = cloud.database();
-const CACHE_META_COLLECTIONS = ['score_results_cache_meta', 'scorer_task_cache_meta'];
 
 function safeString(value) {
   return String(value == null ? '' : value).trim();
-}
-
-async function invalidateActivityCaches(activityId) {
-  if (!activityId) {
-    return;
-  }
-  await Promise.all(CACHE_META_COLLECTIONS.map((collectionName) => (
-    db.collection(collectionName)
-      .where({ activityId })
-      .update({
-        data: {
-          isInvalid: true,
-          invalidatedAt: db.serverDate()
-        }
-      })
-      .catch(() => null)
-  )));
 }
 
 async function ensureAdmin(openid) {
@@ -68,7 +50,6 @@ exports.main = async (event) => {
   }
 
   await db.collection('score_records').doc(recordId).remove();
-  await invalidateActivityCaches(safeString(recordRes.data.activityId));
   return {
     status: 'success',
     message: '评分记录已撤销'

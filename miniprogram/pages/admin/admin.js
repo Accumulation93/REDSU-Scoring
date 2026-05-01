@@ -1,5 +1,32 @@
 ﻿const STORAGE_KEY = 'roleProfiles';
-const TAB_LIST = ['activities', 'templates', 'rules', 'results', 'profile', 'hr', 'departments', 'workGroups', 'identities', 'admins'];
+const TAB_LIST = ['activities', 'templates', 'rules', 'results', 'profile', 'hr', 'departments', 'workGroups', 'identities', 'admins', 'settings'];
+const TIMEZONE_OPTIONS = [
+  { value: -12, label: 'UTC-12 (国际日期变更线西)' },
+  { value: -11, label: 'UTC-11 (中途岛)' },
+  { value: -10, label: 'UTC-10 (夏威夷)' },
+  { value: -9, label: 'UTC-9 (阿拉斯加)' },
+  { value: -8, label: 'UTC-8 (洛杉矶)' },
+  { value: -7, label: 'UTC-7 (丹佛)' },
+  { value: -6, label: 'UTC-6 (芝加哥)' },
+  { value: -5, label: 'UTC-5 (纽约)' },
+  { value: -4, label: 'UTC-4 (圣地亚哥)' },
+  { value: -3, label: 'UTC-3 (巴西利亚)' },
+  { value: -2, label: 'UTC-2 (中大西洋)' },
+  { value: -1, label: 'UTC-1 (亚速尔)' },
+  { value: 0, label: 'UTC+0 (伦敦)' },
+  { value: 1, label: 'UTC+1 (巴黎)' },
+  { value: 2, label: 'UTC+2 (开罗)' },
+  { value: 3, label: 'UTC+3 (莫斯科)' },
+  { value: 4, label: 'UTC+4 (迪拜)' },
+  { value: 5, label: 'UTC+5 (卡拉奇)' },
+  { value: 6, label: 'UTC+6 (达卡)' },
+  { value: 7, label: 'UTC+7 (曼谷)' },
+  { value: 8, label: 'UTC+8 (北京/上海/香港)' },
+  { value: 9, label: 'UTC+9 (东京)' },
+  { value: 10, label: 'UTC+10 (悉尼)' },
+  { value: 11, label: 'UTC+11 (所罗门群岛)' },
+  { value: 12, label: 'UTC+12 (奥克兰)' }
+];
 const RULE_SCOPE_OPTIONS = [
   { value: 'same_department_identity', label: '同一部门内的指定身份成员' },
   { value: 'same_department_all', label: '同一部门内的所有成员' },
@@ -76,10 +103,13 @@ function buildProgressFillStyle(ratePercent) {
 function emptyRuleForm() {
   return {
     id: '',
+    scorerDepartmentId: '',
     scorerDepartment: '',
+    scorerIdentityId: '',
     scorerIdentity: '',
     clauseScope: RULE_SCOPE_OPTIONS[0].value,
     clauseScopeLabel: RULE_SCOPE_OPTIONS[0].label,
+    clauseTargetIdentityId: '',
     clauseTargetIdentity: '',
     clauseRequireAllComplete: false,
     clauseTemplateId: '',
@@ -88,6 +118,8 @@ function emptyRuleForm() {
     clauseTemplateOrder: '',
     clauseTemplateConfigEditingIndex: -1,
     clauseEditingIndex: -1,
+    isRuleClauseEditorVisible: false,
+    isTemplateConfigEditorVisible: false,
     clauseTemplateConfigs: [],
     clauses: []
   };
@@ -256,17 +288,13 @@ function createTemplateConfig(config = {}) {
 function normalizeClauseForEdit(clause = {}) {
   const templateConfigs = Array.isArray(clause.templateConfigs) && clause.templateConfigs.length
     ? clause.templateConfigs.map((item) => createTemplateConfig(item))
-    : (clause.templateId ? [createTemplateConfig({
-      templateId: clause.templateId,
-      templateName: clause.templateName,
-      weight: clause.weight == null ? 1 : clause.weight,
-      sortOrder: clause.sortOrder == null ? 1 : clause.sortOrder
-    })] : []);
+    : [];
 
   return {
     scopeType: clause.scopeType || RULE_SCOPE_OPTIONS[0].value,
     scopeLabel: getScopeLabel(clause.scopeType || RULE_SCOPE_OPTIONS[0].value),
-    targetIdentity: clause.targetIdentity || '',
+    targetIdentityId: String(clause.targetIdentityId || '').trim(),
+    targetIdentity: String(clause.targetIdentity || '').trim(),
     requireAllComplete: clause.requireAllComplete === true,
     templateConfigs
   };
@@ -290,6 +318,192 @@ function getScopeLabel(value) {
   return RULE_SCOPE_LABEL_MAP[value] || value || '';
 }
 
+function normalizeTemplateConfigsForSave(templateConfigs = []) {
+  return refreshTemplateConfigSortOrder((templateConfigs || [])
+    .map((item) => ({
+      templateId: String(item.templateId || '').trim(),
+      templateName: String(item.templateName || '').trim(),
+      weight: String(item.weight == null ? '1' : item.weight).trim(),
+      sortOrder: String(item.sortOrder || '').trim()
+    }))
+    .filter((item) => item.templateId));
+}
+
+function buildPendingTemplateConfigForSave(form = {}) {
+  const templateId = String(form.clauseTemplateId || '').trim();
+  if (!templateId) {
+    return {
+      status: 'empty'
+    };
+  }
+
+  const weight = Number(form.clauseTemplateWeight);
+  if (!Number.isFinite(weight) || weight <= 0) {
+    return {
+      status: 'invalid',
+      message: '评分问题权重必须大于 0'
+    };
+  }
+
+  const currentConfigs = Array.isArray(form.clauseTemplateConfigs) ? form.clauseTemplateConfigs : [];
+  const editingIndex = Number(form.clauseTemplateConfigEditingIndex);
+  const sortOrderValue = editingIndex >= 0 && currentConfigs[editingIndex]
+    ? Number(currentConfigs[editingIndex].sortOrder) || (editingIndex + 1)
+    : currentConfigs.length + 1;
+
+  return {
+    status: 'ready',
+    config: {
+      templateId,
+      templateName: String(form.clauseTemplateName || '').trim(),
+      weight: String(weight),
+      sortOrder: String(sortOrderValue)
+    }
+  };
+}
+
+function mergePendingTemplateConfig(form = {}) {
+  const templateConfigs = [...(form.clauseTemplateConfigs || [])];
+  const pending = buildPendingTemplateConfigForSave(form);
+  if (pending.status !== 'ready') {
+    return {
+      ok: pending.status !== 'invalid',
+      message: pending.message || '',
+      templateConfigs: normalizeTemplateConfigsForSave(templateConfigs)
+    };
+  }
+
+  const editingIndex = Number(form.clauseTemplateConfigEditingIndex);
+  if (editingIndex >= 0 && templateConfigs[editingIndex]) {
+    templateConfigs[editingIndex] = pending.config;
+  } else {
+    const exists = templateConfigs.some((item) => (
+      String(item.templateId || '') === pending.config.templateId
+    ));
+    if (!exists) {
+      templateConfigs.push(pending.config);
+    }
+  }
+
+  return {
+    ok: true,
+    message: '',
+    templateConfigs: normalizeTemplateConfigsForSave(templateConfigs)
+  };
+}
+
+function hasPendingRuleClauseDraft(form = {}) {
+  return Number(form.clauseEditingIndex) >= 0
+    || String(form.clauseTargetIdentityId || '').trim()
+    || form.clauseRequireAllComplete === true
+    || String(form.clauseTemplateId || '').trim()
+    || (Array.isArray(form.clauseTemplateConfigs) && form.clauseTemplateConfigs.length > 0)
+    || String(form.clauseScope || RULE_SCOPE_OPTIONS[0].value) !== RULE_SCOPE_OPTIONS[0].value;
+}
+
+function buildRuleClausesForSave(form = {}) {
+  const clauses = Array.isArray(form.clauses)
+    ? form.clauses.map((item) => normalizeClauseForEdit(item))
+    : [];
+  if (!hasPendingRuleClauseDraft(form)) {
+    return {
+      ok: true,
+      clauses,
+      message: ''
+    };
+  }
+
+  const mergedConfigResult = mergePendingTemplateConfig(form);
+  if (!mergedConfigResult.ok) {
+    return {
+      ok: false,
+      clauses,
+      message: mergedConfigResult.message
+    };
+  }
+
+  const clauseScope = String(form.clauseScope || RULE_SCOPE_OPTIONS[0].value);
+  const targetIdentityId = String(form.clauseTargetIdentityId || '').trim();
+  const targetIdentity = String(form.clauseTargetIdentity || '').trim();
+  if (clauseScope !== 'all_people' && clauseScope.indexOf('_all') === -1 && !targetIdentityId) {
+    return {
+      ok: false,
+      clauses,
+      message: '请填写被评分人身份'
+    };
+  }
+
+  const nextClause = {
+    scopeType: clauseScope,
+    scopeLabel: getScopeLabel(clauseScope),
+    targetIdentityId,
+    targetIdentity,
+    requireAllComplete: form.clauseRequireAllComplete === true,
+    templateConfigs: mergedConfigResult.templateConfigs
+  };
+  const editingIndex = Number(form.clauseEditingIndex);
+  if (editingIndex >= 0 && clauses[editingIndex]) {
+    clauses[editingIndex] = nextClause;
+  } else {
+    const exists = clauses.some((item) => (
+      item.scopeType === nextClause.scopeType
+      && item.targetIdentityId === nextClause.targetIdentityId
+      && item.requireAllComplete === nextClause.requireAllComplete
+      && JSON.stringify(item.templateConfigs || []) === JSON.stringify(nextClause.templateConfigs)
+    ));
+    if (!exists) {
+      clauses.push(nextClause);
+    }
+  }
+
+  return {
+    ok: true,
+    clauses,
+    message: ''
+  };
+}
+
+function buildRuleClausesForBatchApply(form = {}) {
+  const clauses = Array.isArray(form.clauses)
+    ? form.clauses.map((item) => normalizeClauseForEdit(item))
+    : [];
+  return {
+    ok: clauses.length > 0,
+    clauses,
+    message: clauses.length ? '' : '请先准备好要批量应用的被评分人规则'
+  };
+}
+
+function buildRuleClauseText(clause = {}) {
+  const scopeText = clause.scopeLabel || getScopeLabel(clause.scopeType) || '未设置被评分范围';
+  const identityText = clause.targetIdentity ? `，被评分人身份：${clause.targetIdentity}` : '';
+  const completeText = clause.requireAllComplete ? '，要求全评后计入核算' : '，不要求全评';
+  const questionText = (clause.templateConfigs || []).length
+    ? (clause.templateConfigs || [])
+      .map((config) => `${config.templateName || '未命名评分问题'}（权重：${config.weight}，顺序：${config.sortOrder}）`)
+      .join('、')
+    : '未配置评分问题';
+  return `${scopeText}${identityText}${completeText} [${questionText}]`;
+}
+
+function buildRuleListItem(rule = {}) {
+  const clauses = (rule.clauses || []).map((item) => normalizeClauseForEdit(item));
+  return {
+    id: String(rule.id || '').trim(),
+    activityId: String(rule.activityId || '').trim(),
+    activityName: String(rule.activityName || '').trim(),
+    scorerDepartmentId: String(rule.scorerDepartmentId || '').trim(),
+    scorerDepartment: String(rule.scorerDepartment || '').trim(),
+    scorerIdentityId: String(rule.scorerIdentityId || '').trim(),
+    scorerIdentity: String(rule.scorerIdentity || '').trim(),
+    clauses,
+    ruleCount: clauses.length,
+    clausesText: clauses.length
+      ? clauses.map((clause) => buildRuleClauseText(clause)).join(' | ')
+      : '未配置被评分人规则'
+  };
+}
+
 function markSelectedRules(ruleList = [], selectedRuleIds = []) {
   const selectedIdSet = new Set((selectedRuleIds || []).map((item) => String(item)));
   return (ruleList || []).map((item) => ({
@@ -306,6 +520,59 @@ function createSelectedRuleIdMap(selectedRuleIds = []) {
     }
     return map;
   }, {});
+}
+
+function emptyRuleFilters() {
+  return {
+    department: '全部',
+    identity: '全部'
+  };
+}
+
+function buildRuleFilterOptions(ruleList = []) {
+  const departments = [];
+  const identities = [];
+  const departmentSet = new Set();
+  const identitySet = new Set();
+
+  (ruleList || []).forEach((item) => {
+    const department = String(item.scorerDepartment || '').trim();
+    const identity = String(item.scorerIdentity || '').trim();
+    if (department && !departmentSet.has(department)) {
+      departmentSet.add(department);
+      departments.push(department);
+    }
+    if (identity && !identitySet.has(identity)) {
+      identitySet.add(identity);
+      identities.push(identity);
+    }
+  });
+
+  return {
+    departments: ['全部', ...departments.sort((a, b) => a.localeCompare(b, 'zh-CN'))],
+    identities: ['全部', ...identities.sort((a, b) => a.localeCompare(b, 'zh-CN'))]
+  };
+}
+
+function normalizeRuleFilters(filters = {}, filterOptions = buildRuleFilterOptions()) {
+  const department = (filterOptions.departments || []).includes(filters.department) ? filters.department : '全部';
+  const identity = (filterOptions.identities || []).includes(filters.identity) ? filters.identity : '全部';
+  return {
+    department,
+    identity
+  };
+}
+
+function filterRuleList(ruleList = [], filters = emptyRuleFilters()) {
+  return (ruleList || []).filter((item) => {
+    const departmentMatched = !filters.department
+      || filters.department === '全部'
+      || String(item.scorerDepartment || '') === filters.department;
+    const identityMatched = !filters.identity
+      || filters.identity === '全部'
+      || String(item.scorerIdentity || '') === filters.identity;
+    return departmentMatched && identityMatched;
+  });
 }
 
 function buildResultFilterOptions(values = []) {
@@ -431,8 +698,14 @@ Page({
     hasPermission: false,
     isSuperAdmin: false,
     canManageAdmins: false,
+    isRootAdmin: false,
     activeTab: TAB_LIST[0],
     loadingMap: {},
+    organizationList: [],
+    currentOrganizationId: null,
+    currentOrganizationName: '',
+    orgFormVisible: false,
+    orgFormData: { name: '' },
     scopeOptions: RULE_SCOPE_OPTIONS,
     profileEditModeOptions: PROFILE_EDIT_MODE_OPTIONS,
     profileFieldTypeOptions: PROFILE_FIELD_TYPE_OPTIONS,
@@ -449,8 +722,15 @@ Page({
     ruleForm: emptyRuleForm(),
     draggingClauseTemplateIndex: -1,
     ruleList: [],
+    ruleListView: [],
     selectedRuleIds: [],
     selectedRuleIdMap: {},
+    visibleRuleAllSelected: false,
+    ruleFilters: emptyRuleFilters(),
+    ruleFilterOptions: {
+      departments: ['全部'],
+      identities: ['全部']
+    },
     resultFilters: emptyResultFilters(),
     resultFilterOptions: {
       departments: ['全部'],
@@ -458,13 +738,10 @@ Page({
       workGroups: ['全部']
     },
     resultViewOptions: [
-      { value: 'overview', label: '总分速览' },
-      { value: 'calculation', label: '总分计算表' },
-      { value: 'detail', label: '评分明细' },
-      { value: 'completion', label: '完成率看板' },
-      { value: 'records', label: '评分记录管理' }
+      { value: 'overview', label: '明细查看' },
+      { value: 'completion', label: '完成率看板' }
     ],
-    resultViewLabel: '总分速览',
+    resultViewLabel: '明细查看',
     resultSortOptions: [
       { value: 'score_desc', label: '按分数从高到低' },
       { value: 'name_asc', label: '按姓名首字母' },
@@ -486,9 +763,7 @@ Page({
       recordRows: [],
       scorerCompletionRows: [],
       completionBoards: {
-        departments: [],
-        identities: [],
-        workGroups: []
+        departments: []
       },
       stats: {}
     },
@@ -504,9 +779,19 @@ Page({
         workGroups: []
       }
     },
-    completionBoardPopupVisible: false,
-    completionBoardPopupTitle: '',
-    completionBoardPopupRows: [],
+    selectedResultTarget: null,
+    targetRecordRows: [],
+    targetRecordLoading: false,
+    recordDetailPopupVisible: false,
+    recordDetail: null,
+    expandedScoreLabelMap: {},
+    selectedCompletionDepartment: '',
+    departmentScorerRows: [],
+    departmentScorerLoading: false,
+    scorerTargetPopupVisible: false,
+    scorerTargetPopupTitle: '',
+    scorerTargetPopupLoading: false,
+    scorerTargetPopupRows: [],
     hrProfileTemplateForm: emptyHrProfileTemplateForm(),
     hrProfileFilters: emptyHrProfileFilters(),
     hrProfileFilterOptions: emptyHrProfileFilterOptions(),
@@ -515,6 +800,7 @@ Page({
     hrForm: emptyHrForm(),
     hrList: [],
     adminForm: emptyAdminForm(),
+    adminLevelIndex: 0,
     adminList: [],
     latestInviteCode: '',
     csvName: '',
@@ -526,7 +812,10 @@ Page({
     identityList: [],
     departmentOptions: [],
     identityOptions: [],
-    workGroupOptions: []
+    workGroupOptions: [],
+    timezoneOptions: TIMEZONE_OPTIONS,
+    timezoneIndex: 20,
+    systemConfig: { timezone: 8 }
   },
 
   onShow() {
@@ -537,42 +826,47 @@ Page({
     const roleProfiles = wx.getStorageSync(STORAGE_KEY) || {};
     const adminProfile = roleProfiles.admin;
     const isSuperAdmin = !!adminProfile && adminProfile.adminLevel === 'super_admin';
+    const isRootAdmin = !!adminProfile && adminProfile.adminLevel === 'root_admin';
 
     if (!adminProfile) {
       this.setData({
         user: null,
         hasPermission: false,
         isSuperAdmin: false,
+        isRootAdmin: false,
         canManageAdmins: false
       });
       return;
     }
 
+    const canManageAdmins = isSuperAdmin || isRootAdmin;
+
     this.setData({
       user: adminProfile,
       hasPermission: true,
       isSuperAdmin,
-      canManageAdmins: isSuperAdmin,
+      isRootAdmin,
+      canManageAdmins,
       resultFilterOptions: {
         departments: ['全部'],
         identities: ['全部'],
         workGroups: ['全部']
       },
       resultViewOptions: [
-        { value: 'overview', label: '总分速览' },
-        { value: 'calculation', label: '总分计算表' },
-        { value: 'detail', label: '评分明细' },
-        { value: 'completion', label: '完成率看板' },
-        { value: 'records', label: '评分记录管理' }
+        { value: 'overview', label: '明细查看' },
+        { value: 'completion', label: '完成率看板' }
       ],
-      resultViewLabel: '总分速览',
+      resultViewLabel: '明细查看',
       resultSortOptions: [
         { value: 'score_desc', label: '按分数从高到低' },
         { value: 'name_asc', label: '按姓名首字母' },
         { value: 'department_asc', label: '按所属部门' },
         { value: 'workGroup_asc', label: '按职能组' }
       ],
-      resultSortLabel: '按分数从高到低'
+      resultSortLabel: '按分数从高到低',
+      adminLevelOptions: isRootAdmin
+        ? ['普通管理员', '超级管理员', '至高权限管理员']
+        : ['普通管理员', '超级管理员']
     });
 
     await this.loadActivityList();
@@ -581,6 +875,8 @@ Page({
     this.loadHrProfileAdminData();
     this.loadHrList();
     this.loadAdminList();
+    this.loadSystemConfig();
+    this.loadOrganizations();
     await this.loadDepartmentList();
     await this.loadWorkGroupList();
     await this.loadIdentityList();
@@ -603,7 +899,15 @@ Page({
     }
     this.setData({ activeTab: tab });
     if (tab === 'results') {
-      this.loadScoreResults();
+      if (!this.data.currentActivityId) {
+        this.loadActivityList().then(() => {
+          if (this.data.currentActivityId) {
+            this.loadScoreResults();
+          }
+        });
+      } else {
+        this.loadScoreResults();
+      }
     }
     if (tab === 'profile') {
       this.loadHrProfileAdminData();
@@ -617,6 +921,292 @@ Page({
     if (tab === 'identities') {
       this.loadIdentityList();
     }
+    if (tab === 'rules') {
+      this.loadRuleList();
+      if (!this.data.departmentList.length) {
+        this.loadDepartmentList();
+      }
+      if (!this.data.identityList.length) {
+        this.loadIdentityList();
+      }
+    }
+    if (tab === 'settings') {
+      this.loadSystemConfig();
+    }
+  },
+
+  async loadSystemConfig() {
+    try {
+      const result = await this.callCloud('getSystemConfig');
+      if (result.status === 'success' && result.config) {
+        const timezone = result.config.timezone;
+        const timezoneIndex = this.data.timezoneOptions.findIndex(function (item) {
+          return item.value === timezone;
+        });
+        this.setData({
+          systemConfig: { timezone: timezone },
+          timezoneIndex: timezoneIndex >= 0 ? timezoneIndex : 20,
+          currentOrganizationId: result.config.currentOrganization || null
+        });
+        this.resolveCurrentOrganizationName();
+      }
+    } catch (e) {
+      console.error('loadSystemConfig error:', e);
+    }
+  },
+
+  onTimezoneChange(e) {
+    const idx = Number(e.detail.value);
+    const option = this.data.timezoneOptions[idx];
+    if (option) {
+      this.setData({
+        timezoneIndex: idx,
+        systemConfig: { timezone: option.value }
+      });
+    }
+  },
+
+  async saveSystemConfig() {
+    this.setLoading('saveSystemConfig', true);
+    try {
+      const result = await this.callCloud('saveSystemConfig', {
+        timezone: this.data.systemConfig.timezone
+      });
+      if (result.status === 'success') {
+        wx.showToast({ title: '配置已保存', icon: 'success' });
+      } else {
+        wx.showToast({ title: result.message || '保存失败', icon: 'none' });
+      }
+    } catch (e) {
+      wx.showToast({ title: '保存失败', icon: 'none' });
+    }
+    this.setLoading('saveSystemConfig', false);
+  },
+
+  async loadOrganizations() {
+    if (!this.data.isRootAdmin) return;
+    try {
+      const result = await this.callCloud('listOrganizations');
+      if (result.status === 'success') {
+        this.setData({ organizationList: result.list || [] });
+        this.resolveCurrentOrganizationName();
+      }
+    } catch (e) {
+      console.error('loadOrganizations error:', e);
+    }
+  },
+
+  resolveCurrentOrganizationName() {
+    const orgId = this.data.currentOrganizationId;
+    if (!orgId) {
+      this.setData({ currentOrganizationName: '' });
+      return;
+    }
+    const org = this.data.organizationList.find(function (o) { return o.id === orgId; });
+    this.setData({ currentOrganizationName: org ? org.name : '' });
+  },
+
+  openOrgForm(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset.id;
+    if (id) {
+      const org = this.data.organizationList.find(function (o) { return o.id === id; });
+      this.setData({ orgFormVisible: true, orgFormData: { id, name: org ? org.name : '' } });
+    } else {
+      this.setData({ orgFormVisible: true, orgFormData: { name: '' } });
+    }
+  },
+
+  closeOrgForm() {
+    this.setData({ orgFormVisible: false, orgFormData: { name: '' } });
+  },
+
+  onOrgFieldInput(e) {
+    this.setData({
+      orgFormData: { ...this.data.orgFormData, name: e.detail.value.trim() }
+    });
+  },
+
+  async saveOrganization() {
+    if (!this.data.orgFormData.name) {
+      wx.showToast({ title: '请填写组织名称', icon: 'none' });
+      return;
+    }
+    this.setLoading('saveOrganization', true);
+    try {
+      const result = await this.callCloud('saveOrganization', this.data.orgFormData);
+      if (result.status === 'success') {
+        wx.showToast({ title: '组织已保存', icon: 'success' });
+        this.closeOrgForm();
+        await this.loadOrganizations();
+      } else {
+        wx.showToast({ title: result.message || '保存失败', icon: 'none' });
+      }
+    } catch (e) {
+      wx.showToast({ title: '保存组织失败', icon: 'none' });
+    }
+    this.setLoading('saveOrganization', false);
+  },
+
+  async deleteOrganization(e) {
+    const organizationId = e.currentTarget.dataset.id;
+    if (!organizationId) return;
+    const confirm = await new Promise(function (resolve) {
+      wx.showModal({
+        title: '删除组织',
+        content: '删除后将清除该组织在所有历史数据库中的数据，不可恢复。确认删除？',
+        confirmText: '删除',
+        cancelText: '取消',
+        success: function (res) { resolve(res.confirm); }
+      });
+    });
+    if (!confirm) return;
+    this.setLoading('deleteOrganization', true);
+    wx.showLoading({ title: '正在删除组织...', mask: true });
+    try {
+      const result = await this.callCloud('deleteOrganization', { organizationId });
+      if (result.status === 'success') {
+        wx.showToast({ title: '组织已删除', icon: 'success' });
+        await this.loadOrganizations();
+      } else {
+        wx.showToast({ title: result.message || '删除失败', icon: 'none' });
+      }
+    } catch (e) {
+      wx.showToast({ title: '删除组织失败', icon: 'none' });
+    }
+    wx.hideLoading();
+    this.setLoading('deleteOrganization', false);
+  },
+
+  async switchOrganization(e) {
+    const { id, name } = e.currentTarget.dataset;
+    if (!id || !name) return;
+    const confirm = await new Promise(function (resolve) {
+      wx.showModal({
+        title: '切换组织',
+        content: '切换组织将归档当前所有数据到历史数据库，切换到「' + name + '」。如果这是历史组织，数据将被恢复。确认切换？',
+        confirmText: '切换',
+        cancelText: '取消',
+        success: function (res) { resolve(res.confirm); }
+      });
+    });
+    if (!confirm) return;
+
+    this.setLoading('switchOrganization', true);
+
+    // 第一步：归档当前数据
+    wx.showLoading({ title: '正在归档当前数据...', mask: true });
+    try {
+      const archiveResult = await this.callCloud('switchOrganization', { mode: 'archive' });
+      if (archiveResult.status !== 'success') {
+        wx.hideLoading();
+        wx.showToast({ title: archiveResult.message || '归档失败', icon: 'none' });
+        this.setLoading('switchOrganization', false);
+        return;
+      }
+    } catch (e) {
+      wx.hideLoading();
+      wx.showToast({ title: '归档失败，请重试', icon: 'none' });
+      this.setLoading('switchOrganization', false);
+      return;
+    }
+
+    // 第二步：恢复目标组织
+    wx.showLoading({ title: '正在恢复目标组织...', mask: true });
+    try {
+      const result = await this.callCloud('switchOrganization', {
+        mode: 'restore',
+        organizationId: id,
+        organizationName: name
+      });
+      if (result.status === 'success') {
+        wx.showToast({ title: result.message || '切换成功', icon: 'success' });
+        this.setData({ currentOrganizationId: id, currentOrganizationName: name });
+        await this.loadOrganizations();
+        this.loadActivityList();
+        this.loadTemplateList();
+        this.loadRuleList();
+        this.loadHrProfileAdminData();
+        this.loadHrList();
+        this.loadAdminList();
+        await this.loadDepartmentList();
+        await this.loadWorkGroupList();
+        await this.loadIdentityList();
+      } else {
+        wx.showToast({ title: result.message || '恢复失败，请重试', icon: 'none' });
+      }
+    } catch (e) {
+      wx.showToast({ title: '恢复失败，当前数据已归档保存，请重试恢复步骤', icon: 'none' });
+    }
+    wx.hideLoading();
+    this.setLoading('switchOrganization', false);
+  },
+
+  async createAndSwitchOrganization() {
+    if (!this.data.orgFormData.name) {
+      wx.showToast({ title: '请填写组织名称', icon: 'none' });
+      return;
+    }
+    const confirm = await new Promise(function (resolve) {
+      wx.showModal({
+        title: '新建并切换组织',
+        content: '当前所有数据将被归档到历史数据库，切换到新组织「' + this.data.orgFormData.name + '」。确认？',
+        confirmText: '确认',
+        cancelText: '取消',
+        success: function (res) { resolve(res.confirm); }
+      });
+    }.bind(this));
+    if (!confirm) return;
+    const orgId = 'org_' + Date.now();
+
+    this.setLoading('switchOrganization', true);
+
+    // 第一步：归档当前数据
+    wx.showLoading({ title: '正在归档当前数据...', mask: true });
+    try {
+      const archiveResult = await this.callCloud('switchOrganization', { mode: 'archive' });
+      if (archiveResult.status !== 'success') {
+        wx.hideLoading();
+        wx.showToast({ title: archiveResult.message || '归档失败', icon: 'none' });
+        this.setLoading('switchOrganization', false);
+        return;
+      }
+    } catch (e) {
+      wx.hideLoading();
+      wx.showToast({ title: '归档失败，请重试', icon: 'none' });
+      this.setLoading('switchOrganization', false);
+      return;
+    }
+
+    // 第二步：创建并恢复（新组织无历史数据，restore 仅创建组织记录）
+    wx.showLoading({ title: '正在创建并切换组织...', mask: true });
+    try {
+      const result = await this.callCloud('switchOrganization', {
+        mode: 'restore',
+        organizationId: orgId,
+        organizationName: this.data.orgFormData.name
+      });
+      if (result.status === 'success') {
+        wx.showToast({ title: result.message || '切换成功', icon: 'success' });
+        this.closeOrgForm();
+        this.setData({ currentOrganizationId: orgId, currentOrganizationName: this.data.orgFormData.name });
+        await this.loadOrganizations();
+        this.loadActivityList();
+        this.loadTemplateList();
+        this.loadRuleList();
+        this.loadHrProfileAdminData();
+        this.loadHrList();
+        this.loadAdminList();
+        await this.loadDepartmentList();
+        await this.loadWorkGroupList();
+        await this.loadIdentityList();
+      } else {
+        wx.showToast({ title: result.message || '切换失败', icon: 'none' });
+      }
+    } catch (e) {
+      wx.showToast({ title: '切换失败，当前数据已归档保存，请重试', icon: 'none' });
+    }
+    wx.hideLoading();
+    this.setLoading('switchOrganization', false);
   },
 
   callCloud(name, data = {}) {
@@ -627,6 +1217,31 @@ Page({
         success: (res) => resolve(res.result || {}),
         fail: reject
       });
+    });
+  },
+
+  setRuleListState(ruleList = [], selectedRuleIds = this.data.selectedRuleIds, filters = this.data.ruleFilters) {
+    const normalizedList = (ruleList || []).map((item) => buildRuleListItem(item));
+    const ruleIdSet = new Set(normalizedList.map((item) => item.id).filter(Boolean));
+    const safeSelectedRuleIds = (selectedRuleIds || [])
+      .map((item) => String(item || '').trim())
+      .filter((id, index, list) => id && ruleIdSet.has(id) && list.indexOf(id) === index);
+    const filterOptions = buildRuleFilterOptions(normalizedList);
+    const nextFilters = normalizeRuleFilters(filters || emptyRuleFilters(), filterOptions);
+    const selectedRuleIdMap = createSelectedRuleIdMap(safeSelectedRuleIds);
+    const markedRuleList = markSelectedRules(normalizedList, safeSelectedRuleIds);
+    const ruleListView = markSelectedRules(filterRuleList(normalizedList, nextFilters), safeSelectedRuleIds);
+    const visibleRuleAllSelected = ruleListView.length > 0
+      && ruleListView.every((item) => selectedRuleIdMap[String(item.id || '')]);
+
+    this.setData({
+      ruleList: markedRuleList,
+      ruleListView,
+      selectedRuleIds: safeSelectedRuleIds,
+      selectedRuleIdMap,
+      visibleRuleAllSelected,
+      ruleFilters: nextFilters,
+      ruleFilterOptions: filterOptions
     });
   },
 
@@ -697,36 +1312,33 @@ Page({
 
   async loadRuleList(options = {}) {
     const silent = !!options.silent;
-    this.setLoading('rules', true);
+    if (!silent) {
+      this.setLoading('rules', true);
+    }
     try {
       if (!this.data.currentActivityId) {
-        this.setData({
-          ruleList: [],
-          selectedRuleIds: [],
-          selectedRuleIdMap: {}
-        });
+        this.setRuleListState([], [], emptyRuleFilters());
         return;
       }
 
       const result = await this.callCloud('listRateRules', {
         activityId: this.data.currentActivityId
       });
-      const rawRuleList = result.rules || [];
-      const ruleIdSet = new Set(rawRuleList.map((item) => item.id));
-      const selectedRuleIds = (this.data.selectedRuleIds || []).filter((id) => ruleIdSet.has(id));
-      const ruleList = markSelectedRules(rawRuleList, selectedRuleIds);
-      this.setData({
-        ruleList,
-        selectedRuleIds,
-        selectedRuleIdMap: createSelectedRuleIdMap(selectedRuleIds)
-      });
+      if (result.status && result.status !== 'success') {
+        throw new Error(result.message || '加载评分人类别失败');
+      }
+      this.setRuleListState(result.rules || [], this.data.selectedRuleIds, this.data.ruleFilters);
     } catch (error) {
-      wx.showToast({
-        title: '加载评分人类别失败',
-        icon: 'none'
-      });
+      if (!silent) {
+        wx.showToast({
+          title: '加载评分人类别失败',
+          icon: 'none'
+        });
+      }
     } finally {
-      this.setLoading('rules', false);
+      if (!silent) {
+        this.setLoading('rules', false);
+      }
     }
   },
 
@@ -748,6 +1360,63 @@ Page({
         return;
       }
     }
+  },
+
+  upsertRuleListItem(rule) {
+    const item = buildRuleListItem(rule);
+    if (!item.id && (!item.scorerDepartment || !item.scorerIdentity)) {
+      return;
+    }
+
+    const selectedRuleIds = this.data.selectedRuleIds || [];
+    const nextList = [...(this.data.ruleList || [])];
+    const index = nextList.findIndex((current) => (
+      (item.id && String(current.id || '') === item.id)
+      || (
+        String(current.scorerDepartment || '') === item.scorerDepartment
+        && String(current.scorerIdentity || '') === item.scorerIdentity
+      )
+    ));
+    if (index >= 0) {
+      nextList[index] = {
+        ...nextList[index],
+        ...item
+      };
+    } else {
+      nextList.push(item);
+    }
+
+    nextList.sort((a, b) => {
+      if (a.scorerDepartment !== b.scorerDepartment) {
+        return String(a.scorerDepartment || '').localeCompare(String(b.scorerDepartment || ''), 'zh-CN');
+      }
+      return String(a.scorerIdentity || '').localeCompare(String(b.scorerIdentity || ''), 'zh-CN');
+    });
+
+    this.setRuleListState(nextList, selectedRuleIds, this.data.ruleFilters);
+  },
+
+  async reloadRuleListAfterSave(savedRule) {
+    this.upsertRuleListItem(savedRule);
+    const expectedId = String((savedRule && savedRule.id) || '').trim();
+    const expectedDepartment = String((savedRule && savedRule.scorerDepartment) || '').trim();
+    const expectedIdentity = String((savedRule && savedRule.scorerIdentity) || '').trim();
+    const retryDelays = [120, 300, 600];
+    for (let i = 0; i < retryDelays.length; i += 1) {
+      await this.wait(retryDelays[i]);
+      await this.loadRuleList({ silent: true });
+      const matched = (this.data.ruleList || []).find((item) => (
+        (expectedId && String(item.id || '') === expectedId)
+        || (
+          String(item.scorerDepartment || '') === expectedDepartment
+          && String(item.scorerIdentity || '') === expectedIdentity
+        )
+      ));
+      if (matched && (matched.clauses || []).length) {
+        return;
+      }
+    }
+    this.upsertRuleListItem(savedRule);
   },
 
   async loadHrList() {
@@ -1266,13 +1935,13 @@ Page({
   },
 
   updateWorkGroupOptions() {
-    const { department } = this.data.hrForm;
-    if (!department) {
+    const { departmentId, department } = this.data.hrForm;
+    if (!departmentId && !department) {
       this.setData({ workGroupOptions: [] });
       return;
     }
 
-    const departmentObj = this.data.departmentList.find(d => d.name === department);
+    const departmentObj = this.data.departmentList.find(d => d.id === departmentId || d.name === department);
     if (!departmentObj) {
       this.setData({ workGroupOptions: [] });
       return;
@@ -1290,11 +1959,14 @@ Page({
   onHrDepartmentChange(e) {
     const index = Number(e.detail.value);
     const department = this.data.departmentOptions[index];
+    const departmentObj = this.data.departmentList[index] || {};
     
     this.setData({
       hrForm: {
         ...this.data.hrForm,
+        departmentId: departmentObj.id || '',
         department,
+        workGroupId: '',
         workGroup: ''
       }
     });
@@ -1305,10 +1977,12 @@ Page({
   onHrIdentityChange(e) {
     const index = Number(e.detail.value);
     const identity = this.data.identityOptions[index];
+    const identityObj = this.data.identityList[index] || {};
     
     this.setData({
       hrForm: {
         ...this.data.hrForm,
+        identityId: identityObj.id || '',
         identity
       }
     });
@@ -1317,10 +1991,13 @@ Page({
   onHrWorkGroupChange(e) {
     const index = Number(e.detail.value);
     const workGroup = this.data.workGroupOptions[index];
+    const departmentObj = this.data.departmentList.find(d => d.id === this.data.hrForm.departmentId || d.name === this.data.hrForm.department) || {};
+    const workGroupObj = this.data.workGroupList.filter(wg => wg.departmentId === departmentObj.id || wg.departmentCode === departmentObj.code)[index] || {};
     
     this.setData({
       hrForm: {
         ...this.data.hrForm,
+        workGroupId: workGroupObj.id || '',
         workGroup
       }
     });
@@ -1346,10 +2023,10 @@ Page({
       this.updateHrFormOptions();
       
       const stats = result.stats || {};
-      const changedCount = ['departmentsCreated', 'departmentsUpdated', 'identitiesCreated', 'identitiesUpdated', 'workGroupsCreated', 'workGroupsUpdated']
+      const changedCount = ['departmentsCreated', 'identitiesCreated', 'workGroupsCreated']
         .reduce((sum, key) => sum + Number(stats[key] || 0), 0);
       wx.showToast({
-        title: changedCount ? `已同步${changedCount}项` : '组织字典已同步',
+        title: changedCount ? `已补齐${changedCount}项` : '组织字典已完整',
         icon: 'success'
       });
     } catch (error) {
@@ -1369,11 +2046,13 @@ Page({
   
   async loadScoreResults() {
     const viewMode = this.data.resultFilters.viewMode || 'overview';
-    const pageSize = 100;
     const loadToken = Date.now();
     this.resultLoadToken = loadToken;
   
-    if (!this.data.currentActivityId) return;
+    if (!this.data.currentActivityId) {
+      this.setLoading('results', false);
+      return;
+    }
   
     this.setLoading('results', true);
   
@@ -1392,9 +2071,96 @@ Page({
     const maxRequests = 100;
   
     try {
+      if (viewMode === 'overview') {
+        const result = await this.callCloud('getScoreResults', {
+          activityId: this.data.currentActivityId,
+          timezone: this.data.systemConfig.timezone,
+          dataType: viewMode,
+          offset: 0,
+          filters: {
+            department: this.data.resultFilters.department,
+            identity: this.data.resultFilters.identity,
+            workGroup: this.data.resultFilters.workGroup
+          }
+        });
+
+        if (this.resultLoadToken !== loadToken) {
+          return;
+        }
+
+        if (result.status !== 'success') {
+          wx.showToast({
+            title: result.message || '加载评分结果失败',
+            icon: 'none'
+          });
+          return;
+        }
+
+        const overviewRows = result.overviewRows || [];
+        this.setData({
+          'scoreResultsRaw.stats': result.stats || {},
+          'scoreResultsRaw.overviewRows': overviewRows,
+          resultFilterOptions: {
+            departments: buildResultFilterOptions((this.data.departmentList || []).map(function (item) { return item.name; })),
+            identities: buildResultFilterOptions((this.data.identityList || []).map(function (item) { return item.name; })),
+            workGroups: this.buildWorkGroupFilterOptions()
+          },
+          resultPagination: {
+            ...this.data.resultPagination,
+            overview: {
+              page: 1,
+              pageSize: overviewRows.length,
+              hasMore: !!(result.pagination && result.pagination.hasMore),
+              total: result.pagination ? result.pagination.total || overviewRows.length : overviewRows.length
+            }
+          }
+        });
+        this.applyScoreResultFilters();
+        return;
+      }
+
+      if (viewMode === 'completion') {
+        const result = await this.callCloud('getScoreResults', {
+          activityId: this.data.currentActivityId,
+          timezone: this.data.systemConfig.timezone,
+          dataType: viewMode,
+          filters: {
+            department: this.data.resultFilters.department,
+            identity: this.data.resultFilters.identity,
+            workGroup: this.data.resultFilters.workGroup
+          }
+        });
+
+        if (this.resultLoadToken !== loadToken) {
+          return;
+        }
+
+        if (result.status !== 'success') {
+          wx.showToast({
+            title: result.message || '加载评分结果失败',
+            icon: 'none'
+          });
+          return;
+        }
+
+        this.setData({
+          'scoreResultsRaw.stats': result.stats || {},
+          'scoreResultsRaw.completionBoards': result.completionBoards || { departments: [] },
+          'scoreResultsRaw.scorerCompletionRows': [],
+          resultFilterOptions: {
+            departments: buildResultFilterOptions((this.data.departmentList || []).map((item) => item.name)),
+            identities: buildResultFilterOptions((this.data.identityList || []).map((item) => item.name)),
+            workGroups: this.buildWorkGroupFilterOptions()
+          }
+        });
+        this.applyScoreResultFilters();
+        return;
+      }
+
       while (hasMore && requestCount < maxRequests) {
         const result = await this.callCloud('getScoreResults', {
           activityId: this.data.currentActivityId,
+          timezone: this.data.systemConfig.timezone,
           dataType: viewMode,
           offset,
           filters: {
@@ -1403,11 +2169,11 @@ Page({
             workGroup: this.data.resultFilters.workGroup
           }
         });
-  
+
         if (this.resultLoadToken !== loadToken) {
           return;
         }
-  
+
         if (result.status !== 'success') {
           wx.showToast({
             title: result.message || '加载评分结果失败',
@@ -1415,9 +2181,9 @@ Page({
           });
           return;
         }
-  
+
         latestResult = result;
-  
+
         const batchMap = {
           overview: result.overviewRows || [],
           calculation: result.calculationRows || [],
@@ -1425,9 +2191,9 @@ Page({
           records: result.recordRows || [],
           completion: result.scorerCompletionRows || []
         };
-  
+
         const batchRows = batchMap[viewMode] || [];
-  
+
         if (viewMode === 'overview') {
           mergedRows.overviewRows.push(...batchRows);
         } else if (viewMode === 'calculation') {
@@ -1443,9 +2209,9 @@ Page({
         const setDataObj = {
           'scoreResultsRaw.stats': result.stats || {},
           resultFilterOptions: {
-            departments: buildResultFilterOptions((result.filterOptions && result.filterOptions.departments) || []),
-            identities: buildResultFilterOptions((result.filterOptions && result.filterOptions.identities) || []),
-            workGroups: buildResultFilterOptions((result.filterOptions && result.filterOptions.workGroups) || [])
+            departments: buildResultFilterOptions((this.data.departmentList || []).map(function (item) { return item.name; })),
+            identities: buildResultFilterOptions((this.data.identityList || []).map(function (item) { return item.name; })),
+            workGroups: this.buildWorkGroupFilterOptions()
           }
         };
         
@@ -1467,10 +2233,8 @@ Page({
         
         if (viewMode === 'completion') {
           setDataObj['scoreResultsRaw.scorerCompletionRows'] = mergedRows.scorerCompletionRows;
-          setDataObj['scoreResultsRaw.completionBoards'] = {
-            departments: [],
-            identities: [],
-            workGroups: []
+          setDataObj['scoreResultsRaw.completionBoards'] = result.completionBoards || {
+            departments: []
           };
         }
         
@@ -1517,6 +2281,207 @@ Page({
   loadMoreScoreResults() {
     // 已改成自动连续请求，不再依赖滚动触底加载
   },
+
+  async openTargetScoreRecords(e) {
+    const targetId = String(e.currentTarget.dataset.targetId || '').trim();
+    const target = (this.data.scoreResultsView.overviewRows || []).find((item) => String(item.targetId || item.id) === targetId);
+    if (!target || !this.data.currentActivityId) {
+      return;
+    }
+
+    await this.loadTargetScoreRecords(targetId, target);
+  },
+
+  async loadTargetScoreRecords(targetId, target, options = {}) {
+    const requestToken = `${targetId}_${Date.now()}`;
+    this.targetRecordLoadToken = requestToken;
+    const revokedRecordId = String(options.revokedRecordId || '').trim();
+    const keepRows = options.keepRows === true;
+
+    const loadingData = {
+      selectedResultTarget: target,
+      targetRecordLoading: true
+    };
+    if (!keepRows) {
+      loadingData.targetRecordRows = [];
+    }
+    this.setData(loadingData);
+
+    try {
+      const result = await this.callCloud('getScoreResults', {
+        activityId: this.data.currentActivityId,
+        timezone: this.data.systemConfig.timezone,
+        dataType: 'targetRecords',
+        targetId
+      });
+
+      const currentTargetId = String((this.data.selectedResultTarget && (this.data.selectedResultTarget.targetId || this.data.selectedResultTarget.id)) || '');
+      if (this.targetRecordLoadToken !== requestToken || currentTargetId !== targetId) {
+        return;
+      }
+
+      if (result.status !== 'success') {
+        wx.showToast({
+          title: result.message || '加载评分记录失败',
+          icon: 'none'
+        });
+        return;
+      }
+
+      const targetRows = (result.targetRecordRows || []).map((item) => {
+        const forcePending = revokedRecordId && String(item.recordId || '') === revokedRecordId;
+        const normalizedItem = forcePending ? {
+          ...item,
+          recordId: '',
+          status: 'pending',
+          statusText: '未完成',
+          submittedAt: '',
+          excludedByRequireAll: false
+        } : item;
+        const recordStatus = normalizedItem.status === 'inactive' || normalizedItem.excludedByRequireAll
+          ? 'inactive'
+          : normalizedItem.status;
+        return {
+          ...normalizedItem,
+          status: recordStatus,
+          canViewDetail: (recordStatus === 'completed' || recordStatus === 'inactive') && !!normalizedItem.recordId,
+          departmentText: normalizedItem.scorerDepartment || '未设置部门',
+          identityText: normalizedItem.scorerIdentity || '未设置身份',
+          workGroupText: normalizedItem.scorerWorkGroup || normalizedItem.workGroup || '',
+          statusClass: recordStatus === 'completed'
+            ? 'status-completed'
+            : (recordStatus === 'inactive' ? 'status-inactive' : 'status-pending'),
+          scoreTagClass: recordStatus === 'completed'
+            ? 'score-tag-completed'
+            : (recordStatus === 'inactive' ? 'score-tag-inactive' : 'score-tag-pending')
+        };
+      });
+
+      this.setData({
+        targetRecordRows: targetRows
+      });
+    } catch (error) {
+      if (this.targetRecordLoadToken !== requestToken) {
+        return;
+      }
+      wx.showToast({
+        title: '加载评分记录失败',
+        icon: 'none'
+      });
+    } finally {
+      if (this.targetRecordLoadToken === requestToken) {
+        this.setData({
+          targetRecordLoading: false
+        });
+      }
+    }
+  },
+
+  closeTargetScoreRecords() {
+    this.targetRecordLoadToken = '';
+    this.setData({
+      selectedResultTarget: null,
+      targetRecordRows: []
+    });
+  },
+
+  async openScoreRecordDetail(e) {
+    const recordId = String(e.currentTarget.dataset.recordId || '').trim();
+    if (!recordId || !this.data.currentActivityId) {
+      return;
+    }
+
+    this.setData({
+      recordDetailPopupVisible: true,
+      recordDetail: null
+    });
+    this.setLoading(`recordDetail_${recordId}`, true);
+    try {
+      const result = await this.callCloud('getScoreResults', {
+        activityId: this.data.currentActivityId,
+        timezone: this.data.systemConfig.timezone,
+        dataType: 'recordDetail',
+        recordId
+      });
+
+      if (result.status !== 'success') {
+        wx.showToast({
+          title: result.message || '加载评分详情失败',
+          icon: 'none'
+        });
+        this.setData({ recordDetailPopupVisible: false });
+        return;
+      }
+
+      const recordDetail = result.recordDetail ? {
+        ...result.recordDetail,
+        templates: (result.recordDetail.templates || []).map((template) => ({
+          ...template,
+          questions: (template.questions || []).map((question) => ({
+            ...question,
+            expandKey: `${template.templateId}_${question.questionIndex}`,
+            hasScoreLabel: !!question.scoreLabel,
+            scoreLabelExpanded: false
+          }))
+        }))
+      } : null;
+
+      this.setData({
+        recordDetail,
+        expandedScoreLabelMap: {}
+      });
+    } catch (error) {
+      this.setData({ recordDetailPopupVisible: false });
+      wx.showToast({
+        title: '加载评分详情失败',
+        icon: 'none'
+      });
+    } finally {
+      this.setLoading(`recordDetail_${recordId}`, false);
+    }
+  },
+
+  closeScoreRecordDetail() {
+    this.setData({
+      recordDetailPopupVisible: false,
+      recordDetail: null,
+      expandedScoreLabelMap: {}
+    });
+  },
+
+  toggleScoreLabel(e) {
+    const templateIndex = Number(e.currentTarget.dataset.templateIndex);
+    const questionIndex = Number(e.currentTarget.dataset.questionIndex);
+    const recordDetail = this.data.recordDetail;
+    if (!recordDetail || !recordDetail.templates || !recordDetail.templates[templateIndex]) {
+      return;
+    }
+
+    const templates = recordDetail.templates.map((template, currentTemplateIndex) => {
+      if (currentTemplateIndex !== templateIndex) {
+        return template;
+      }
+      return {
+        ...template,
+        questions: (template.questions || []).map((question, currentQuestionIndex) => {
+          if (currentQuestionIndex !== questionIndex) {
+            return question;
+          }
+          return {
+            ...question,
+            scoreLabelExpanded: !question.scoreLabelExpanded
+          };
+        })
+      };
+    });
+
+    this.setData({
+      recordDetail: {
+        ...recordDetail,
+        templates
+      }
+    });
+  },
   
   resetCurrentResultRows() {
     const viewMode = this.data.resultFilters.viewMode || 'overview';
@@ -1544,6 +2509,18 @@ Page({
   
     this.setData({
       scoreResultsRaw: nextRaw,
+      selectedResultTarget: null,
+      targetRecordRows: [],
+      recordDetailPopupVisible: false,
+      recordDetail: null,
+      expandedScoreLabelMap: {},
+      selectedCompletionDepartment: '',
+      departmentScorerRows: [],
+      departmentScorerLoading: false,
+      scorerTargetPopupVisible: false,
+      scorerTargetPopupTitle: '',
+      scorerTargetPopupLoading: false,
+      scorerTargetPopupRows: [],
       resultPagination: {
         ...this.data.resultPagination,
         [viewMode]: {
@@ -1555,6 +2532,31 @@ Page({
       }
     });
   },
+  buildWorkGroupFilterOptions(department) {
+    var dept = department;
+    if (dept === undefined) {
+      dept = this.data.resultFilters.department;
+    }
+    var workGroupList = this.data.workGroupList || [];
+    if (!dept || dept === '全部') {
+      return ['全部'];
+    }
+    var deptId = '';
+    var deptList = this.data.departmentList || [];
+    for (var i = 0; i < deptList.length; i++) {
+      if (deptList[i].name === dept) {
+        deptId = deptList[i].id || deptList[i]._id || '';
+        break;
+      }
+    }
+    var filtered = workGroupList
+      .filter(function (item) {
+        return item.departmentId === deptId || item.departmentName === dept;
+      })
+      .map(function (item) { return item.name; });
+    return ['全部'].concat(filtered);
+  },
+
   applyScoreResultFilters() {
     const filters = this.data.resultFilters || emptyResultFilters();
     const isAllValue = (value) => !value
@@ -1571,7 +2573,7 @@ Page({
       if (!isAllValue(filters.identity) && row.identity !== filters.identity) {
         return false;
       }
-      if (!isAllValue(filters.workGroup) && (row.workGroup || '未分组') !== filters.workGroup) {
+      if (!isAllValue(filters.workGroup) && (row.workGroup || '') !== filters.workGroup) {
         return false;
       }
       return true;
@@ -1613,72 +2615,25 @@ Page({
     });
     const calculationRows = sortRows((this.data.scoreResultsRaw.calculationRows || []).filter(matches), 'contributionScore');
     const detailRows = sortRows((this.data.scoreResultsRaw.detailRows || []).filter(matches), 'weightedScore');
-    const recordRows = sortRows((this.data.scoreResultsRaw.recordRows || []).filter(matches), 'weightedTotalScore');
-    const completionSourceRows = (this.data.scoreResultsRaw.scorerCompletionRows || []).filter(matches).filter((row) => Number(row.expectedCount || 0) > 0);
-    const buildBoard = (field) => {
-      const map = {};
-      completionSourceRows.forEach((row) => {
-        const key = row[field] || '未设置';
-        if (!map[key]) {
-          map[key] = {
-            groupName: key,
-            memberCount: 0,
-            completedCount: 0,
-            expectedCount: 0,
-            submittedCount: 0,
-            pendingCount: 0,
-            scorerRows: []
-          };
-        }
-        const expectedCount = Math.max(0, Math.floor(toNumber(row.expectedCount, 0)));
-        const submittedCount = Math.max(0, Math.floor(toNumber(row.submittedCount, 0)));
-        const pendingCount = Math.max(expectedCount - submittedCount, 0);
-        const isCompleted = pendingCount === 0;
-        map[key].memberCount += 1;
-        map[key].completedCount += isCompleted ? 1 : 0;
-        map[key].expectedCount += expectedCount;
-        map[key].submittedCount += submittedCount;
-        map[key].pendingCount += pendingCount;
-        map[key].scorerRows.push({
-          ...row,
-          expectedCount,
-          submittedCount,
-          pendingCount,
-          completionText: `${submittedCount}/${expectedCount}`,
-          progressPercentText: `${expectedCount ? Math.round((submittedCount / expectedCount) * 100) : 100}%`,
-          progressFillStyle: buildProgressFillStyle(expectedCount ? (submittedCount / expectedCount) * 100 : 100),
-          statusText: pendingCount > 0 ? '未完成' : '已完成',
-          statusClass: pendingCount > 0 ? 'status-pending' : 'status-completed'
-        });
-      });
-      return Object.keys(map).map((key) => {
-        const item = map[key];
-        const percent = item.memberCount
-          ? clampNumber((item.completedCount / item.memberCount) * 100, 0, 100)
-          : 100;
-      
-        return {
-          ...item,
-          completionRate: Number(percent.toFixed(2)),
-          completionText: `${item.completedCount}/${item.memberCount}`,
-          progressPercentText: `${Math.round(percent)}%`,
-          progressFillStyle: buildProgressFillStyle(percent),
-          scorerRows: item.scorerRows.sort((a, b) => {
-            const pendingDiff = Number(b.pendingCount || 0) - Number(a.pendingCount || 0);
-            if (pendingDiff !== 0) {
-              return pendingDiff;
-            }
-            return String(a.scorerName || '').localeCompare(String(b.scorerName || ''), 'zh-CN');
-          })
-        };
-      }).sort((a, b) => {
-        const rateDiff = Number(b.completionRate || 0) - Number(a.completionRate || 0);
-        if (rateDiff !== 0) {
-          return rateDiff;
-        }
-        return String(a.groupName || '').localeCompare(String(b.groupName || ''), 'zh-CN');
-      });
-    };
+    const recordRows = sortRows((this.data.scoreResultsRaw.recordRows || []).filter(matches), 'submittedAt');
+    const backendBoards = (this.data.scoreResultsRaw.completionBoards || {}).departments || [];
+    const completionBoards = backendBoards.map((item) => {
+      const percent = item.memberCount
+        ? clampNumber((item.completedCount / item.memberCount) * 100, 0, 100)
+        : 100;
+      return {
+        ...item,
+        completionRate: Number(percent.toFixed(2)),
+        completionText: `${item.completedCount}/${item.memberCount}`,
+        progressPercentText: `${Math.round(percent)}%`,
+        progressFillStyle: buildProgressFillStyle(percent),
+        scorerRows: undefined
+      };
+    }).sort((a, b) => {
+      const rateDiff = Number(b.completionRate || 0) - Number(a.completionRate || 0);
+      if (rateDiff !== 0) return rateDiff;
+      return String(a.groupName || '').localeCompare(String(b.groupName || ''), 'zh-CN');
+    });
 
     this.setData({
       scoreResultsView: {
@@ -1686,41 +2641,154 @@ Page({
         calculationRows,
         detailRows,
         recordRows,
-        scorerCompletionRows: completionSourceRows,
+        scorerCompletionRows: [],
         completionBoards: {
-          departments: buildBoard('department'),
-          identities: [],
-          workGroups: []
+          departments: completionBoards
         }
       }
     });
   },
 
-  openCompletionBoardPopup(e) {
+  async toggleDepartmentScorers(e) {
     const { groupName } = e.currentTarget.dataset;
-    const departmentBoards = (this.data.scoreResultsView.completionBoards || {}).departments || [];
-    const targetBoard = departmentBoards.find((item) => item.groupName === groupName);
-    if (!targetBoard) {
+    if (!groupName || !this.data.currentActivityId) return;
+
+    if (this.data.selectedCompletionDepartment === groupName) {
+      this.closeDepartmentScorers();
       return;
     }
 
+    const loadToken = Date.now();
+    this.departmentScorerToken = loadToken;
+
     this.setData({
-      completionBoardPopupVisible: true,
-      completionBoardPopupTitle: `${targetBoard.groupName}评分人完成情况`,
-      completionBoardPopupRows: (targetBoard.scorerRows || []).map((item) => ({
-        ...item,
-        detailText: [item.identity, item.workGroup].filter(Boolean).join(' / ') || '未设置',
-        completionText: item.completionText || `${item.submittedCount || 0}/${item.expectedCount || 0}`
-      }))
+      selectedCompletionDepartment: groupName,
+      departmentScorerLoading: true,
+      departmentScorerRows: []
+    });
+
+    try {
+      const result = await this.callCloud('getScoreResults', {
+        activityId: this.data.currentActivityId,
+        timezone: this.data.systemConfig.timezone,
+        dataType: 'completion',
+        departmentName: groupName,
+        filters: {
+          department: this.data.resultFilters.department,
+          identity: this.data.resultFilters.identity,
+          workGroup: this.data.resultFilters.workGroup
+        }
+      });
+
+      if (this.departmentScorerToken !== loadToken) return;
+
+      if (result.status !== 'success') {
+        wx.showToast({ title: result.message || '加载失败', icon: 'none' });
+        this.setData({ departmentScorerLoading: false });
+        return;
+      }
+
+      const rows = (result.scorerCompletionRows || []).map((item) => {
+        const expectedCount = Math.max(0, Math.floor(toNumber(item.expectedCount, 0)));
+        const submittedCount = Math.max(0, Math.floor(toNumber(item.submittedCount, 0)));
+        const pendingCount = Math.max(expectedCount - submittedCount, 0);
+        return {
+          ...item,
+          expectedCount,
+          submittedCount,
+          pendingCount,
+          detailText: [item.identity, item.workGroup].filter(Boolean).join(' / ') || '未设置',
+          completionText: `${submittedCount}/${expectedCount}`,
+          progressPercentText: `${expectedCount ? Math.round((submittedCount / expectedCount) * 100) : 100}%`,
+          progressFillStyle: buildProgressFillStyle(expectedCount ? (submittedCount / expectedCount) * 100 : 100),
+          statusText: pendingCount > 0 ? '未完成' : '已完成',
+          statusClass: pendingCount > 0 ? 'status-pending' : 'status-completed'
+        };
+      });
+
+      this.setData({
+        departmentScorerRows: rows,
+        departmentScorerLoading: false
+      });
+    } catch (error) {
+      if (this.departmentScorerToken !== loadToken) return;
+      wx.showToast({ title: '加载评分人列表失败', icon: 'none' });
+      this.setData({ departmentScorerLoading: false });
+    }
+  },
+
+  closeDepartmentScorers() {
+    this.departmentScorerToken = '';
+    this.setData({
+      selectedCompletionDepartment: '',
+      departmentScorerLoading: false,
+      departmentScorerRows: []
     });
   },
 
-  closeCompletionBoardPopup() {
+  async openScorerTargetPopup(e) {
+    const { scorerKey } = e.currentTarget.dataset;
+    if (!scorerKey || !this.data.currentActivityId) return;
+
+    const popupToken = Date.now();
+    this.scorerTargetPopupToken = popupToken;
+
+    const scorerRow = (this.data.departmentScorerRows || []).find((item) => item.scorerKey === scorerKey);
+    const scorerName = scorerRow ? scorerRow.scorerName : scorerKey;
+
     this.setData({
-      completionBoardPopupVisible: false,
-      completionBoardPopupTitle: '',
-      completionBoardPopupRows: []
+      scorerTargetPopupVisible: true,
+      scorerTargetPopupTitle: `${scorerName} 的被评分人完成情况`,
+      scorerTargetPopupLoading: true,
+      scorerTargetPopupRows: []
     });
+
+    try {
+      const result = await this.callCloud('getScoreResults', {
+        activityId: this.data.currentActivityId,
+        timezone: this.data.systemConfig.timezone,
+        dataType: 'scorerTargets',
+        scorerKey
+      });
+
+      if (this.scorerTargetPopupToken !== popupToken) return;
+
+      if (result.status !== 'success') {
+        wx.showToast({ title: result.message || '加载失败', icon: 'none' });
+        this.setData({ scorerTargetPopupLoading: false });
+        return;
+      }
+
+      const rows = (result.scorerTargetRows || []).map((item) => ({
+        ...item,
+        detailText: [item.targetDepartment, item.targetIdentity, item.targetWorkGroup].filter(Boolean).join(' / ') || '未设置'
+      }));
+
+      this.setData({
+        scorerTargetPopupRows: rows,
+        scorerTargetPopupLoading: false
+      });
+    } catch (error) {
+      if (this.scorerTargetPopupToken !== popupToken) return;
+      wx.showToast({ title: '加载被评分人列表失败', icon: 'none' });
+      this.setData({ scorerTargetPopupLoading: false });
+    }
+  },
+
+  closeScorerTargetPopup() {
+    this.scorerTargetPopupToken = '';
+    this.setData({
+      scorerTargetPopupVisible: false,
+      scorerTargetPopupTitle: '',
+      scorerTargetPopupLoading: false,
+      scorerTargetPopupRows: []
+    });
+  },
+
+  openScorerTargetRecordDetail(e) {
+    const recordId = String(e.currentTarget.dataset.recordId || '').trim();
+    if (!recordId) return;
+    this.openScoreRecordDetail(e);
   },
 
   noop() {},
@@ -1742,7 +2810,7 @@ Page({
     if (field === 'viewMode') {
       nextValue = (this.data.resultViewOptions[Number(value)] || {}).value || 'overview';
       this.setData({
-        resultViewLabel: (this.data.resultViewOptions[Number(value)] || {}).label || '总分速览'
+        resultViewLabel: (this.data.resultViewOptions[Number(value)] || {}).label || '明细查看'
       });
     }
     if (field === 'sortMode') {
@@ -1752,11 +2820,18 @@ Page({
       });
     }
 
+    const nextFilters = {
+      ...this.data.resultFilters,
+      [field]: nextValue
+    };
+
+    if (field === 'department') {
+      nextFilters.workGroup = '全部';
+    }
+
     this.setData({
-      resultFilters: {
-        ...this.data.resultFilters,
-        [field]: nextValue
-      }
+      resultFilters: nextFilters,
+      'resultFilterOptions.workGroups': this.buildWorkGroupFilterOptions(nextFilters.department)
     });
     this.resetCurrentResultRows();
     this.loadScoreResults({ append: false });
@@ -1776,6 +2851,7 @@ Page({
     try {
       const result = await this.callCloud('exportScoreResults', {
         activityId: this.data.currentActivityId,
+        timezone: this.data.systemConfig.timezone,
         reportType: report,
         format,
         filters: {
@@ -1795,24 +2871,23 @@ Page({
 
       const extension = result.extension || (format === 'excel' ? 'xls' : 'csv');
       const filePath = `${wx.env.USER_DATA_PATH}/${result.fileName}.${extension}`;
-      await new Promise((resolve, reject) => {
-        wx.getFileSystemManager().writeFile({
-          filePath,
-          data: result.fileContent,
-          encoding: 'utf8',
-          success: resolve,
-          fail: reject
-        });
-      });
+      const fs = wx.getFileSystemManager();
+      fs.writeFileSync(filePath, result.fileContent, 'utf8');
 
       wx.openDocument({
         filePath,
         fileType: extension,
         showMenu: true,
         fail: () => {
-          wx.showToast({
-            title: '文件已生成到本地',
-            icon: 'none'
+          wx.shareFileMessage({
+            filePath,
+            fileName: `${result.fileName}.${extension}`,
+            fail: () => {
+              wx.showToast({
+                title: '文件已保存到本地',
+                icon: 'none'
+              });
+            }
           });
         }
       });
@@ -1863,7 +2938,40 @@ Page({
         title: '评分记录已撤销',
         icon: 'success'
       });
+      const selectedTarget = this.data.selectedResultTarget;
+      const revokedRow = (this.data.targetRecordRows || []).find((item) => String(item.recordId || '') === String(id));
+      this.setData({
+        recordDetailPopupVisible: false,
+        recordDetail: null,
+        expandedScoreLabelMap: {},
+        targetRecordRows: (this.data.targetRecordRows || []).map((item) => {
+          if (String(item.recordId || '') !== String(id)) {
+            return item;
+          }
+          return {
+            ...item,
+            recordId: '',
+            status: 'pending',
+            statusText: '未完成',
+            submittedAt: '',
+            excludedByRequireAll: false,
+            canViewDetail: false,
+            statusClass: 'status-pending',
+            scoreTagClass: 'score-tag-pending'
+          };
+        })
+      });
       await this.loadScoreResults();
+      if (selectedTarget && (selectedTarget.targetId || selectedTarget.id)) {
+        const targetId = String(selectedTarget.targetId || selectedTarget.id);
+        const latestTarget = (this.data.scoreResultsView.overviewRows || [])
+          .find((item) => String(item.targetId || item.id) === targetId) || selectedTarget;
+        await this.loadTargetScoreRecords(targetId, latestTarget, {
+          revokedRecordId: id,
+          revokedScorerKey: revokedRow && revokedRow.scorerKey,
+          keepRows: true
+        });
+      }
     } catch (error) {
       wx.showToast({
         title: '撤销评分记录失败',
@@ -2382,9 +3490,104 @@ Page({
     });
   },
 
+  openNewRuleClauseEditor() {
+    this.setData({
+      ruleForm: {
+        ...this.data.ruleForm,
+        clauseScope: RULE_SCOPE_OPTIONS[0].value,
+        clauseScopeLabel: RULE_SCOPE_OPTIONS[0].label,
+        clauseTargetIdentityId: '',
+        clauseTargetIdentity: '',
+        clauseRequireAllComplete: false,
+        clauseTemplateId: '',
+        clauseTemplateName: '',
+        clauseTemplateWeight: '1',
+        clauseTemplateOrder: '',
+        clauseTemplateConfigEditingIndex: -1,
+        clauseEditingIndex: -1,
+        clauseTemplateConfigs: [],
+        isRuleClauseEditorVisible: true,
+        isTemplateConfigEditorVisible: false
+      }
+    });
+  },
+
+  openTemplateConfigEditor() {
+    this.setData({
+      ruleForm: {
+        ...this.data.ruleForm,
+        clauseTemplateId: '',
+        clauseTemplateName: '',
+        clauseTemplateWeight: '1',
+        clauseTemplateOrder: '',
+        clauseTemplateConfigEditingIndex: -1,
+        isTemplateConfigEditorVisible: true
+      }
+    });
+  },
+
+  startCreateRuleCategory() {
+    this.setData({
+      ruleForm: emptyRuleForm(),
+      draggingClauseTemplateIndex: -1
+    });
+  },
+
+  onRuleScorerDepartmentChange(e) {
+    const index = Number(e.detail.value);
+    const departmentObj = this.data.departmentList[index] || {};
+    this.setData({
+      ruleForm: {
+        ...this.data.ruleForm,
+        scorerDepartmentId: departmentObj.id || '',
+        scorerDepartment: departmentObj.name || ''
+      }
+    });
+  },
+
+  onRuleScorerIdentityChange(e) {
+    const index = Number(e.detail.value);
+    const identityObj = this.data.identityList[index] || {};
+    this.setData({
+      ruleForm: {
+        ...this.data.ruleForm,
+        scorerIdentityId: identityObj.id || '',
+        scorerIdentity: identityObj.name || ''
+      }
+    });
+  },
+
+  onRuleTargetIdentityChange(e) {
+    const index = Number(e.detail.value);
+    const identityObj = this.data.identityList[index] || {};
+    this.setData({
+      ruleForm: {
+        ...this.data.ruleForm,
+        clauseTargetIdentityId: identityObj.id || '',
+        clauseTargetIdentity: identityObj.name || ''
+      }
+    });
+  },
+
+  onRuleFilterChange(e) {
+    const { field } = e.currentTarget.dataset;
+    const optionKey = field === 'identity' ? 'identities' : 'departments';
+    const options = (this.data.ruleFilterOptions || {})[optionKey] || ['全部'];
+    const value = options[Number(e.detail.value)] || '全部';
+    const nextFilters = {
+      ...(this.data.ruleFilters || emptyRuleFilters()),
+      [field]: value
+    };
+    this.setRuleListState(this.data.ruleList, this.data.selectedRuleIds, nextFilters);
+  },
+
+  resetRuleFilters() {
+    this.setRuleListState(this.data.ruleList, this.data.selectedRuleIds, emptyRuleFilters());
+  },
+
   toggleRuleSelection(e) {
-    const { id, index } = e.currentTarget.dataset;
-    const targetId = String(id || (((this.data.ruleList || [])[Number(index)] || {}).id) || '').trim();
+    const { id } = e.currentTarget.dataset;
+    const targetId = String(id || '').trim();
     if (!targetId) {
       return;
     }
@@ -2397,28 +3600,49 @@ Page({
     }
 
     const nextSelectedRuleIds = [...selectedRuleIds];
-    this.setData({
-      selectedRuleIds: nextSelectedRuleIds,
-      selectedRuleIdMap: createSelectedRuleIdMap(nextSelectedRuleIds),
-      ruleList: markSelectedRules(this.data.ruleList, nextSelectedRuleIds)
-    });
+    this.setRuleListState(this.data.ruleList, nextSelectedRuleIds, this.data.ruleFilters);
   },
 
   toggleSelectAllRules() {
-    const ruleIds = (this.data.ruleList || []).map((item) => item.id);
-    const isAllSelected = ruleIds.length > 0 && ruleIds.length === (this.data.selectedRuleIds || []).length;
-    const selectedRuleIds = isAllSelected ? [] : ruleIds;
+    const visibleRuleIds = (this.data.ruleListView || []).map((item) => item.id).filter(Boolean);
+    if (!visibleRuleIds.length) {
+      return;
+    }
 
-    this.setData({
-      selectedRuleIds,
-      selectedRuleIdMap: createSelectedRuleIdMap(selectedRuleIds),
-      ruleList: markSelectedRules(this.data.ruleList, selectedRuleIds)
+    const selectedSet = new Set((this.data.selectedRuleIds || []).map((item) => String(item)));
+    const isVisibleAllSelected = visibleRuleIds.every((id) => selectedSet.has(String(id)));
+    visibleRuleIds.forEach((id) => {
+      if (isVisibleAllSelected) {
+        selectedSet.delete(String(id));
+      } else {
+        selectedSet.add(String(id));
+      }
     });
+    this.setRuleListState(this.data.ruleList, [...selectedSet], this.data.ruleFilters);
+  },
+
+  reverseSelectVisibleRules() {
+    const visibleRuleIds = (this.data.ruleListView || []).map((item) => item.id).filter(Boolean);
+    if (!visibleRuleIds.length) {
+      return;
+    }
+
+    const selectedSet = new Set((this.data.selectedRuleIds || []).map((item) => String(item)));
+    visibleRuleIds.forEach((id) => {
+      const textId = String(id);
+      if (selectedSet.has(textId)) {
+        selectedSet.delete(textId);
+      } else {
+        selectedSet.add(textId);
+      }
+    });
+    this.setRuleListState(this.data.ruleList, [...selectedSet], this.data.ruleFilters);
   },
 
   async applyClausesToSelectedRules() {
     const selectedRules = (this.data.ruleList || []).filter((item) => (this.data.selectedRuleIds || []).includes(item.id));
-    const clauses = this.data.ruleForm.clauses || [];
+    const clauseResult = buildRuleClausesForBatchApply(this.data.ruleForm);
+    const clauses = clauseResult.clauses || [];
     const currentActivity = (this.data.activityList || []).find((item) => item.id === this.data.currentActivityId);
 
     if (!this.data.currentActivityId || !currentActivity) {
@@ -2437,41 +3661,59 @@ Page({
       return;
     }
 
-    if (!clauses.length) {
+    if (!clauseResult.ok) {
       wx.showToast({
-        title: '请先准备好要批量应用的被评分人规则',
+        title: clauseResult.message || '请先准备好要批量应用的被评分人规则',
         icon: 'none'
       });
       return;
     }
 
     this.setLoading('batchSaveRules', true);
+    wx.showLoading({ title: '正在批量应用...', mask: true });
     try {
+      const savedRules = [];
       for (const rule of selectedRules) {
         const result = await this.callCloud('saveRateRule', {
           id: rule.id,
           activityId: this.data.currentActivityId,
           activityName: currentActivity.name || '',
-          scorerDepartment: rule.scorerDepartment,
-          scorerIdentity: rule.scorerIdentity,
-          clauses
+          scorerDepartmentId: rule.scorerDepartmentId,
+          scorerIdentityId: rule.scorerIdentityId,
+          clauses,
+          mode: 'replace'
         });
 
         if (result.status !== 'success') {
+          wx.hideLoading();
           wx.showToast({
             title: result.message || (`批量设置失败：${rule.scorerDepartment}/${rule.scorerIdentity}`),
             icon: 'none'
           });
+          this.setLoading('batchSaveRules', false);
           return;
         }
+        savedRules.push({
+          id: result.id || rule.id,
+          activityId: this.data.currentActivityId,
+          activityName: currentActivity.name || '',
+          scorerDepartmentId: rule.scorerDepartmentId,
+          scorerDepartment: rule.scorerDepartment,
+          scorerIdentityId: rule.scorerIdentityId,
+          scorerIdentity: rule.scorerIdentity,
+          clauses
+        });
       }
 
-      await this.loadRuleList();
+      savedRules.forEach((rule) => this.upsertRuleListItem(rule));
+      await this.loadRuleList({ silent: true });
+      wx.hideLoading();
       wx.showToast({
-        title: '已批量更新选中类别',
+        title: '批量更新完成',
         icon: 'success'
       });
     } catch (error) {
+      wx.hideLoading();
       wx.showToast({
         title: '批量设置规则失败',
         icon: 'none'
@@ -2498,14 +3740,13 @@ Page({
   },
 
   addClauseTemplateConfig() {
-    const {
-      clauseTemplateId,
-      clauseTemplateName,
-      clauseTemplateWeight,
-      clauseTemplateOrder,
-      clauseTemplateConfigEditingIndex,
-      clauseTemplateConfigs
-    } = this.data.ruleForm;
+  const {
+    clauseTemplateId,
+    clauseTemplateName,
+    clauseTemplateWeight,
+    clauseTemplateConfigEditingIndex,
+    clauseTemplateConfigs
+  } = this.data.ruleForm;
 
     if (!clauseTemplateId) {
       wx.showToast({
@@ -2524,17 +3765,9 @@ Page({
       return;
     }
 
-    const sortOrderValue = clauseTemplateOrder === ''
-      ? (clauseTemplateConfigs.length + 1)
-      : Number(clauseTemplateOrder);
-
-    if (!Number.isInteger(sortOrderValue) || sortOrderValue <= 0) {
-      wx.showToast({
-        title: '呈现顺序必须为正整数',
-        icon: 'none'
-      });
-      return;
-    }
+    const sortOrderValue = clauseTemplateConfigEditingIndex >= 0 && clauseTemplateConfigs[clauseTemplateConfigEditingIndex]
+      ? Number(clauseTemplateConfigs[clauseTemplateConfigEditingIndex].sortOrder) || (clauseTemplateConfigEditingIndex + 1)
+      : clauseTemplateConfigs.length + 1;
 
     const nextConfig = {
       templateId: clauseTemplateId,
@@ -2545,13 +3778,12 @@ Page({
 
     const exists = clauseTemplateConfigs.some((item, index) => (
       index !== clauseTemplateConfigEditingIndex &&
-      item.templateId === nextConfig.templateId &&
-      String(item.sortOrder) === String(nextConfig.sortOrder)
+      item.templateId === nextConfig.templateId
     ));
 
     if (exists) {
       wx.showToast({
-        title: '相同评分问题与顺序的配置已存在',
+        title: '这个评分问题已在当前规则中',
         icon: 'none'
       });
       return;
@@ -2575,7 +3807,8 @@ Page({
         clauseTemplateName: '',
         clauseTemplateWeight: '1',
         clauseTemplateOrder: '',
-        clauseTemplateConfigEditingIndex: -1
+        clauseTemplateConfigEditingIndex: -1,
+        isTemplateConfigEditorVisible: false
       }
     });
   },
@@ -2594,7 +3827,8 @@ Page({
         clauseTemplateName: targetConfig.templateName || '',
         clauseTemplateWeight: String(targetConfig.weight || '1'),
         clauseTemplateOrder: String(targetConfig.sortOrder || ''),
-        clauseTemplateConfigEditingIndex: index
+        clauseTemplateConfigEditingIndex: index,
+        isTemplateConfigEditorVisible: true
       }
     });
   },
@@ -2625,7 +3859,8 @@ Page({
         clauseTemplateName: '',
         clauseTemplateWeight: '1',
         clauseTemplateOrder: '',
-        clauseTemplateConfigEditingIndex: -1
+        clauseTemplateConfigEditingIndex: -1,
+        isTemplateConfigEditorVisible: false
       }
     });
   },
@@ -2633,13 +3868,14 @@ Page({
   addRuleClause() {
     const {
       clauseScope,
+      clauseTargetIdentityId,
       clauseTargetIdentity,
       clauseRequireAllComplete,
       clauseEditingIndex,
       clauseTemplateConfigs,
       clauses
     } = this.data.ruleForm;
-    if (clauseScope !== 'all_people' && !clauseTargetIdentity && clauseScope.indexOf('_all') === -1) {
+    if (clauseScope !== 'all_people' && !clauseTargetIdentityId && clauseScope.indexOf('_all') === -1) {
       wx.showToast({
         title: '请填写被评分人身份',
         icon: 'none'
@@ -2650,6 +3886,7 @@ Page({
     const nextClause = {
       scopeType: clauseScope,
       scopeLabel: getScopeLabel(clauseScope),
+      targetIdentityId: clauseTargetIdentityId,
       targetIdentity: clauseTargetIdentity,
       requireAllComplete: !!clauseRequireAllComplete,
       templateConfigs: [...clauseTemplateConfigs].sort((a, b) => Number(a.sortOrder) - Number(b.sortOrder))
@@ -2658,7 +3895,7 @@ Page({
     const exists = clauses.some((item, index) => (
       index !== clauseEditingIndex &&
       item.scopeType === nextClause.scopeType &&
-      item.targetIdentity === nextClause.targetIdentity &&
+      item.targetIdentityId === nextClause.targetIdentityId &&
       JSON.stringify(item.templateConfigs || []) === JSON.stringify(nextClause.templateConfigs)
     ));
 
@@ -2681,6 +3918,9 @@ Page({
       ruleForm: {
         ...this.data.ruleForm,
         clauses: nextClauses,
+        clauseScope: RULE_SCOPE_OPTIONS[0].value,
+        clauseScopeLabel: RULE_SCOPE_OPTIONS[0].label,
+        clauseTargetIdentityId: '',
         clauseTargetIdentity: '',
         clauseRequireAllComplete: false,
         clauseTemplateId: '',
@@ -2689,7 +3929,9 @@ Page({
         clauseTemplateOrder: '',
         clauseTemplateConfigEditingIndex: -1,
         clauseEditingIndex: -1,
-        clauseTemplateConfigs: []
+        clauseTemplateConfigs: [],
+        isRuleClauseEditorVisible: false,
+        isTemplateConfigEditorVisible: false
       }
     });
   },
@@ -2713,7 +3955,9 @@ Page({
         clauseTemplateWeight: this.data.ruleForm.clauseEditingIndex === index ? '1' : this.data.ruleForm.clauseTemplateWeight,
         clauseTemplateOrder: this.data.ruleForm.clauseEditingIndex === index ? '' : this.data.ruleForm.clauseTemplateOrder,
         clauseTemplateConfigEditingIndex: this.data.ruleForm.clauseEditingIndex === index ? -1 : this.data.ruleForm.clauseTemplateConfigEditingIndex,
-        clauseEditingIndex: nextEditingIndex
+        clauseEditingIndex: nextEditingIndex,
+        isRuleClauseEditorVisible: nextEditingIndex >= 0,
+        isTemplateConfigEditorVisible: this.data.ruleForm.clauseEditingIndex === index ? false : this.data.ruleForm.isTemplateConfigEditorVisible
       }
     });
   },
@@ -2730,6 +3974,7 @@ Page({
         ...this.data.ruleForm,
         clauseScope: targetClause.scopeType || RULE_SCOPE_OPTIONS[0].value,
         clauseScopeLabel: getScopeLabel(targetClause.scopeType),
+        clauseTargetIdentityId: targetClause.targetIdentityId || '',
         clauseTargetIdentity: targetClause.targetIdentity || '',
         clauseRequireAllComplete: targetClause.requireAllComplete === true,
         clauseTemplateId: '',
@@ -2738,7 +3983,9 @@ Page({
         clauseTemplateOrder: '',
         clauseTemplateConfigEditingIndex: -1,
         clauseTemplateConfigs: refreshTemplateConfigSortOrder(normalizeClauseForEdit(targetClause).templateConfigs),
-        clauseEditingIndex: index
+        clauseEditingIndex: index,
+        isRuleClauseEditorVisible: true,
+        isTemplateConfigEditorVisible: false
       }
     });
   },
@@ -2749,6 +3996,7 @@ Page({
         ...this.data.ruleForm,
         clauseScope: RULE_SCOPE_OPTIONS[0].value,
         clauseScopeLabel: RULE_SCOPE_OPTIONS[0].label,
+        clauseTargetIdentityId: '',
         clauseTargetIdentity: '',
         clauseRequireAllComplete: false,
         clauseTemplateId: '',
@@ -2757,14 +4005,19 @@ Page({
         clauseTemplateOrder: '',
         clauseTemplateConfigEditingIndex: -1,
         clauseTemplateConfigs: [],
-        clauseEditingIndex: -1
+        clauseEditingIndex: -1,
+        isRuleClauseEditorVisible: false,
+        isTemplateConfigEditorVisible: false
       }
     });
   },
 
   editRule(e) {
-    const index = Number(e.currentTarget.dataset.index);
-    const target = this.data.ruleList[index];
+    const { id, index } = e.currentTarget.dataset;
+    const targetId = String(id || '').trim();
+    const target = targetId
+      ? (this.data.ruleList || []).find((item) => String(item.id || '') === targetId)
+      : this.data.ruleList[Number(index)];
     if (!target) {
       return;
     }
@@ -2772,8 +4025,10 @@ Page({
     this.setData({
       ruleForm: {
         id: target.id,
-        scorerDepartment: target.scorerDepartment,
-        scorerIdentity: target.scorerIdentity,
+        scorerDepartmentId: target.scorerDepartmentId || '',
+        scorerDepartment: target.scorerDepartment || '',
+        scorerIdentityId: target.scorerIdentityId || '',
+        scorerIdentity: target.scorerIdentity || '',
         clauseScope: RULE_SCOPE_OPTIONS[0].value,
         clauseScopeLabel: RULE_SCOPE_OPTIONS[0].label,
         clauseTargetIdentity: '',
@@ -2784,6 +4039,8 @@ Page({
         clauseTemplateOrder: '',
         clauseTemplateConfigEditingIndex: -1,
         clauseEditingIndex: -1,
+        isRuleClauseEditorVisible: false,
+        isTemplateConfigEditorVisible: false,
         clauseTemplateConfigs: [],
         clauses: (target.clauses || []).map((item) => normalizeClauseForEdit(item))
       },
@@ -2792,7 +4049,9 @@ Page({
   },
 
   async saveRuleCategory() {
-    const { id, scorerDepartment, scorerIdentity, clauses } = this.data.ruleForm;
+    const { id, scorerDepartmentId, scorerDepartment, scorerIdentityId, scorerIdentity } = this.data.ruleForm;
+    const clauseResult = buildRuleClausesForSave(this.data.ruleForm);
+    const clauses = clauseResult.clauses || [];
     const currentActivity = (this.data.activityList || []).find((item) => item.id === this.data.currentActivityId);
     if (!this.data.currentActivityId || !currentActivity) {
       wx.showToast({
@@ -2802,9 +4061,17 @@ Page({
       return;
     }
 
-    if (!scorerDepartment || !scorerIdentity) {
+    if (!scorerDepartmentId || !scorerIdentityId) {
       wx.showToast({
         title: '请填写完整的评分人类别',
+        icon: 'none'
+      });
+      return;
+    }
+
+    if (!clauseResult.ok) {
+      wx.showToast({
+        title: clauseResult.message || '请先添加被评分人规则',
         icon: 'none'
       });
       return;
@@ -2816,8 +4083,8 @@ Page({
         id,
         activityId: this.data.currentActivityId,
         activityName: currentActivity.name || '',
-        scorerDepartment,
-        scorerIdentity,
+        scorerDepartmentId,
+        scorerIdentityId,
         clauses
       });
       if (result.status !== 'success') {
@@ -2828,10 +4095,17 @@ Page({
         return;
       }
 
+      await this.reloadRuleListAfterSave(result.rule || {
+        id: result.id || id,
+        activityId: this.data.currentActivityId,
+        activityName: currentActivity.name || '',
+        scorerDepartmentId,
+        scorerIdentityId,
+        clauses
+      });
       this.setData({ ruleForm: emptyRuleForm() });
-      await this.loadRuleList();
       wx.showToast({
-        title: '评分人类别已保存',
+        title: '类别已保存',
         icon: 'success'
       });
     } catch (error) {
@@ -2914,15 +4188,7 @@ Page({
           const listResult = await this.callCloud('listRateRules', {
             activityId: this.data.currentActivityId
           });
-          const rawRuleList = listResult.rules || [];
-          const ruleIdSet = new Set(rawRuleList.map((item) => item.id));
-          const selectedRuleIds = (this.data.selectedRuleIds || []).filter((id) => ruleIdSet.has(id));
-          const ruleList = markSelectedRules(rawRuleList, selectedRuleIds);
-          this.setData({
-            ruleList,
-            selectedRuleIds,
-            selectedRuleIdMap: createSelectedRuleIdMap(selectedRuleIds)
-          });
+          this.setRuleListState(listResult.rules || [], this.data.selectedRuleIds, this.data.ruleFilters);
           break;
         } catch (refreshError) {}
       }
@@ -2977,12 +4243,14 @@ Page({
     }
 
     this.setLoading('generateRules', true);
+    wx.showLoading({ title: '正在生成默认类别...', mask: true });
     let result = null;
     try {
       result = await this.callCloud('generateRateTargetRules', {
         activityId: this.data.currentActivityId
       });
     } catch (error) {
+      wx.hideLoading();
       wx.showToast({
         title: '生成默认评分人类别失败',
         icon: 'none'
@@ -2992,6 +4260,7 @@ Page({
     }
 
     if (!result || result.status !== 'success') {
+      wx.hideLoading();
       wx.showToast({
         title: (result && result.message) || '生成默认评分人类别失败',
         icon: 'none'
@@ -3009,19 +4278,12 @@ Page({
         const listResult = await this.callCloud('listRateRules', {
           activityId: this.data.currentActivityId
         });
-        const rawRuleList = listResult.rules || [];
-        const ruleIdSet = new Set(rawRuleList.map((item) => item.id));
-        const selectedRuleIds = (this.data.selectedRuleIds || []).filter((id) => ruleIdSet.has(id));
-        const ruleList = markSelectedRules(rawRuleList, selectedRuleIds);
-        this.setData({
-          ruleList,
-          selectedRuleIds,
-          selectedRuleIdMap: createSelectedRuleIdMap(selectedRuleIds)
-        });
+        this.setRuleListState(listResult.rules || [], this.data.selectedRuleIds, this.data.ruleFilters);
         break;
       } catch (refreshError) {}
     }
 
+    wx.hideLoading();
     this.setLoading('generateRules', false);
     wx.showToast({
       title: `已生成 ${result.ruleCount || 0} 类评分人`,
@@ -3031,7 +4293,7 @@ Page({
   },
 
   async saveRule() {
-    const { id, scorerDepartment, scorerIdentity, clauses } = this.data.ruleForm;
+    const { id, scorerDepartmentId, scorerDepartment, scorerIdentityId, scorerIdentity, clauses } = this.data.ruleForm;
     const currentActivity = (this.data.activityList || []).find((item) => item.id === this.data.currentActivityId);
     if (!this.data.currentActivityId || !currentActivity) {
       wx.showToast({
@@ -3040,7 +4302,7 @@ Page({
       });
       return;
     }
-    if (!scorerDepartment || !scorerIdentity) {
+    if (!scorerDepartmentId || !scorerIdentityId) {
       wx.showToast({
         title: '请填写完整评分人类别',
         icon: 'none'
@@ -3054,8 +4316,8 @@ Page({
         id,
         activityId: this.data.currentActivityId,
         activityName: currentActivity.name || '',
-        scorerDepartment,
-        scorerIdentity,
+        scorerDepartmentId,
+        scorerIdentityId,
         clauses
       });
       if (result.status !== 'success') {
@@ -3069,7 +4331,7 @@ Page({
       this.setData({ ruleForm: emptyRuleForm() });
       await this.loadRuleList();
       wx.showToast({
-        title: '评分人类别已保存',
+        title: '类别已保存',
         icon: 'success'
       });
     } catch (error) {
@@ -3517,8 +4779,11 @@ Page({
         id: item.id,
         name: item.name,
         studentId: item.studentId,
+        departmentId: item.departmentId || '',
         department: item.department,
+        identityId: item.identityId || '',
         identity: item.identity,
+        workGroupId: item.workGroupId || '',
         workGroup: item.workGroup || ''
       },
       activeTab: 'hr'
@@ -3537,25 +4802,27 @@ Page({
   },
 
   async saveHr() {
-    const { id, name, studentId, department, identity, workGroup } = this.data.hrForm;
-    if (!name || !studentId || !department || !identity) {
+    const { id, name, studentId, departmentId, identityId, workGroupId } = this.data.hrForm;
+  
+    if (!name || !studentId || !departmentId || !identityId) {
       wx.showToast({
         title: '请填写完整人事信息',
         icon: 'none'
       });
       return;
     }
-
+  
     this.setLoading('saveHr', true);
     try {
       const result = await this.callCloud('saveHrInfo', {
         id,
         name,
         studentId,
-        department,
-        identity,
-        workGroup
+        departmentId,
+        identityId,
+        workGroupId
       });
+  
       if (result.status !== 'success') {
         wx.showToast({
           title: result.message || '保存失败',
@@ -3563,7 +4830,7 @@ Page({
         });
         return;
       }
-
+  
       this.resetHrForm();
       await this.loadHrList();
       wx.showToast({
@@ -3622,30 +4889,44 @@ Page({
           encoding: 'utf8',
           success: async (readRes) => {
             try {
-              const result = await this.callCloud('importHrCsv', {
-                csvContent: readRes.data
-              });
-              if (result.status !== 'success') {
-                wx.showToast({
-                  title: result.message || '导入失败',
-                  icon: 'none'
+              let startIndex = 1;
+              let totalCount = 0;
+              let hasMore = true;
+              this.setLoading('importCsv', true);
+
+              while (hasMore) {
+                wx.showLoading({
+                  title: `正在导入${totalCount > 0 ? '（已导入' + totalCount + '条）' : '...'}`,
+                  mask: true
                 });
-                return;
+
+                const result = await this.callCloud('importHrCsv', {
+                  csvContent: readRes.data,
+                  startIndex,
+                  batchSize: 100
+                });
+
+                if (result.status !== 'success') {
+                  wx.hideLoading();
+                  wx.showToast({ title: result.message || '导入失败', icon: 'none' });
+                  this.setLoading('importCsv', false);
+                  return;
+                }
+
+                totalCount += Number(result.count || 0);
+                startIndex = Number(result.nextIndex || startIndex + 100);
+                hasMore = !!result.hasMore;
               }
 
-              this.setData({
-                csvName: file.name || '已导入 CSV'
-              });
+              wx.hideLoading();
+              this.setLoading('importCsv', false);
+              this.setData({ csvName: file.name || '已导入 CSV' });
               await this.loadHrList();
-              wx.showToast({
-                title: 'CSV 导入成功',
-                icon: 'success'
-              });
+              wx.showToast({ title: `导入成功，共 ${totalCount} 条`, icon: 'success' });
             } catch (error) {
-              wx.showToast({
-                title: 'CSV 导入失败',
-                icon: 'none'
-              });
+              wx.hideLoading();
+              this.setLoading('importCsv', false);
+              wx.showToast({ title: 'CSV 导入失败', icon: 'none' });
             }
           }
         });
@@ -3688,8 +4969,15 @@ Page({
   },
 
   onAdminLevelChange(e) {
-    const adminLevel = e.detail.value === '0' ? 'admin' : 'super_admin';
+    const idx = Number(e.detail.value);
+    let adminLevel;
+    if (this.data.isRootAdmin) {
+      adminLevel = idx === 0 ? 'admin' : (idx === 1 ? 'super_admin' : 'root_admin');
+    } else {
+      adminLevel = idx === 0 ? 'admin' : 'super_admin';
+    }
     this.setData({
+      adminLevelIndex: idx,
       adminForm: {
         ...this.data.adminForm,
         adminLevel
@@ -3737,12 +5025,18 @@ Page({
       return;
     }
 
+    const adminLevel = item.adminLevel || 'admin';
+    const idx = this.data.isRootAdmin
+      ? (adminLevel === 'root_admin' ? 2 : (adminLevel === 'super_admin' ? 1 : 0))
+      : (adminLevel === 'super_admin' ? 1 : 0);
+
     this.setData({
+      adminLevelIndex: idx,
       adminForm: {
         id: item.id,
         name: item.name,
         studentId: item.studentId,
-        adminLevel: item.adminLevel || 'admin',
+        adminLevel,
         inviteCode: item.inviteCode || ''
       },
       latestInviteCode: '',
@@ -3753,6 +5047,7 @@ Page({
   resetAdminForm() {
     this.setData({
       adminForm: emptyAdminForm(),
+      adminLevelIndex: 0,
       latestInviteCode: ''
     });
   },
@@ -3826,7 +5121,7 @@ Page({
   },
 
   async exportAdmins() {
-    if (!this.data.isSuperAdmin) {
+    if (!this.data.isSuperAdmin && !this.data.isRootAdmin) {
       return;
     }
 
@@ -3882,7 +5177,7 @@ Page({
     const { id } = e.currentTarget.dataset;
     wx.showModal({
       title: '删除管理员',
-      content: '删除后如果没有其他超级管理员，将被阻止。是否继续？',
+      content: '删除后如果没有其他至高权限管理员，将被阻止。是否继续？',
       success: async (res) => {
         if (!res.confirm) {
           return;

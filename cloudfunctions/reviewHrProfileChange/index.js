@@ -35,12 +35,11 @@ exports.main = async (event) => {
     };
   }
 
-  const recordRes = await db.collection('hr_profile_records')
-    .where({
-      studentId
-    })
-    .limit(1)
-    .get();
+  const hrRes = await db.collection('hr_info').where({ studentId }).limit(1).get();
+  const hrId = hrRes.data.length ? hrRes.data[0]._id : '';
+  const recordRes = hrId
+    ? await db.collection('hr_profile_records').where({ hrId }).limit(1).get()
+    : { data: [] };
 
   if (!recordRes.data.length) {
     return {

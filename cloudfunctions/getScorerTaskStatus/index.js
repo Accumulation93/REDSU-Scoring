@@ -6,16 +6,9 @@ cloud.init({
 
 const db = cloud.database();
 const PAGE_SIZE = 100;
-const TASK_CACHE_META = 'scorer_task_cache_meta';
-const TASK_CACHE_CHUNKS = 'scorer_task_cache_chunks';
-const CACHE_CHUNK_SAFE_LIMIT = 650 * 1024;
+const MAX_PARALLEL_PAGES = 20;
 
-const FIELD_NAME = '姓名';
-const FIELD_STUDENT_ID = '学号';
-const FIELD_DEPARTMENT = '所属部门';
-const FIELD_IDENTITY = '身份';
-const FIELD_WORK_GROUP = '工作分工（职能组）';
-const DEFAULT_WORK_GROUP = '未分组';
+const DEFAULT_WORK_GROUP = '';
 
 function safeString(value) {
   return String(value == null ? '' : value).trim();
@@ -27,43 +20,92 @@ function toNumber(value, fallback = 0) {
 }
 
 async function getAllRecords(query) {
-  const list = [];
-  let skip = 0;
+  const countRes = await query.count().catch(() => ({ total: 0 }));
+  const total = countRes.total || 0;
+  if (total === 0) return [];
 
-  while (true) {
-    const res = await query.skip(skip).limit(PAGE_SIZE).get().catch((error) => {
-      const message = safeString(error && (error.message || error.errMsg));
-      if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
-        return { data: [] };
-      }
-      throw error;
-    });
-    const batch = res.data || [];
-    list.push(...batch);
-    if (batch.length < PAGE_SIZE) {
-      break;
-    }
-    skip += batch.length;
+  const pageSize = 100;
+  const totalPages = Math.min(Math.ceil(total / pageSize), MAX_PARALLEL_PAGES);
+  const promises = [];
+  for (let i = 0; i < totalPages; i++) {
+    promises.push(
+      query.skip(i * pageSize).limit(pageSize).get().catch((error) => {
+        const message = safeString(error && (error.message || error.errMsg));
+        if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
+          return { data: [] };
+        }
+        throw error;
+      })
+    );
   }
-
-  return list;
+  const results = await Promise.all(promises);
+  return results.flatMap((res) => res.data || []);
 }
 
-function normalizeMember(record = {}) {
+function buildOrgMap(rows = []) {
+  const map = new Map();
+  rows.forEach((row) => {
+    const id = safeString(row && row._id);
+    if (!id) return;
+    map.set(id, {
+      id,
+      name: safeString(row.name)
+    });
+  });
+  return map;
+}
+
+async function fetchOrgLookups() {
+  const [departments, identities, workGroups] = await Promise.all([
+    getAllRecords(db.collection('departments')),
+    getAllRecords(db.collection('identities')),
+    getAllRecords(db.collection('work_groups'))
+  ]);
   return {
-    id: safeString(record._id),
-    name: safeString(record.name || record[FIELD_NAME]),
-    studentId: safeString(record.studentId || record[FIELD_STUDENT_ID]),
-    department: safeString(record.department || record[FIELD_DEPARTMENT]),
-    identity: safeString(record.identity || record[FIELD_IDENTITY]),
-    workGroup: safeString(record.workGroup || record[FIELD_WORK_GROUP]) || DEFAULT_WORK_GROUP
+    departmentsById: buildOrgMap(departments),
+    identitiesById: buildOrgMap(identities),
+    workGroupsById: buildOrgMap(workGroups)
   };
 }
 
-function normalizeRuleClause(rawClause = {}) {
+function getLookupName(map, id) {
+  const row = map && map.get(safeString(id));
+  return row ? safeString(row.name) : '';
+}
+
+function makeOrgRuleKey(departmentId, identityId) {
+  const depId = safeString(departmentId);
+  const idId = safeString(identityId);
+  return depId && idId ? depId + '::' + idId : '';
+}
+
+function normalizeMember(record = {}, orgLookups = {}) {
+  const departmentId = safeString(record.departmentId);
+  const identityId = safeString(record.identityId);
+  const workGroupId = safeString(record.workGroupId);
+  const department = getLookupName(orgLookups.departmentsById, departmentId);
+  const identity = getLookupName(orgLookups.identitiesById, identityId);
+  const workGroup = getLookupName(orgLookups.workGroupsById, workGroupId) || DEFAULT_WORK_GROUP;
+
+  return {
+    id: safeString(record._id),
+    name: safeString(record.name),
+    studentId: safeString(record.studentId),
+    departmentId,
+    department,
+    identityId,
+    identity,
+    workGroupId,
+    workGroup
+  };
+}
+
+function normalizeRuleClause(rawClause = {}, orgLookups = {}) {
+  const targetIdentityId = safeString(rawClause.targetIdentityId);
   return {
     scopeType: safeString(rawClause.scopeType),
-    targetIdentity: safeString(rawClause.targetIdentity),
+    targetIdentityId,
+    targetIdentity: getLookupName(orgLookups.identitiesById, targetIdentityId),
     templateConfigs: Array.isArray(rawClause.templateConfigs)
       ? rawClause.templateConfigs.filter((item) => safeString(item.templateId))
       : []
@@ -71,62 +113,59 @@ function normalizeRuleClause(rawClause = {}) {
 }
 
 function getMemberRuleKey(member = {}) {
-  return `${safeString(member.department)}::${safeString(member.identity)}`;
+  return makeOrgRuleKey(member.departmentId, member.identityId);
 }
 
 function getScorerUniqueKey(memberOrRecord = {}) {
-  return safeString(memberOrRecord.scorerStudentId || memberOrRecord.studentId)
-    || safeString(memberOrRecord.scorerId || memberOrRecord.id);
+  return safeString(memberOrRecord.scorerId || memberOrRecord.id)
+    || safeString(memberOrRecord.studentId);
+}
+
+function sameDepartment(left = {}, right = {}) {
+  return safeString(left.departmentId) && safeString(left.departmentId) === safeString(right.departmentId);
+}
+
+function sameWorkGroup(left = {}, right = {}) {
+  return safeString(left.workGroupId) && safeString(left.workGroupId) === safeString(right.workGroupId);
+}
+
+function matchesTargetIdentity(target = {}, clause = {}) {
+  return safeString(target.identityId) && safeString(target.identityId) === safeString(clause.targetIdentityId);
 }
 
 function matchesClauseTarget(target, scorer, clause) {
-  if (clause.scopeType === 'same_department_identity') {
-    return target.department === scorer.department && target.identity === clause.targetIdentity;
-  }
-  if (clause.scopeType === 'same_department_all') {
-    return target.department === scorer.department;
-  }
-  if (clause.scopeType === 'same_work_group_identity') {
-    return target.department === scorer.department
-      && target.workGroup === scorer.workGroup
-      && target.identity === clause.targetIdentity;
-  }
-  if (clause.scopeType === 'same_work_group_all') {
-    return target.department === scorer.department && target.workGroup === scorer.workGroup;
-  }
-  if (clause.scopeType === 'identity_only') {
-    return target.identity === clause.targetIdentity;
-  }
-  if (clause.scopeType === 'all_people') {
-    return true;
-  }
+  if (clause.scopeType === 'same_department_identity') return sameDepartment(target, scorer) && matchesTargetIdentity(target, clause);
+  if (clause.scopeType === 'same_department_all') return sameDepartment(target, scorer);
+  if (clause.scopeType === 'same_work_group_identity') return sameDepartment(target, scorer) && sameWorkGroup(target, scorer) && matchesTargetIdentity(target, clause);
+  if (clause.scopeType === 'same_work_group_all') return sameDepartment(target, scorer) && sameWorkGroup(target, scorer);
+  if (clause.scopeType === 'identity_only') return matchesTargetIdentity(target, clause);
+  if (clause.scopeType === 'all_people') return true;
   return false;
 }
 
-function buildTaskRows(members, rules, records) {
+function buildTaskRows(members, rules, records, options = {}) {
+  const { includePendingList = false, scorerKey: requestedScorerKey } = options;
   const membersByRuleKey = new Map();
+
   members.forEach((member) => {
     const key = getMemberRuleKey(member);
-    if (!membersByRuleKey.has(key)) {
-      membersByRuleKey.set(key, []);
-    }
+    if (!key) return;
+    if (!membersByRuleKey.has(key)) membersByRuleKey.set(key, []);
     membersByRuleKey.get(key).push(member);
   });
 
   const scorerMap = new Map();
-  const expectedTaskMap = new Map();
 
   rules.forEach((rule) => {
     const scorers = membersByRuleKey.get(rule.scorerKey) || [];
-    rule.clauses.forEach((clause) => {
-      if (!clause.templateConfigs.length) {
-        return;
-      }
+
+    (rule.clauses || []).forEach((clause) => {
+      if (!clause.templateConfigs || !clause.templateConfigs.length) return;
+
       scorers.forEach((scorer) => {
         const scorerKey = getScorerUniqueKey(scorer);
-        if (!scorerKey) {
-          return;
-        }
+        if (!scorerKey) return;
+
         if (!scorerMap.has(scorerKey)) {
           scorerMap.set(scorerKey, {
             scorerKey,
@@ -140,17 +179,12 @@ function buildTaskRows(members, rules, records) {
             submittedTargetIds: new Set()
           });
         }
+
         const scorerRow = scorerMap.get(scorerKey);
 
         members.forEach((target) => {
-          if (!matchesClauseTarget(target, scorer, clause)) {
-            return;
-          }
-          const taskKey = `${scorerKey}::${target.id}`;
-          expectedTaskMap.set(taskKey, {
-            scorerKey,
-            targetId: target.id
-          });
+          if (!matchesClauseTarget(target, scorer, clause)) return;
+
           if (!scorerRow.expectedTargets.has(target.id)) {
             scorerRow.expectedTargets.set(target.id, {
               targetId: target.id,
@@ -169,24 +203,30 @@ function buildTaskRows(members, rules, records) {
   records.forEach((record) => {
     const scorerKey = getScorerUniqueKey(record);
     const targetId = safeString(record.targetId);
-    if (!scorerKey || !targetId) {
-      return;
-    }
+    if (!scorerKey || !targetId) return;
+
     const scorerRow = scorerMap.get(scorerKey);
-    if (!scorerRow || !scorerRow.expectedTargets.has(targetId)) {
-      return;
-    }
+    if (!scorerRow || !scorerRow.expectedTargets.has(targetId)) return;
+
     scorerRow.submittedTargetIds.add(targetId);
   });
 
   return Array.from(scorerMap.values())
-    .map((item) => {
-      const pendingList = Array.from(item.expectedTargets.values())
-        .filter((target) => !item.submittedTargetIds.has(target.targetId))
-        .sort((a, b) => String(a.targetName).localeCompare(String(b.targetName), 'zh-CN'));
+    .filter((item) => {
+      if (requestedScorerKey) return item.scorerKey === requestedScorerKey;
       const expectedCount = item.expectedTargets.size;
-      const submittedCount = item.submittedTargetIds.size;
+      const submittedCount = Array.from(item.submittedTargetIds)
+        .filter((targetId) => item.expectedTargets.has(targetId))
+        .length;
+      return expectedCount - submittedCount > 0;
+    })
+    .map((item) => {
+      const expectedCount = item.expectedTargets.size;
+      const submittedCount = Array.from(item.submittedTargetIds)
+        .filter((targetId) => item.expectedTargets.has(targetId))
+        .length;
       const pendingCount = Math.max(expectedCount - submittedCount, 0);
+
       return {
         scorerKey: item.scorerKey,
         scorerId: item.scorerId,
@@ -198,20 +238,15 @@ function buildTaskRows(members, rules, records) {
         expectedCount,
         submittedCount,
         pendingCount,
-        completionRate: expectedCount
-          ? Number(((submittedCount / expectedCount) * 100).toFixed(2))
-          : 100,
-        pendingList
+        completionRate: expectedCount ? Number(((submittedCount / expectedCount) * 100).toFixed(2)) : 100,
+        pendingList: includePendingList ? Array.from(item.expectedTargets.values())
+          .filter((target) => !item.submittedTargetIds.has(target.targetId))
+          .sort((a, b) => String(a.targetName).localeCompare(String(b.targetName), 'zh-CN')) : undefined
       };
     })
-    .filter((item) => item.pendingCount > 0)
     .sort((a, b) => {
-      if (a.completionRate !== b.completionRate) {
-        return a.completionRate - b.completionRate;
-      }
-      if (a.pendingCount !== b.pendingCount) {
-        return b.pendingCount - a.pendingCount;
-      }
+      if (a.completionRate !== b.completionRate) return a.completionRate - b.completionRate;
+      if (a.pendingCount !== b.pendingCount) return b.pendingCount - a.pendingCount;
       return String(a.scorerName).localeCompare(String(b.scorerName), 'zh-CN');
     });
 }
@@ -289,199 +324,33 @@ function sliceRowsBySize(rows, offset, basePayload) {
   };
 }
 
-function buildRowChunks(rows) {
-  const chunks = [];
-  let current = [];
-
-  rows.forEach((row) => {
-    current.push(row);
-    if (estimateBytes({ rows: current }) > CACHE_CHUNK_SAFE_LIMIT && current.length > 1) {
-      const overflow = current.pop();
-      chunks.push(current);
-      current = [overflow];
-    }
-  });
-
-  if (current.length) {
-    chunks.push(current);
-  }
-
-  return chunks.length ? chunks : [[]];
-}
-
-function buildChunkMeta(chunks) {
-  let rowStart = 0;
-  return chunks.map((rows, chunkIndex) => {
-    const rowCount = rows.length;
-    const meta = {
-      chunkIndex,
-      rowStart,
-      rowCount
-    };
-    rowStart += rowCount;
-    return meta;
-  });
-}
-
-function isUnfiltered(filters = {}) {
-  const isAll = (value) => !value
-    || value === '全部'
-    || value === '全部部门'
-    || value === '全部身份'
-    || value === '全部工作分工'
-    || value === '全部工作分工（职能组）';
-  return isAll(safeString(filters.department))
-    && isAll(safeString(filters.identity))
-    && isAll(safeString(filters.workGroup))
-    && !safeString(filters.keyword);
-}
-
-async function removeQueryRecords(collectionName, where) {
-  while (true) {
-    const res = await db.collection(collectionName).where(where).limit(100).get().catch((error) => {
-      const message = safeString(error && (error.message || error.errMsg));
-      if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
-        return { data: [] };
-      }
-      throw error;
-    });
-    const rows = res.data || [];
-    if (!rows.length) {
-      break;
-    }
-    await Promise.all(rows.map((item) => db.collection(collectionName).doc(item._id).remove()));
-    if (rows.length < 100) {
-      break;
-    }
-  }
-}
-
-async function upsertByActivity(collectionName, activityId, data) {
-  const res = await db.collection(collectionName).where({ activityId }).limit(1).get().catch((error) => {
-    const message = safeString(error && (error.message || error.errMsg));
-    if (message.includes('DATABASE_COLLECTION_NOT_EXIST') || message.includes('collection not exists')) {
-      return { data: [] };
-    }
-    throw error;
-  });
-  if (res.data && res.data.length) {
-    await db.collection(collectionName).doc(res.data[0]._id).update({ data });
-    return res.data[0]._id;
-  }
-  const addRes = await db.collection(collectionName).add({
-    data: {
-      activityId,
-      ...data
-    }
-  });
-  return addRes._id;
-}
-
-async function writeTaskCache(activityId, payload) {
-  await removeQueryRecords(TASK_CACHE_CHUNKS, { activityId });
-  const chunks = buildRowChunks(payload.scorers || []);
-
-  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-    await db.collection(TASK_CACHE_CHUNKS).add({
-      data: {
-        activityId,
-        chunkIndex,
-        rows: chunks[chunkIndex],
-        updatedAt: db.serverDate()
-      }
-    });
-  }
-
-  await upsertByActivity(TASK_CACHE_META, activityId, {
-    activityName: payload.activityName,
-    stats: payload.stats,
-    filterOptions: payload.filterOptions,
-    chunkMap: buildChunkMeta(chunks),
-    total: (payload.scorers || []).length,
-    isInvalid: false,
-    updatedAt: db.serverDate()
-  });
-}
-
-async function readTaskCache(activityId, offset, filters) {
-  const metaRes = await db.collection(TASK_CACHE_META)
-    .where({ activityId, isInvalid: false })
-    .limit(1)
-    .get()
-    .catch(() => ({ data: [] }));
-
-  if (!metaRes.data || !metaRes.data.length) {
-    return null;
-  }
-
-  const meta = metaRes.data[0];
-  const chunkMetaList = Array.isArray(meta.chunkMap) ? meta.chunkMap : [];
-  let chunks = [];
-  let cacheRowStart = 0;
-  const cacheTotal = toNumber(meta.total, 0);
-
-  if (isUnfiltered(filters) && chunkMetaList.length) {
-    const targetChunkMeta = chunkMetaList.find((item) => (
-      offset >= toNumber(item.rowStart, 0)
-      && offset < toNumber(item.rowStart, 0) + toNumber(item.rowCount, 0)
-    )) || chunkMetaList[chunkMetaList.length - 1];
-    cacheRowStart = toNumber(targetChunkMeta.rowStart, 0);
-    const chunkRes = await db.collection(TASK_CACHE_CHUNKS)
-      .where({ activityId, chunkIndex: toNumber(targetChunkMeta.chunkIndex, 0) })
-      .limit(1)
-      .get()
-      .catch(() => ({ data: [] }));
-    chunks = chunkRes.data || [];
-  } else {
-    chunks = await getAllRecords(db.collection(TASK_CACHE_CHUNKS).where({ activityId }));
-  }
-
-  if (!chunks.length) {
-    return null;
-  }
-  chunks.sort((a, b) => toNumber(a.chunkIndex, 0) - toNumber(b.chunkIndex, 0));
-
-  return {
-    activityName: meta.activityName || '',
-    stats: meta.stats || {},
-    filterOptions: meta.filterOptions || {},
-    _cacheRowStart: cacheRowStart,
-    _cacheTotal: cacheTotal,
-    _cachePartial: isUnfiltered(filters) && chunkMetaList.length,
-    scorers: chunks.flatMap((item) => Array.isArray(item.rows) ? item.rows : [])
-  };
-}
 
 function buildTaskResponseFromPayload(payload, filters, offset) {
   const filteredRows = applyFilters(payload.scorers || [], filters);
-  const cachePartial = payload._cachePartial === true;
-  const cacheRowStart = cachePartial ? toNumber(payload._cacheRowStart, 0) : 0;
-  const cacheTotal = cachePartial ? toNumber(payload._cacheTotal, filteredRows.length) : filteredRows.length;
-  const sliceOffset = cachePartial ? Math.max(0, offset - cacheRowStart) : offset;
   const basePayload = {
     status: 'success',
     activityName: payload.activityName || '',
     stats: {
-      totalPendingScorers: cacheTotal
+      totalPendingScorers: filteredRows.length
     },
     filterOptions: payload.filterOptions || {},
     scorers: [],
     pagination: {
       offset,
       nextOffset: offset,
-      total: cacheTotal,
+      total: filteredRows.length,
       hasMore: false,
       returnedCount: 0
     }
   };
 
-  const pageResult = sliceRowsBySize(filteredRows, sliceOffset, basePayload);
+  const pageResult = sliceRowsBySize(filteredRows, offset, basePayload);
   basePayload.scorers = pageResult.rows;
   basePayload.pagination = {
     offset,
-    nextOffset: cachePartial ? cacheRowStart + pageResult.nextOffset : pageResult.nextOffset,
-    total: cacheTotal,
-    hasMore: cachePartial ? (cacheRowStart + pageResult.nextOffset < cacheTotal) : pageResult.hasMore,
+    nextOffset: pageResult.nextOffset,
+    total: filteredRows.length,
+    hasMore: pageResult.hasMore,
     returnedCount: pageResult.rows.length
   };
 
@@ -503,6 +372,7 @@ exports.main = async (event) => {
     const activityId = safeString(event.activityId);
     const filters = event.filters || {};
     const offset = Math.max(0, Math.floor(toNumber(event.offset, 0)));
+    const scorerKey = safeString(event.scorerKey);
 
     if (!activityId) {
       return {
@@ -519,16 +389,12 @@ exports.main = async (event) => {
       };
     }
 
-    const cachedPayload = await readTaskCache(activityId, offset, filters);
-    if (cachedPayload) {
-      return buildTaskResponseFromPayload(cachedPayload, filters, offset);
-    }
-
-    const [activityRes, membersRaw, rulesRaw, records] = await Promise.all([
+    const [activityRes, membersRaw, rulesRaw, records, orgLookups] = await Promise.all([
       db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null })),
       getAllRecords(db.collection('hr_info')),
       getAllRecords(db.collection('rate_target_rules').where({ activityId })),
-      getAllRecords(db.collection('score_records').where({ activityId }))
+      getAllRecords(db.collection('score_records').where({ activityId })),
+      fetchOrgLookups()
     ]);
 
     if (!activityRes.data) {
@@ -538,13 +404,33 @@ exports.main = async (event) => {
       };
     }
 
-    const members = membersRaw.map((item) => normalizeMember(item));
-    const rules = rulesRaw.map((item) => ({
-      _id: item._id,
-      scorerKey: safeString(item.scorerKey),
-      clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause)) : []
-    }));
-    const allRows = buildTaskRows(members, rules, records);
+    const members = membersRaw.map((item) => normalizeMember(item, orgLookups));
+    const rules = rulesRaw.map((item) => {
+      const scorerDepartmentId = safeString(item.scorerDepartmentId);
+      const scorerIdentityId = safeString(item.scorerIdentityId);
+      const scorerDepartment = getLookupName(orgLookups.departmentsById, scorerDepartmentId);
+      const scorerIdentity = getLookupName(orgLookups.identitiesById, scorerIdentityId);
+      return {
+        _id: item._id,
+        scorerKey: makeOrgRuleKey(scorerDepartmentId, scorerIdentityId),
+        clauses: Array.isArray(item.clauses) ? item.clauses.map((clause) => normalizeRuleClause(clause, orgLookups)) : []
+      };
+    });
+
+    if (scorerKey) {
+      const scorerRows = buildTaskRows(members, rules, records, { includePendingList: true, scorerKey });
+      const scorer = scorerRows[0] || null;
+      return {
+        status: 'success',
+        scorer: scorer ? {
+          scorerKey: scorer.scorerKey,
+          scorerName: scorer.scorerName,
+          pendingList: scorer.pendingList || []
+        } : null
+      };
+    }
+
+    const allRows = buildTaskRows(members, rules, records, { includePendingList: false });
     const fullPayload = {
       activityName: safeString(activityRes.data.name),
       stats: {
@@ -557,8 +443,6 @@ exports.main = async (event) => {
       },
       scorers: allRows
     };
-
-    await writeTaskCache(activityId, fullPayload).catch(() => null);
     return buildTaskResponseFromPayload(fullPayload, filters, offset);
   } catch (error) {
     return {

@@ -1,151 +1,67 @@
 const cloud = require('wx-server-sdk');
 
-cloud.init({
-  env: cloud.DYNAMIC_CURRENT_ENV
-});
+cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
 const db = cloud.database();
+const _ = db.command;
+
+function safeString(value) { return String(value == null ? '' : value).trim(); }
 
 async function ensureInviteCodeAvailable(inviteCode, excludeId = '') {
-  const res = await db.collection('admin_info')
-    .where({ inviteCode })
-    .limit(1)
-    .get();
-
-  if (!res.data.length) {
-    return true;
-  }
-
+  const res = await db.collection('admin_info').where({ inviteCode }).limit(1).get();
+  if (!res.data.length) return true;
   return res.data[0]._id === excludeId;
 }
 
 exports.main = async (event) => {
   const wxContext = cloud.getWXContext();
   const openid = wxContext.OPENID;
-  const id = String(event.id || '').trim();
-  const name = String(event.name || '').trim();
-  const studentId = String(event.studentId || '').trim();
-  const adminLevel = String(event.adminLevel || 'admin').trim();
-  const inviteCode = String(event.inviteCode || '').trim().toUpperCase();
+  const id = safeString(event.id);
+  const name = safeString(event.name);
+  const studentId = safeString(event.studentId);
+  const adminLevel = safeString(event.adminLevel || 'admin');
+  const inviteCode = safeString(event.inviteCode).toUpperCase();
 
   const operator = await db.collection('admin_info')
-    .where({
-      openid,
-      bindStatus: 'active',
-      adminLevel: 'super_admin'
-    })
+    .where({ openid, bindStatus: 'active' })
     .limit(1)
     .get();
+  if (!operator.data.length) return { status: 'forbidden', message: '没有管理员权限' };
 
-  if (!operator.data.length) {
-    return {
-      status: 'forbidden',
-      message: '只有超级管理员可以管理管理员信息'
-    };
+  const operatorLevel = operator.data[0].adminLevel || 'admin';
+  if (!name || !studentId) return { status: 'invalid_params', message: '请填写姓名和学号' };
+  if (!['admin', 'super_admin', 'root_admin'].includes(adminLevel)) return { status: 'invalid_params', message: '无效的管理员级别' };
+  if (!inviteCode) return { status: 'invalid_params', message: '请填写邀请码' };
+
+  if (operatorLevel !== 'root_admin' && adminLevel === 'root_admin') {
+    return { status: 'forbidden', message: '仅至高权限管理员可添加至高权限管理员' };
   }
 
-  if (!name || !studentId) {
-    return {
-      status: 'invalid_params',
-      message: '姓名和学号必填'
-    };
-  }
+  const available = await ensureInviteCodeAvailable(inviteCode, id);
+  if (!available) return { status: 'duplicate_invite_code', message: '邀请码已被使用' };
 
-  if (['admin', 'super_admin'].indexOf(adminLevel) === -1) {
-    return {
-      status: 'invalid_params',
-      message: '管理员类型不合法'
-    };
-  }
-
-  if (!inviteCode) {
-    return {
-      status: 'invalid_params',
-      message: '邀请码不能为空'
-    };
-  }
-
-  if (id) {
-    const existing = await db.collection('admin_info').doc(id).get();
-    const targetDoc = existing.data;
-
-    if (!targetDoc) {
-      return {
-        status: 'not_found',
-        message: '管理员记录不存在'
-      };
-    }
-
-    if (targetDoc.adminLevel === 'super_admin' && adminLevel !== 'super_admin') {
-      const superAdminRes = await db.collection('admin_info')
-        .where({ adminLevel: 'super_admin' })
-        .get();
-
-      if (superAdminRes.data.length <= 1) {
-        return {
-          status: 'invalid_operation',
-          message: '数据库中至少要保留一个超级管理员'
-        };
-      }
-    }
-
-    const available = await ensureInviteCodeAvailable(inviteCode, id);
-    if (!available) {
-      return {
-        status: 'duplicate_invite_code',
-        message: '邀请码已被其他管理员使用'
-      };
-    }
-
-    await db.collection('admin_info')
-      .doc(id)
-      .update({
-        data: {
-          姓名: name,
-          学号: studentId,
-          name,
-          studentId,
-          adminLevel,
-          inviteCode
-        }
-      });
-  } else {
-    const available = await ensureInviteCodeAvailable(inviteCode);
-    if (!available) {
-      return {
-        status: 'duplicate_invite_code',
-        message: '邀请码已被其他管理员使用'
-      };
-    }
-
-    const existing = await db.collection('admin_info')
-      .where({ 学号: studentId })
-      .limit(1)
-      .get();
-
-    const payload = {
-      姓名: name,
-      学号: studentId,
-      name,
-      studentId,
-      adminLevel,
-      inviteCode,
-      bindStatus: 'invited',
-      openid: '',
-      invitedAt: db.serverDate()
-    };
-
-    if (existing.data.length) {
-      await db.collection('admin_info')
-        .doc(existing.data[0]._id)
-        .update({ data: payload });
-    } else {
-      await db.collection('admin_info').add({ data: payload });
-    }
-  }
-
-  return {
-    status: 'success',
+  const payload = {
+    name,
+    studentId,
+    adminLevel,
     inviteCode
   };
+
+  if (id) {
+    const existing = await db.collection('admin_info').doc(id).get().catch(() => ({ data: null }));
+    const targetDoc = existing.data;
+    if (!targetDoc) return { status: 'not_found', message: '管理员不存在' };
+    if (targetDoc.adminLevel === 'root_admin' && adminLevel !== 'root_admin') {
+      const rootAdminRes = await db.collection('admin_info').where({ adminLevel: 'root_admin' }).get();
+      if (rootAdminRes.data.length <= 1) return { status: 'invalid_operation', message: '不能降级唯一的至高权限管理员' };
+    }
+    await db.collection('admin_info').doc(id).update({ data: payload });
+  } else {
+    const existing = await db.collection('admin_info').where({ studentId }).limit(1).get();
+    const createPayload = { name, studentId, adminLevel, inviteCode, bindStatus: 'invited', openid: '', invitedAt: db.serverDate() };
+    if (existing.data.length) await db.collection('admin_info').doc(existing.data[0]._id).update({ data: { ...payload, bindStatus: 'invited', openid: '', invitedAt: db.serverDate() } });
+    else await db.collection('admin_info').add({ data: createPayload });
+  }
+
+  return { status: 'success', inviteCode };
 };

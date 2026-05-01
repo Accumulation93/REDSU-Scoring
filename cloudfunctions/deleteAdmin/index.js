@@ -15,7 +15,7 @@ exports.main = async (event) => {
     .where({
       openid,
       bindStatus: 'active',
-      adminLevel: 'super_admin'
+      adminLevel: 'root_admin'
     })
     .limit(1)
     .get();
@@ -23,7 +23,7 @@ exports.main = async (event) => {
   if (!operator.data.length) {
     return {
       status: 'forbidden',
-      message: '只有超级管理员可以删除管理员'
+      message: '只有至高权限管理员可以删除管理员'
     };
   }
 
@@ -35,17 +35,17 @@ exports.main = async (event) => {
 
   const target = await db.collection('admin_info').doc(id).get();
 
-  if (target.data.adminLevel === 'super_admin') {
-    const superAdminRes = await db.collection('admin_info')
+  if (target.data.adminLevel === 'root_admin') {
+    const rootAdminRes = await db.collection('admin_info')
       .where({
-        adminLevel: 'super_admin'
+        adminLevel: 'root_admin'
       })
       .get();
 
-    if (superAdminRes.data.length <= 1) {
+    if (rootAdminRes.data.length <= 1) {
       return {
         status: 'invalid_operation',
-        message: '数据库中至少还要有一个超级管理员'
+        message: '数据库中至少还要有一个至高权限管理员'
       };
     }
   }

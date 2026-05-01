@@ -6,6 +6,12 @@ cloud.init({
 
 const db = cloud.database();
 
+function buildTemplateConfigSignature(questions = []) {
+  return (questions || [])
+    .map((item, index) => [index, item.question || '', item.scoreLabel || '', Number(item.minValue), Number(item.startValue), Number(item.maxValue), Number(item.stepValue)].join(':'))
+    .join('|');
+}
+
 exports.main = async (event) => {
   const wxContext = cloud.getWXContext();
   const openid = wxContext.OPENID;
@@ -57,13 +63,12 @@ exports.main = async (event) => {
     counter += 1;
   }
 
-  const countRes = await db.collection('score_question_templates').count();
   const addRes = await db.collection('score_question_templates').add({
     data: {
       name,
       description: template.description || '',
       questions: template.questions || [],
-      sortOrder: (countRes.total || 0) + 1,
+      configSignature: buildTemplateConfigSignature(template.questions || []),
       createdAt: db.serverDate(),
       createdBy: operator.data[0]._id,
       updatedAt: db.serverDate(),

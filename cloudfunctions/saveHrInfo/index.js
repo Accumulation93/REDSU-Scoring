@@ -5,148 +5,95 @@ cloud.init({
 });
 
 const db = cloud.database();
-const CACHE_META_COLLECTIONS = ['score_results_cache_meta', 'scorer_task_cache_meta'];
+const _ = db.command;
 
-async function invalidateAllScoreCaches() {
-  for (const collectionName of CACHE_META_COLLECTIONS) {
-    while (true) {
-      const res = await db.collection(collectionName)
-        .where({ isInvalid: false })
-        .limit(100)
-        .get()
-        .catch(() => ({ data: [] }));
-      const rows = res.data || [];
-      if (!rows.length) {
-        break;
-      }
-      await Promise.all(rows.map((item) => (
-        db.collection(collectionName).doc(item._id).update({
-          data: {
-            isInvalid: true,
-            invalidatedAt: db.serverDate()
-          }
-        }).catch(() => null)
-      )));
-      if (rows.length < 100) {
-        break;
-      }
-    }
-  }
+function safeString(value) {
+  return String(value == null ? '' : value).trim();
 }
 
-exports.main = async (event) => {
+async function ensureAdmin(openid) {
+  const operator = await db.collection('admin_info')
+    .where({ openid, bindStatus: 'active' })
+    .limit(1)
+    .get();
+  return operator.data[0] || null;
+}
+
+async function getById(collectionName, id) {
+  const safeId = safeString(id);
+  if (!safeId) return null;
+  const res = await db.collection(collectionName).doc(safeId).get().catch(() => ({ data: null }));
+  return res.data || null;
+}
+
+exports.main = async (event = {}) => {
   const wxContext = cloud.getWXContext();
   const openid = wxContext.OPENID;
-  const id = String(event.id || '').trim();
-  const name = String(event.name || '').trim();
-  const studentId = String(event.studentId || '').trim();
-  const department = String(event.department || '').trim();
-  const identity = String(event.identity || '').trim();
-  const workGroup = String(event.workGroup || '').trim();
+  const id = safeString(event.id);
+  const name = safeString(event.name);
+  const studentId = safeString(event.studentId);
+  const departmentId = safeString(event.departmentId);
+  const identityId = safeString(event.identityId);
+  const workGroupId = safeString(event.workGroupId);
 
-  const operator = await db.collection('admin_info')
-    .where({
-      openid,
-      bindStatus: 'active'
-    })
-    .limit(1)
-    .get();
-
-  if (!operator.data.length) {
-    return {
-      status: 'forbidden'
-    };
+  const operator = await ensureAdmin(openid);
+  if (!operator) {
+    return { status: 'forbidden', message: '没有管理权限' };
   }
 
-  if (!name || !studentId || !department || !identity) {
-    return {
-      status: 'invalid_params',
-      message: '姓名、学号、所属部门和身份为必填项'
-    };
+  if (!name || !studentId || !departmentId || !identityId) {
+    return { status: 'invalid_params', message: '姓名、学号、部门ID和身份ID为必填项' };
   }
 
-  // 验证部门是否存在
-  const departmentExists = await db.collection('departments')
-    .where({ name: department })
-    .limit(1)
-    .get();
-  if (!departmentExists.data.length) {
-    return {
-      status: 'invalid_params',
-      message: '部门不存在，请先在部门维护中添加'
-    };
+  const [department, identity, workGroup] = await Promise.all([
+    getById('departments', departmentId),
+    getById('identities', identityId),
+    workGroupId ? getById('work_groups', workGroupId) : Promise.resolve(null)
+  ]);
+
+  if (!department) {
+    return { status: 'invalid_params', message: '部门不存在，请先在部门维护中添加' };
   }
 
-  // 验证身份是否存在
-  const identityExists = await db.collection('identities')
-    .where({ name: identity })
-    .limit(1)
-    .get();
-  if (!identityExists.data.length) {
-    return {
-      status: 'invalid_params',
-      message: '身份不存在，请先在身份类别维护中添加'
-    };
+  if (!identity) {
+    return { status: 'invalid_params', message: '身份类别不存在，请先在身份类别维护中添加' };
   }
 
-  // 验证工作分工是否存在（如果填写了）
-  if (workGroup) {
-    const departmentId = departmentExists.data[0]._id;
-    const workGroupExists = await db.collection('work_groups')
-      .where({ departmentId, name: workGroup })
-      .limit(1)
-      .get();
-    if (!workGroupExists.data.length) {
-      return {
-        status: 'invalid_params',
-        message: '工作分工不存在，请先在工作分工维护中添加'
-      };
-    }
+  if (workGroupId && (!workGroup || safeString(workGroup.departmentId) !== departmentId)) {
+    return { status: 'invalid_params', message: '工作分工不存在，或不属于当前部门' };
   }
 
   const payload = {
-    姓名: name,
-    学号: studentId,
-    所属部门: department,
-    身份: identity,
-    '工作分工（职能组）': workGroup,
     name,
     studentId,
-    department,
-    identity,
-    workGroup
+    departmentId,
+    identityId,
+    workGroupId,
+    departmentName: _.remove(),
+    identityName: _.remove(),
+    workGroupName: _.remove(),
+    department: _.remove(),
+    identity: _.remove(),
+    workGroup: _.remove(),
+    school_number: _.remove(),
+    updatedAt: db.serverDate()
   };
 
   if (id) {
-    await db.collection('hr_info')
-      .doc(id)
-      .update({
-        data: payload
-      });
+    await db.collection('hr_info').doc(id).update({ data: payload });
   } else {
-    const existing = await db.collection('hr_info')
-      .where({
-        学号: studentId
-      })
-      .limit(1)
-      .get();
-
-    if (existing.data.length) {
-      await db.collection('hr_info')
-        .doc(existing.data[0]._id)
-        .update({
-          data: payload
-        });
+    const existingByStudentId = await db.collection('hr_info').where({ studentId }).limit(1).get();
+    if (existingByStudentId.data.length) {
+      await db.collection('hr_info').doc(existingByStudentId.data[0]._id).update({ data: payload });
     } else {
       await db.collection('hr_info').add({
-        data: payload
+        data: {
+          ...payload,
+          createdAt: db.serverDate()
+        }
       });
     }
   }
 
-  await invalidateAllScoreCaches();
-
-  return {
-    status: 'success'
-  };
+  return { status: 'success' };
 };

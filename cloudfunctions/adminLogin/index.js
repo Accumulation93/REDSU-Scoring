@@ -8,10 +8,13 @@ const db = cloud.database();
 
 function normalizeAdmin(record) {
   const adminLevel = record.adminLevel || 'admin';
+  let identity = '管理员';
+  if (adminLevel === 'root_admin') identity = '至高权限管理员';
+  else if (adminLevel === 'super_admin') identity = '超级管理员';
   return {
-    name: record.name || record['姓名'] || '',
-    studentId: record.studentId || record['学号'] || '',
-    identity: adminLevel === 'super_admin' ? '超级管理员' : '普通管理员',
+    name: record.name || '',
+    studentId: record.studentId || '',
+    identity,
     adminLevel
   };
 }

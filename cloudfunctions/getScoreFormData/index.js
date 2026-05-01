@@ -20,20 +20,83 @@ function toNumber(value, fallback) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function normalizePerson(record = {}) {
+
+const PAGE_SIZE = 100;
+
+async function getAllRecords(query) {
+  const list = [];
+  let skip = 0;
+  while (true) {
+    const res = await query.where({}).skip(skip).limit(PAGE_SIZE).get().catch(() => ({ data: [] }));
+    const batch = res.data || [];
+    list.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    skip += batch.length;
+  }
+  return list;
+}
+
+function buildNameMap(rows = []) {
+  const map = new Map();
+  rows.forEach((item) => {
+    const id = String(item && item._id || '').trim();
+    if (id) map.set(id, String(item.name || '').trim());
+  });
+  return map;
+}
+
+async function fetchOrgLookups() {
+  const [departments, identities, workGroups] = await Promise.all([
+    getAllRecords(db.collection('departments')),
+    getAllRecords(db.collection('identities')),
+    getAllRecords(db.collection('work_groups'))
+  ]);
+  return {
+    departmentsById: buildNameMap(departments),
+    identitiesById: buildNameMap(identities),
+    workGroupsById: buildNameMap(workGroups)
+  };
+}
+
+function normalizePerson(record = {}, orgLookups = {}) {
+  const departmentId = String(record.departmentId || '').trim();
+  const identityId = String(record.identityId || '').trim();
+  const workGroupId = String(record.workGroupId || '').trim();
   return {
     id: record._id || '',
-    name: record.name || record['姓名'] || '',
-    studentId: record.studentId || record['学号'] || '',
-    identity: record.identity || record['身份'] || '',
-    department: record.department || record['所属部门'] || '',
-    workGroup: record.workGroup || record['工作分工（职能组）'] || '',
-    adminLevel: record.adminLevel || ''
+    name: String(record.name || '').trim(),
+    studentId: String(record.studentId || '').trim(),
+    identityId,
+    identity: String((orgLookups.identitiesById && orgLookups.identitiesById.get(identityId)) || '').trim(),
+    departmentId,
+    department: String((orgLookups.departmentsById && orgLookups.departmentsById.get(departmentId)) || '').trim(),
+    workGroupId,
+    workGroup: String((orgLookups.workGroupsById && orgLookups.workGroupsById.get(workGroupId)) || '').trim(),
+    adminLevel: String(record.adminLevel || '').trim()
   };
 }
 
 function getRuleKey(person) {
-  return `${person.department}::${person.identity}`;
+  const departmentId = String(person.departmentId || '').trim();
+  const identityId = String(person.identityId || '').trim();
+  return departmentId && identityId ? departmentId + '::' + identityId : '';
+}
+
+function normalizeHrPerson(record = {}, orgLookups = {}) {
+  const departmentId = String(record.departmentId || '').trim();
+  const identityId = String(record.identityId || '').trim();
+  const workGroupId = String(record.workGroupId || '').trim();
+  return {
+    id: record._id || '',
+    name: String(record.name || '').trim(),
+    studentId: String(record.studentId || '').trim(),
+    identityId,
+    identity: String((orgLookups.identitiesById && orgLookups.identitiesById.get(identityId)) || '').trim(),
+    departmentId,
+    department: String((orgLookups.departmentsById && orgLookups.departmentsById.get(departmentId)) || '').trim(),
+    workGroupId,
+    workGroup: String((orgLookups.workGroupsById && orgLookups.workGroupsById.get(workGroupId)) || '').trim()
+  };
 }
 
 function normalizeClause(clause = {}) {
@@ -41,18 +104,17 @@ function normalizeClause(clause = {}) {
     ? clause.templateConfigs
     : (clause.templateId ? [{
       templateId: clause.templateId,
-      templateName: clause.templateName || '',
       weight: clause.weight == null ? 1 : clause.weight,
       sortOrder: clause.sortOrder == null ? 1 : clause.sortOrder
     }] : []);
 
   return {
     scopeType: clause.scopeType || '',
-    targetIdentity: clause.targetIdentity || '',
+    targetIdentityId: clause.targetIdentityId || '',
+    targetIdentity: '',
     templateConfigs: templateConfigs
       .map((item) => ({
         templateId: item.templateId || '',
-        templateName: item.templateName || '',
         weight: Number(item.weight),
         sortOrder: Number(item.sortOrder)
       }))
@@ -65,10 +127,31 @@ function getScopeLabel(value) {
   return RULE_SCOPE_LABEL_MAP[value] || value || '';
 }
 
-function buildTemplateConfigSignature(templateConfigs) {
+function safeString(value) {
+  return String(value == null ? '' : value).trim();
+}
+
+function buildTemplateConfigSignature(templateConfigs, templatesById) {
   return (templateConfigs || [])
-    .map((item) => `${item.templateId}@${item.weight}@${item.sortOrder}`)
+    .map((config) => {
+      const template = templatesById && templatesById.get(safeString(config.templateId));
+      if (!template || !Array.isArray(template.questions) || !template.questions.length) return '';
+      const qSig = template.questions
+        .map((q) => [
+          toNumber(q.minValue, 0),
+          toNumber(q.startValue, 0),
+          toNumber(q.maxValue, 0),
+          toNumber(q.stepValue, 0.5)
+        ].join(':'))
+        .join(',');
+      return `${safeString(config.templateId)}[${qSig}]`;
+    })
+    .filter(Boolean)
     .join('|');
+}
+
+function normalizeTemplateConfigSignature(signature = '') {
+  return String(signature || '').trim();
 }
 
 function isWorkGroupScope(scopeType) {
@@ -97,31 +180,41 @@ async function fetchCurrentActivity() {
 
 async function fetchClauseTargets(scorer, clause) {
   const where = {};
-
   if (clause.scopeType === 'same_department_identity') {
-    where['所属部门'] = scorer.department;
-    where['身份'] = clause.targetIdentity;
+    where.departmentId = scorer.departmentId;
+    where.identityId = clause.targetIdentityId;
   } else if (clause.scopeType === 'same_department_all') {
-    where['所属部门'] = scorer.department;
+    where.departmentId = scorer.departmentId;
   } else if (clause.scopeType === 'same_work_group_identity') {
-    where['所属部门'] = scorer.department;
-    where['工作分工（职能组）'] = scorer.workGroup;
-    where['身份'] = clause.targetIdentity;
+    where.departmentId = scorer.departmentId;
+    where.workGroupId = scorer.workGroupId;
+    where.identityId = clause.targetIdentityId;
   } else if (clause.scopeType === 'same_work_group_all') {
-    where['所属部门'] = scorer.department;
-    where['工作分工（职能组）'] = scorer.workGroup;
+    where.departmentId = scorer.departmentId;
+    where.workGroupId = scorer.workGroupId;
   } else if (clause.scopeType === 'identity_only') {
-    where['身份'] = clause.targetIdentity;
+    where.identityId = clause.targetIdentityId;
   } else if (clause.scopeType === 'all_people') {
     return db.collection('hr_info').limit(1000).get();
   } else {
     return { data: [] };
   }
+  return db.collection('hr_info').where(where).limit(1000).get();
+}
 
-  return db.collection('hr_info')
-    .where(where)
-    .limit(1000)
-    .get();
+async function fetchClauseTargetsByNormalizedFields(scorer, clause, members = null, orgLookups = {}) {
+  const source = Array.isArray(members) ? members : ((await db.collection('hr_info').limit(1000).get()).data || []);
+  const data = source.filter((item) => {
+    const target = normalizeHrPerson(item, orgLookups);
+    if (clause.scopeType === 'same_department_identity') return target.departmentId === scorer.departmentId && target.identityId === clause.targetIdentityId;
+    if (clause.scopeType === 'same_department_all') return target.departmentId === scorer.departmentId;
+    if (clause.scopeType === 'same_work_group_identity') return target.departmentId === scorer.departmentId && target.workGroupId === scorer.workGroupId && target.identityId === clause.targetIdentityId;
+    if (clause.scopeType === 'same_work_group_all') return target.departmentId === scorer.departmentId && target.workGroupId === scorer.workGroupId;
+    if (clause.scopeType === 'identity_only') return target.identityId === clause.targetIdentityId;
+    if (clause.scopeType === 'all_people') return true;
+    return false;
+  });
+  return { data };
 }
 
 async function collectCandidateRecords(scorer, openid, targetId, activityId) {
@@ -130,9 +223,6 @@ async function collectCandidateRecords(scorer, openid, targetId, activityId) {
 
   if (openid) {
     queries.push({ ...baseWhere, openid });
-  }
-  if (scorer.studentId) {
-    queries.push({ ...baseWhere, scorerStudentId: scorer.studentId });
   }
   if (scorer.id) {
     queries.push({ ...baseWhere, scorerId: scorer.id });
@@ -166,9 +256,10 @@ async function collectCandidateRecords(scorer, openid, targetId, activityId) {
 
 async function findExistingRecordAndCleanup(scorer, openid, targetId, activityId, templateConfigSignature) {
   const records = await collectCandidateRecords(scorer, openid, targetId, activityId);
+  const normalizedCurrentSignature = normalizeTemplateConfigSignature(templateConfigSignature);
 
   for (const record of records) {
-    if (String(record.templateConfigSignature || '') === String(templateConfigSignature || '')) {
+    if (normalizeTemplateConfigSignature(record.templateConfigSignature) === normalizedCurrentSignature) {
       return record;
     }
 
@@ -204,8 +295,31 @@ exports.main = async (event) => {
     };
   }
 
-  const scorer = normalizePerson(scorerRes.data[0]);
-  if (!scorer.department || !scorer.identity) {
+  const binding = scorerRes.data[0];
+  const hrId = String(binding.hrId || '').trim();
+
+  if (!hrId) {
+    return {
+      status: 'invalid_scorer',
+      message: '当前用户缺少评分所需的人事信息'
+    };
+  }
+
+  const hrRes = await db.collection('hr_info')
+    .doc(hrId)
+    .get()
+    .catch(() => ({ data: null }));
+
+  if (!hrRes.data) {
+    return {
+      status: 'invalid_scorer',
+      message: '当前用户人事信息不存在，请重新绑定'
+    };
+  }
+
+  const orgLookups = await fetchOrgLookups();
+  const scorer = normalizeHrPerson(hrRes.data, orgLookups);
+  if (!scorer.departmentId || !scorer.identityId) {
     return {
       status: 'invalid_scorer',
       message: '当前用户缺少评分所需的人事信息'
@@ -238,22 +352,23 @@ exports.main = async (event) => {
 
   const rule = ruleRes.data[0];
   const matchedClauseEntries = [];
+  const allHrMembers = (await db.collection('hr_info').limit(1000).get()).data || [];
 
   for (const rawClause of rule.clauses || []) {
     const clause = normalizeClause(rawClause);
 
-    if (isWorkGroupScope(clause.scopeType) && !scorer.workGroup) {
+    if (isWorkGroupScope(clause.scopeType) && !scorer.workGroupId) {
       continue;
     }
 
-    const res = await fetchClauseTargets(scorer, clause);
+    const res = await fetchClauseTargetsByNormalizedFields(scorer, clause, allHrMembers, orgLookups);
     const targetDoc = (res.data || []).find((item) => item._id === targetId);
     if (!targetDoc) {
       continue;
     }
 
     matchedClauseEntries.push({
-      person: normalizePerson(targetDoc),
+      person: normalizeHrPerson(targetDoc, orgLookups),
       clause
     });
   }
@@ -276,6 +391,7 @@ exports.main = async (event) => {
   }
 
   const templateDocs = [];
+  const templatesById = new Map();
   for (const config of configuredClauseEntry.clause.templateConfigs) {
     const templateRes = await db.collection('score_question_templates')
       .doc(config.templateId)
@@ -288,6 +404,8 @@ exports.main = async (event) => {
         message: '当前暂无评分问题，请联系管理员配置评分问题'
       };
     }
+
+    templatesById.set(safeString(config.templateId), templateDoc);
 
     templateDocs.push({
       id: templateDoc._id,
@@ -330,7 +448,7 @@ exports.main = async (event) => {
       });
     });
 
-  const templateConfigSignature = buildTemplateConfigSignature(configuredClauseEntry.clause.templateConfigs);
+  const templateConfigSignature = buildTemplateConfigSignature(configuredClauseEntry.clause.templateConfigs, templatesById);
   const existingRecord = await findExistingRecordAndCleanup(
     scorer,
     openid,
@@ -349,17 +467,17 @@ exports.main = async (event) => {
     currentActivity: activity,
     existingRecord: existingRecord ? {
       id: existingRecord._id,
-      rawTotalScore: existingRecord.rawTotalScore,
-      totalScore: existingRecord.weightedTotalScore,
       submittedAt: existingRecord.submittedAt || null
     } : null,
     rule: {
       id: rule._id,
-      scorerDepartment: rule.scorerDepartment,
-      scorerIdentity: rule.scorerIdentity,
+      scorerDepartment: scorer.department,
+      scorerIdentity: scorer.identity,
       clauseScopeType: configuredClauseEntry.clause.scopeType,
       clauseScopeLabel: getScopeLabel(configuredClauseEntry.clause.scopeType),
-      clauseTargetIdentity: configuredClauseEntry.clause.targetIdentity,
+      clauseTargetIdentity: configuredClauseEntry.clause.targetIdentityId
+        ? String(orgLookups.identitiesById.get(configuredClauseEntry.clause.targetIdentityId) || '')
+        : '',
       templateConfigSignature
     },
     templateBundle: {

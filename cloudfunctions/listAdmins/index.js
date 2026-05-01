@@ -6,6 +6,12 @@ cloud.init({
 
 const db = cloud.database();
 
+function getLevelLabel(adminLevel) {
+  if (adminLevel === 'root_admin') return '至高权限管理员';
+  if (adminLevel === 'super_admin') return '超级管理员';
+  return '普通管理员';
+}
+
 exports.main = async () => {
   const wxContext = cloud.getWXContext();
   const openid = wxContext.OPENID;
@@ -26,19 +32,27 @@ exports.main = async () => {
   }
 
   const operatorLevel = operator.data[0].adminLevel || 'admin';
-  const query = operatorLevel === 'super_admin'
-    ? db.collection('admin_info')
-    : db.collection('admin_info').where({ adminLevel: 'admin' });
+
+  let query;
+  if (operatorLevel === 'root_admin') {
+    query = db.collection('admin_info');
+  } else if (operatorLevel === 'super_admin') {
+    query = db.collection('admin_info').where({
+      adminLevel: db.command.in(['super_admin', 'admin'])
+    });
+  } else {
+    query = db.collection('admin_info').where({ adminLevel: 'admin' });
+  }
 
   const res = await query.limit(1000).get();
   const list = res.data.map((item) => {
     const adminLevel = item.adminLevel || 'admin';
     return {
       id: item._id,
-      name: item.name || item['姓名'] || '',
-      studentId: item.studentId || item['学号'] || '',
+      name: item.name || '',
+      studentId: item.studentId || '',
       adminLevel,
-      adminLevelLabel: adminLevel === 'super_admin' ? '超级管理员' : '普通管理员',
+      adminLevelLabel: getLevelLabel(adminLevel),
       inviteCode: item.inviteCode || '',
       bindStatus: item.bindStatus || ''
     };
@@ -47,6 +61,6 @@ exports.main = async () => {
   return {
     status: 'success',
     list,
-    canManage: operatorLevel === 'super_admin'
+    canManage: operatorLevel === 'root_admin' || operatorLevel === 'super_admin'
   };
 };

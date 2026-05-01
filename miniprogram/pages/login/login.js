@@ -19,7 +19,7 @@ const ROLE_MAP = {
     loginFunction: 'adminLogin',
     bindFunction: 'bindAdminInfo',
     title: '管理员登录',
-    subtitle: '管理员使用邀请码完成验证后进入管理端，支持普通管理员与超级管理员两种类别。',
+    subtitle: '管理员使用邀请码完成验证后进入管理端，支持至高权限管理员、超级管理员与普通管理员三种类别。',
     loginButtonText: '管理员登录',
     bindTitle: '补充管理员信息',
     bindButtonText: '确认提交'
@@ -28,11 +28,16 @@ const ROLE_MAP = {
 
 function normalizeProfile(user) {
   return {
-    name: user.name || user['姓名'] || '',
-    studentId: user.studentId || user['学号'] || '',
-    department: user.department || user['所属部门'] || '',
-    identity: user.identity || user['身份'] || '',
-    workGroup: user.workGroup || user['工作分工（职能组）'] || '',
+    id: user.id || user.hrId || '',
+    hrId: user.hrId || '',
+    name: user.name || '',
+    studentId: user.studentId || '',
+    departmentId: user.departmentId || '',
+    department: user.department || '',
+    identityId: user.identityId || '',
+    identity: user.identity || '',
+    workGroupId: user.workGroupId || '',
+    workGroup: user.workGroup || '',
     adminLevel: user.adminLevel || ''
   };
 }

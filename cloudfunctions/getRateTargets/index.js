@@ -5,38 +5,74 @@ cloud.init({
 });
 
 const db = cloud.database();
-
+function safeString(value) {
+  return String(value == null ? '' : value).trim();
+}
 const PROFILE_COLLECTION_MAP = {
   user: 'user_info',
   admin: 'admin_info'
 };
 
-const SOURCE_COLLECTION_MAP = {
-  user: 'hr_info',
-  admin: 'admin_info'
-};
+const PAGE_SIZE = 100;
 
-function normalizePerson(record) {
-  const name = record.name || record['姓名'] || '';
-  const studentId = record.studentId || record['学号'] || '';
-  const identity = record.identity || record['身份'] || '';
-  const department = record.department || record['所属部门'] || '';
-  const workGroup = record.workGroup || record['工作分工（职能组）'] || '';
-  const adminLevel = record.adminLevel || '';
+async function getAllRecords(query) {
+  const list = [];
+  let skip = 0;
+  while (true) {
+    const res = await query.where({}).skip(skip).limit(PAGE_SIZE).get().catch(() => ({ data: [] }));
+    const batch = res.data || [];
+    list.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    skip += batch.length;
+  }
+  return list;
+}
+
+function buildNameMap(rows = []) {
+  const map = new Map();
+  rows.forEach((item) => {
+    const id = String(item && item._id || '').trim();
+    if (id) map.set(id, String(item.name || '').trim());
+  });
+  return map;
+}
+
+async function fetchOrgLookups() {
+  const [departments, identities, workGroups] = await Promise.all([
+    getAllRecords(db.collection('departments')),
+    getAllRecords(db.collection('identities')),
+    getAllRecords(db.collection('work_groups'))
+  ]);
+  return {
+    departmentsById: buildNameMap(departments),
+    identitiesById: buildNameMap(identities),
+    workGroupsById: buildNameMap(workGroups)
+  };
+}
+
+function normalizePerson(record = {}, lookups = {}) {
+  const departmentId = safeString(record.departmentId);
+  const identityId = safeString(record.identityId);
+  const workGroupId = safeString(record.workGroupId);
 
   return {
-    id: record._id || `${name}-${studentId}-${identity || adminLevel}`,
-    name,
-    studentId,
-    identity,
-    department,
-    workGroup,
-    adminLevel
+    id: safeString(record._id),
+    name: safeString(record.name),
+    studentId: safeString(record.studentId),
+    departmentId,
+    department: safeString(lookups.departmentsById && lookups.departmentsById.get(departmentId)),
+    identityId,
+    identity: safeString(lookups.identitiesById && lookups.identitiesById.get(identityId)),
+    workGroupId,
+    workGroup: safeString(lookups.workGroupsById && lookups.workGroupsById.get(workGroupId)),
+    adminLevel: safeString(record.adminLevel)
   };
 }
 
 function getRuleKey(person) {
-  return `${person.department}::${person.identity}`;
+  const departmentId = String(person.departmentId || '').trim();
+  const identityId = String(person.identityId || '').trim();
+  return departmentId && identityId ? departmentId + '::' + identityId : '';
 }
 
 async function fetchCurrentActivity() {
@@ -50,92 +86,47 @@ async function fetchCurrentActivity() {
   return res.data.length ? res.data[0] : null;
 }
 
-async function enrichScorer(profileCollection, sourceCollection, profileDoc) {
-  const profile = normalizePerson(profileDoc);
-
+async function enrichScorer(profileCollection, profileDoc, lookups) {
+  const profile = normalizePerson(profileDoc, lookups);
   if (profileCollection === 'admin_info') {
     return {
       ...profile,
-      identity: profile.adminLevel === 'super_admin' ? '超级管理员' : '普通管理员'
+      identity: profile.adminLevel === 'root_admin' ? '至高权限管理员' : (profile.adminLevel === 'super_admin' ? '超级管理员' : '管理员')
     };
   }
+  return profile;
+}
 
-  if (profile.department && profile.identity) {
-    return profile;
-  }
-
-  let sourceQuery = null;
-
-  if (profile.studentId) {
-    sourceQuery = db.collection(sourceCollection).where({
-      学号: profile.studentId
-    });
-  } else if (profile.name) {
-    sourceQuery = db.collection(sourceCollection).where({
-      姓名: profile.name
-    });
-  }
-
-  if (!sourceQuery) {
-    return profile;
-  }
-
-  const sourceRes = await sourceQuery.limit(1).get();
-
-  if (!sourceRes.data.length) {
-    return profile;
-  }
-
-  const sourceItem = sourceRes.data[0];
-  const enriched = {
-    ...profile,
-    identity: sourceItem['身份'] || profile.identity,
-    department: sourceItem['所属部门'] || profile.department,
-    workGroup: sourceItem['工作分工（职能组）'] || profile.workGroup
+function normalizeClause(clause = {}) {
+  return {
+    scopeType: safeString(clause.scopeType),
+    targetIdentityId: safeString(clause.targetIdentityId),
+    templateConfigs: Array.isArray(clause.templateConfigs) ? clause.templateConfigs : []
   };
-
-  if (profileDoc._id) {
-    await db.collection(profileCollection)
-      .doc(profileDoc._id)
-      .update({
-        data: {
-          identity: enriched.identity,
-          department: enriched.department,
-          workGroup: enriched.workGroup
-        }
-      });
-  }
-
-  return enriched;
 }
 
 async function fetchClauseTargets(scorer, clause) {
   const where = {};
-
   if (clause.scopeType === 'same_department_identity') {
-    where['所属部门'] = scorer.department;
-    where['身份'] = clause.targetIdentity;
+    where.departmentId = scorer.departmentId;
+    where.identityId = clause.targetIdentityId;
   } else if (clause.scopeType === 'same_department_all') {
-    where['所属部门'] = scorer.department;
+    where.departmentId = scorer.departmentId;
   } else if (clause.scopeType === 'same_work_group_identity') {
-    where['所属部门'] = scorer.department;
-    where['工作分工（职能组）'] = scorer.workGroup;
-    where['身份'] = clause.targetIdentity;
+    where.departmentId = scorer.departmentId;
+    where.workGroupId = scorer.workGroupId;
+    where.identityId = clause.targetIdentityId;
   } else if (clause.scopeType === 'same_work_group_all') {
-    where['所属部门'] = scorer.department;
-    where['工作分工（职能组）'] = scorer.workGroup;
+    where.departmentId = scorer.departmentId;
+    where.workGroupId = scorer.workGroupId;
   } else if (clause.scopeType === 'identity_only') {
-    where['身份'] = clause.targetIdentity;
+    where.identityId = clause.targetIdentityId;
   } else if (clause.scopeType === 'all_people') {
     return db.collection('hr_info').limit(1000).get();
   } else {
     return { data: [] };
   }
-
-  return db.collection('hr_info')
-    .where(where)
-    .limit(1000)
-    .get();
+  return db.collection('hr_info').where(where).limit(1000).get();
 }
 
 async function getScoredTargetIdSet(scorerId, activityId) {
@@ -163,9 +154,6 @@ async function getScoredTargetIdSetByScorer(scorer, openid, activityId) {
     queries.push(activityId ? { openid, activityId } : { openid });
   }
 
-  if (scorer.studentId) {
-    queries.push(activityId ? { scorerStudentId: scorer.studentId, activityId } : { scorerStudentId: scorer.studentId });
-  }
 
   for (const where of queries) {
     const scoreRes = await db.collection('score_records')
@@ -188,25 +176,68 @@ exports.main = async (event) => {
   const openid = wxContext.OPENID;
   const role = String(event.role || 'user').trim();
   const profileCollection = PROFILE_COLLECTION_MAP[role] || PROFILE_COLLECTION_MAP.user;
-  const sourceCollection = SOURCE_COLLECTION_MAP[role] || SOURCE_COLLECTION_MAP.user;
 
   const where = role === 'admin'
     ? { openid, bindStatus: 'active' }
     : { openid };
 
-  const scorerRes = await db.collection(profileCollection)
-    .where(where)
-    .limit(1)
-    .get();
+    const orgLookups = await fetchOrgLookups();
 
-  if (!scorerRes.data.length) {
-    return {
-      status: 'user_not_found',
-      message: '未找到当前身份信息，请重新登录。'
-    };
-  }
-
-  const scorer = await enrichScorer(profileCollection, sourceCollection, scorerRes.data[0]);
+    let scorerRaw = null;
+    
+    if (role === 'admin') {
+      const adminRes = await db.collection('admin_info')
+        .where({ openid, bindStatus: 'active' })
+        .limit(1)
+        .get();
+    
+      if (!adminRes.data.length) {
+        return {
+          status: 'need_bind',
+          message: '请先绑定管理员身份'
+        };
+      }
+    
+      scorerRaw = adminRes.data[0];
+    } else {
+      const userRes = await db.collection('user_info')
+        .where({ openid })
+        .limit(1)
+        .get();
+    
+      if (!userRes.data.length) {
+        return {
+          status: 'need_bind',
+          message: '请先绑定用户身份'
+        };
+      }
+    
+      const binding = userRes.data[0];
+      const hrId = safeString(binding.hrId || binding.hr_id);
+    
+      if (!hrId) {
+        return {
+          status: 'need_bind',
+          message: '绑定记录缺少人事ID，请重新绑定'
+        };
+      }
+    
+      const hrRes = await db.collection('hr_info')
+        .doc(hrId)
+        .get()
+        .catch(() => ({ data: null }));
+    
+      if (!hrRes.data) {
+        return {
+          status: 'need_bind',
+          message: '绑定的人事信息不存在，请重新绑定'
+        };
+      }
+    
+      scorerRaw = hrRes.data;
+    }
+    
+    const scorer = normalizePerson(scorerRaw, orgLookups);
 
   if (role === 'admin') {
     return {
@@ -216,7 +247,7 @@ exports.main = async (event) => {
     };
   }
 
-  if (!scorer.department || !scorer.identity) {
+  if (!scorer.departmentId || !scorer.identityId) {
     return {
       status: 'invalid_scorer',
       message: '当前用户缺少评分规则所需的人事信息。'
@@ -237,7 +268,8 @@ exports.main = async (event) => {
   const ruleRes = await db.collection('rate_target_rules')
     .where({
       activityId: currentActivity._id,
-      scorerKey: getRuleKey(scorer),
+      scorerDepartmentId: scorer.departmentId,
+      scorerIdentityId: scorer.identityId,
       isActive: true
     })
     .limit(1)
@@ -258,15 +290,16 @@ exports.main = async (event) => {
   );
   const targetMap = new Map();
 
-  for (const clause of rule.clauses || []) {
-    if ((clause.scopeType === 'same_work_group_identity' || clause.scopeType === 'same_work_group_all') && !scorer.workGroup) {
+  for (const rawClause of rule.clauses || []) {
+    const clause = normalizeClause(rawClause);
+    if ((clause.scopeType === 'same_work_group_identity' || clause.scopeType === 'same_work_group_all') && !scorer.workGroupId) {
       continue;
     }
 
     const res = await fetchClauseTargets(scorer, clause);
     (res.data || []).forEach((item) => {
       if (!targetMap.has(item._id)) {
-        const person = normalizePerson(item);
+        const person = normalizePerson(item, orgLookups);
         const isScored = scoredTargetIdSet.has(item._id);
         targetMap.set(item._id, {
           ...person,

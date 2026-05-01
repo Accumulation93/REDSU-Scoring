@@ -51,7 +51,8 @@ exports.main = async () => {
     description: item.description || '',
     questions: (item.questions || []).map((question) => normalizeQuestion(question)),
     questionCount: (item.questions || []).length,
-    sortOrder: Number(item.sortOrder) || 999999
+    configSignature: item.configSignature || buildTemplateConfigSignature(item.questions || []),
+    sortOrder: 999999
   })).sort((a, b) => {
     if (a.sortOrder !== b.sortOrder) {
       return a.sortOrder - b.sortOrder;

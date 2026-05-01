@@ -33,8 +33,7 @@ exports.main = async () => {
   const operatorRes = await db.collection('admin_info')
     .where({
       openid,
-      bindStatus: 'active',
-      adminLevel: 'super_admin'
+      bindStatus: 'active'
     })
     .limit(1)
     .get();
@@ -42,7 +41,15 @@ exports.main = async () => {
   if (!operatorRes.data.length) {
     return {
       status: 'forbidden',
-      message: '只有超级管理员可以生成邀请码'
+      message: '没有管理员权限'
+    };
+  }
+
+  const operatorLevel = operatorRes.data[0].adminLevel || 'admin';
+  if (operatorLevel !== 'root_admin' && operatorLevel !== 'super_admin') {
+    return {
+      status: 'forbidden',
+      message: '仅至高权限管理员或超级管理员可以生成邀请码'
     };
   }
 

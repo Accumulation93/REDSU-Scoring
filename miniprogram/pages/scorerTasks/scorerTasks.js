@@ -92,6 +92,7 @@ Page({
     scorerRows: [],
     pendingPopupVisible: false,
     pendingPopupTitle: '',
+    pendingPopupLoading: false,
     pendingPopupList: [],
     exportLoadingMap: {}
   },
@@ -244,23 +245,53 @@ Page({
     this.loadData();
   },
 
-  openPendingPopup(e) {
+  async openPendingPopup(e) {
     const index = Number(e.currentTarget.dataset.index);
     const row = this.data.scorerRows[index];
     if (!row) {
       return;
     }
+
+    const popupToken = Date.now();
+    this.pendingPopupToken = popupToken;
+
     this.setData({
       pendingPopupVisible: true,
       pendingPopupTitle: `${row.scorerName} 的未完成名单`,
-      pendingPopupList: row.pendingList || []
+      pendingPopupLoading: true,
+      pendingPopupList: []
     });
+
+    try {
+      const result = await this.callCloud('getScorerTaskStatus', {
+        activityId: this.data.activityId,
+        scorerKey: row.scorerKey
+      });
+
+      if (this.pendingPopupToken !== popupToken) {
+        return;
+      }
+
+      if (result.status === 'success' && result.scorer) {
+        this.setData({
+          pendingPopupList: result.scorer.pendingList || [],
+          pendingPopupLoading: false
+        });
+      } else {
+        wx.showToast({ title: result.message || '加载失败', icon: 'none' });
+        this.setData({ pendingPopupLoading: false });
+      }
+    } catch (error) {
+      wx.showToast({ title: getErrorText(error, '加载失败'), icon: 'none' });
+      this.setData({ pendingPopupLoading: false });
+    }
   },
 
   closePendingPopup() {
     this.setData({
       pendingPopupVisible: false,
       pendingPopupTitle: '',
+      pendingPopupLoading: false,
       pendingPopupList: []
     });
   },

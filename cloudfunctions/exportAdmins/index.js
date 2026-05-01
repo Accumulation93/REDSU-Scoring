@@ -21,8 +21,7 @@ exports.main = async () => {
   const operator = await db.collection('admin_info')
     .where({
       openid,
-      bindStatus: 'active',
-      adminLevel: 'super_admin'
+      bindStatus: 'active'
     })
     .limit(1)
     .get();
@@ -30,14 +29,22 @@ exports.main = async () => {
   if (!operator.data.length) {
     return {
       status: 'forbidden',
-      message: '只有超级管理员可以导出管理员信息'
+      message: '没有管理员权限'
+    };
+  }
+
+  const operatorLevel = operator.data[0].adminLevel || 'admin';
+  if (operatorLevel !== 'root_admin' && operatorLevel !== 'super_admin') {
+    return {
+      status: 'forbidden',
+      message: '仅至高权限管理员或超级管理员可以导出管理员信息'
     };
   }
 
   const res = await db.collection('admin_info').limit(1000).get();
   const list = res.data.sort((a, b) => {
-    const nameA = a.name || a['姓名'] || '';
-    const nameB = b.name || b['姓名'] || '';
+    const nameA = a.name || '';
+    const nameB = b.name || '';
     return nameA.localeCompare(nameB, 'zh-CN');
   });
 
@@ -46,10 +53,10 @@ exports.main = async () => {
   ];
 
   list.forEach((item) => {
-    const adminLevel = item.adminLevel === 'super_admin' ? '超级管理员' : '普通管理员';
+    const adminLevel = item.adminLevel === 'root_admin' ? '至高权限管理员' : (item.adminLevel === 'super_admin' ? '超级管理员' : '普通管理员');
     lines.push([
-      escapeCsv(item.name || item['姓名'] || ''),
-      escapeCsv(item.studentId || item['学号'] || ''),
+      escapeCsv(item.name || ''),
+      escapeCsv(item.studentId || ''),
       escapeCsv(adminLevel),
       escapeCsv(item.inviteCode || ''),
       escapeCsv(item.bindStatus || '')

@@ -2,7 +2,7 @@
   <view class="hero hero-admin" wx:if="{{hasPermission}}">
     <view class="hero-badge">管理端</view>
     <view class="hero-title">评分管理工作台</view>
-    <view class="hero-subtitle hero-admin-subtitle">{{user.name}} - {{isSuperAdmin ? '超级管理员' : '普通管理员'}}</view>
+    <view class="hero-subtitle hero-admin-subtitle">{{user.name}} - {{isRootAdmin ? '至高权限管理员' : (isSuperAdmin ? '超级管理员' : '普通管理员')}}</view>
   </view>
 
   <view class="empty-card" wx:if="{{!hasPermission}}">
@@ -22,6 +22,7 @@
       <view class="tab {{activeTab === 'workGroups' ? 'tab-active' : ''}}" data-tab="workGroups" bindtap="switchTab">工作分工</view>
       <view class="tab {{activeTab === 'identities' ? 'tab-active' : ''}}" data-tab="identities" bindtap="switchTab">身份类别</view>
       <view class="tab {{activeTab === 'admins' ? 'tab-active' : ''}}" data-tab="admins" bindtap="switchTab">管理员</view>
+      <view class="tab {{activeTab === 'settings' ? 'tab-active' : ''}}" data-tab="settings" bindtap="switchTab">基础配置</view>
     </view>
 
     <view class="section" wx:if="{{activeTab === 'activities'}}">
@@ -55,7 +56,7 @@
       <view class="list-card">
         <view class="list-title">活动列表</view>
         <scroll-view class="inner-scroll medium-scroll" scroll-y>
-          <view class="list-item" wx:for="{{activityList}}" wx:key="id">
+          <view class="list-item list-item-stacked" wx:for="{{activityList}}" wx:key="id">
             <view class="list-main">
               <view class="list-name">{{item.name}}</view>
               <view class="chip-row">
@@ -63,11 +64,11 @@
               </view>
               <view class="list-desc">{{item.description}}</view>
               <view class="list-desc">{{item.startDate}} {{item.endDate}}</view>
-            </view>
-            <view class="inline-actions">
-              <text class="link" data-id="{{item.id}}" bindtap="setCurrentActivity">设为当前</text>
-              <text class="link" data-index="{{index}}" bindtap="editActivity">编辑</text>
-              <text class="link danger" data-id="{{item.id}}" bindtap="deleteActivity">删除</text>
+              <view class="inline-actions list-actions-below">
+                <text class="link" data-id="{{item.id}}" bindtap="setCurrentActivity">设为当前</text>
+                <text class="link" data-index="{{index}}" bindtap="editActivity">编辑</text>
+                <text class="link danger" data-id="{{item.id}}" bindtap="deleteActivity">删除</text>
+              </view>
             </view>
           </view>
         </scroll-view>
@@ -142,16 +143,16 @@
       <view class="list-card">
         <view class="list-title">评分问题列表</view>
         <scroll-view class="inner-scroll medium-scroll" scroll-y>
-          <view class="list-item" wx:for="{{templateList}}" wx:key="id">
+          <view class="list-item list-item-stacked" wx:for="{{templateList}}" wx:key="id">
             <view class="list-main">
               <view class="list-name">{{item.name}}</view>
               <view class="list-desc">{{item.description}}</view>
               <view class="list-desc">问题数：{{item.questionCount}}</view>
-            </view>
-            <view class="inline-actions">
-              <text class="link" data-id="{{item.id}}" bindtap="duplicateTemplate">复制</text>
-              <text class="link" data-index="{{index}}" bindtap="editTemplate">编辑</text>
-              <text class="link danger" data-id="{{item.id}}" bindtap="deleteTemplate">删除</text>
+              <view class="inline-actions list-actions-below">
+                <text class="link" data-id="{{item.id}}" bindtap="duplicateTemplate">复制</text>
+                <text class="link" data-index="{{index}}" bindtap="editTemplate">编辑</text>
+                <text class="link danger" data-id="{{item.id}}" bindtap="deleteTemplate">删除</text>
+              </view>
             </view>
           </view>
         </scroll-view>
@@ -159,57 +160,92 @@
     </view>
 
     <view class="section" wx:if="{{activeTab === 'rules'}}">
-      <view class="section-title">评分人类别</view>
-
-      <view class="field">
-        <view class="field-label">评分人所属部门</view>
-        <input class="field-input" data-field="scorerDepartment" bindinput="onRuleFieldInput" value="{{ruleForm.scorerDepartment}}" placeholder="请输入评分人所属部门" />
-      </view>
-      <view class="field">
-        <view class="field-label">评分人身份</view>
-        <input class="field-input" data-field="scorerIdentity" bindinput="onRuleFieldInput" value="{{ruleForm.scorerIdentity}}" placeholder="请输入评分人身份" />
-      </view>
-      <view class="field">
-        <view class="field-label">被评分范围</view>
-        <picker range="{{scopeOptions}}" range-key="label" bindchange="onClauseScopeChange">
-          <view class="picker-value">{{ruleForm.clauseScopeLabel}}</view>
-        </picker>
-      </view>
-      <view class="field">
-        <view class="field-label">被评分人身份</view>
-        <input class="field-input" data-field="clauseTargetIdentity" bindinput="onRuleFieldInput" value="{{ruleForm.clauseTargetIdentity}}" placeholder="可选，留空表示不限制身份" />
-      </view>
-      <view class="field">
-        <view class="field-label">该被评分人规则是否要求评分人完成本规则下全部评分后才计入核算</view>
-        <switch checked="{{ruleForm.clauseRequireAllComplete}}" color="#2563eb" bindchange="onClauseRequireAllCompleteChange" />
-      </view>
-      <view class="field">
-        <view class="field-label">添加评分问题到当前被评分人规则</view>
-        <picker range="{{templateList}}" range-key="name" bindchange="onRuleTemplateChange">
-          <view class="picker-value">{{ruleForm.clauseTemplateName || '请选择评分问题'}}</view>
-        </picker>
-      </view>
-      <view class="field field-row">
-        <view class="field field-half">
-          <view class="field-label">权重</view>
-          <input class="field-input" data-field="clauseTemplateWeight" bindinput="onRuleFieldInput" value="{{ruleForm.clauseTemplateWeight}}" placeholder="1" />
+      <view class="rule-panel">
+        <view class="rule-panel-head">
+          <view class="rule-panel-title">评分人信息</view>
+          <view class="rule-panel-subtitle">选择或新建评分人类别后，可在下方配置被评分人规则</view>
         </view>
-        <view class="field field-half">
-          <view class="field-label">顺序</view>
-          <input class="field-input" data-field="clauseTemplateOrder" bindinput="onRuleFieldInput" value="{{ruleForm.clauseTemplateOrder}}" placeholder="1" />
+        <view class="field">
+          <view class="field-label">评分人所属部门</view>
+          <picker range="{{departmentList}}" range-key="name" bindchange="onRuleScorerDepartmentChange"><view class="picker-value">{{ruleForm.scorerDepartment || '请选择部门'}}</view></picker>
+        </view>
+        <view class="field">
+          <view class="field-label">评分人身份</view>
+          <picker range="{{identityList}}" range-key="name" bindchange="onRuleScorerIdentityChange"><view class="picker-value">{{ruleForm.scorerIdentity || '请选择身份'}}</view></picker>
+        </view>
+        <view class="button-row">
+          <button class="primary-btn" loading="{{loadingMap.saveRule}}" bindtap="saveRuleCategory">保存类别</button>
+          <button class="secondary-btn" bindtap="startCreateRuleCategory">新增类别</button>
+          <button class="secondary-btn" disabled="{{loadingMap.batchSaveRules}}" bindtap="applyClausesToSelectedRules">批量应用到已选类别</button>
+          <button class="secondary-btn" disabled="{{loadingMap.generateRules}}" bindtap="generateRuleCategoriesFinal">生成默认类别</button>
         </view>
       </view>
 
-      <view class="button-row compact-row">
-        <button class="secondary-btn" bindtap="addClauseTemplateConfig">{{ruleForm.clauseTemplateConfigEditingIndex >= 0 ? '保存评分问题配置' : '加入当前被评分人规则'}}</button>
-        <button class="secondary-btn" wx:if="{{ruleForm.clauseTemplateConfigEditingIndex >= 0}}" bindtap="cancelClauseTemplateConfigEdit">取消评分问题编辑</button>
+      <view class="rule-panel">
+        <view class="rule-panel-head rule-panel-head-row">
+          <view>
+            <view class="rule-panel-title">当前被评分人规则</view>
+            <view class="rule-panel-subtitle">编辑评分人类别后，可在这里查看每条规则的范围、模板和权重</view>
+          </view>
+          <button class="secondary-btn mini-action-btn" bindtap="openNewRuleClauseEditor">新建被评分人规则</button>
+        </view>
+        <view class="rule-empty" wx:if="{{!ruleForm.clauses.length}}">暂无被评分人规则</view>
+        <view class="rule-clause-card" wx:for="{{ruleForm.clauses}}" wx:key="index">
+          <view class="rule-clause-main">
+            <view class="rule-clause-title">{{item.targetIdentity || '不限制被评分人身份'}}</view>
+            <view class="rule-tag-row">
+              <text class="rule-tag tag-scope">{{item.scopeLabel || item.scopeType}}</text>
+              <text class="rule-tag tag-target">{{item.targetIdentity || '不限身份'}}</text>
+              <text class="rule-tag {{item.requireAllComplete ? 'tag-required' : 'tag-free'}}">{{item.requireAllComplete ? '要求全评' : '不要求全评'}}</text>
+            </view>
+          </view>
+          <view class="rule-template-list" wx:if="{{item.templateConfigs.length}}">
+            <view class="rule-template-row" wx:for="{{item.templateConfigs}}" wx:for-item="template" wx:for-index="templateIndex" wx:key="templateId">
+              <view class="rule-template-name">{{template.templateName || '未命名评分问题'}}</view>
+              <view class="rule-template-tags">
+                <text class="rule-tag tag-weight">权重 {{template.weight}}</text>
+                <text class="rule-tag tag-order">顺序 {{template.sortOrder}}</text>
+              </view>
+            </view>
+          </view>
+          <view class="rule-empty small-empty" wx:else>未配置评分问题</view>
+          <view class="pill-actions rule-card-actions">
+            <text class="pill-link" data-index="{{index}}" bindtap="editRuleClause">编辑</text>
+            <text class="pill-close" data-index="{{index}}" bindtap="removeRuleClause">删除</text>
+          </view>
+        </view>
       </view>
 
-      <view class="edit-box" wx:if="{{ruleForm.clauseTemplateConfigs.length}}">
-        <view class="list-title">当前被评分人规则中的评分问题顺序</view>
-        <view class="pill-list">
+      <view class="rule-panel" wx:if="{{ruleForm.isRuleClauseEditorVisible}}">
+        <view class="rule-panel-head rule-panel-head-row">
+          <view>
+            <view class="rule-panel-title">被评分人规则编辑</view>
+            <view class="rule-panel-subtitle">{{ruleForm.clauseEditingIndex >= 0 ? '正在编辑当前被评分人规则' : '添加一条新的被评分人规则'}}</view>
+          </view>
+          <button class="secondary-btn mini-action-btn" bindtap="openTemplateConfigEditor">添加评分问题</button>
+        </view>
+        <view class="field">
+          <view class="field-label">被评分范围</view>
+          <picker range="{{scopeOptions}}" range-key="label" bindchange="onClauseScopeChange">
+            <view class="picker-value">{{ruleForm.clauseScopeLabel}}</view>
+          </picker>
+        </view>
+        <view class="field">
+          <view class="field-label">被评分人身份</view>
+          <picker range="{{identityList}}" range-key="name" bindchange="onRuleTargetIdentityChange"><view class="picker-value">{{ruleForm.clauseTargetIdentity || '不限制身份'}}</view></picker>
+        </view>
+        <view class="rule-switch-row">
+          <view>
+            <view class="field-label">是否要求全评</view>
+            <view class="rule-panel-subtitle">开启后，评分人完成本规则下全部评分后才计入核算</view>
+          </view>
+          <switch checked="{{ruleForm.clauseRequireAllComplete}}" color="#2563eb" bindchange="onClauseRequireAllCompleteChange" />
+        </view>
+
+        <view class="rule-config-list" wx:if="{{ruleForm.clauseTemplateConfigs.length}}">
+          <view class="list-title">评分问题及顺序</view>
           <view
-            class="pill {{draggingClauseTemplateIndex === index ? 'dragging-item' : ''}}"
+            class="template-config-card {{draggingClauseTemplateIndex === index ? 'dragging-item' : ''}}"
             wx:for="{{ruleForm.clauseTemplateConfigs}}"
             wx:key="index"
             data-index="{{index}}"
@@ -218,61 +254,97 @@
             catchtouchend="endClauseTemplateDrag"
             catchtouchcancel="onClauseTemplateDragCancel"
           >
-            <text>#{{item.sortOrder}} {{item.templateName}} - 权重 {{item.weight}}</text>
-            <view class="pill-actions">
+            <view class="template-config-name">{{item.templateName || '未命名评分问题'}}</view>
+            <view class="template-config-meta">
+              <text class="rule-tag tag-weight">权重 {{item.weight}}</text>
+              <text class="rule-tag tag-order">顺序 {{item.sortOrder}}</text>
+            </view>
+            <view class="pill-actions template-config-actions">
               <text class="pill-link" data-index="{{index}}" bindtap="editClauseTemplateConfig">编辑</text>
               <text class="pill-close" data-index="{{index}}" bindtap="removeClauseTemplateConfig">删除</text>
             </view>
           </view>
         </view>
-      </view>
 
-      <view class="button-row compact-row">
-        <button class="secondary-btn" bindtap="addRuleClause">{{ruleForm.clauseEditingIndex >= 0 ? '保存被评分人规则' : '新增被评分人规则'}}</button>
-        <button class="secondary-btn" wx:if="{{ruleForm.clauseEditingIndex >= 0}}" bindtap="cancelRuleClauseEdit">取消被评分人规则编辑</button>
-      </view>
-
-      <view class="button-row">
-        <button class="primary-btn" loading="{{loadingMap.saveRule}}" bindtap="saveRuleCategory">保存评分人类别</button>
-        <button class="secondary-btn" loading="{{loadingMap.batchSaveRules}}" bindtap="applyClausesToSelectedRules">批量应用到已选类别</button>
-        <button class="secondary-btn" bindtap="toggleSelectAllRules">{{selectedRuleIds.length === ruleList.length && ruleList.length ? '取消全选' : '全选'}}</button>
-        <button class="secondary-btn" loading="{{loadingMap.generateRules}}" bindtap="generateRuleCategoriesFinal">生成默认评分人类别</button>
-      </view>
-
-      <view class="edit-box" wx:if="{{ruleForm.clauses.length}}">
-        <view class="list-title">当前被评分人规则</view>
-        <view class="pill-list">
-          <view class="pill clause-pill" wx:for="{{ruleForm.clauses}}" wx:key="index">
-            <view class="clause-pill-main">
-              <view class="clause-pill-title">{{item.targetIdentity || '不限身份'}}</view>
-              <view class="clause-pill-meta">{{item.scopeLabel || item.scopeType}}</view>
-            </view>
-            <view class="pill-actions">
-              <text class="pill-link" data-index="{{index}}" bindtap="editRuleClause">编辑</text>
-              <text class="pill-close" data-index="{{index}}" bindtap="removeRuleClause">删除</text>
-            </view>
-          </view>
+        <view class="button-row compact-row">
+          <button class="secondary-btn" bindtap="addRuleClause">{{ruleForm.clauseEditingIndex >= 0 ? '保存被评分人规则' : '加入当前被评分人规则'}}</button>
+          <button class="secondary-btn" bindtap="cancelRuleClauseEdit">取消被评分人规则编辑</button>
         </view>
       </view>
 
-      <view class="list-card">
-        <view class="list-title">评分人类别列表</view>
+      <view class="rule-panel" wx:if="{{ruleForm.isTemplateConfigEditorVisible}}">
+        <view class="rule-panel-head">
+          <view class="rule-panel-title">评分问题编辑</view>
+          <view class="rule-panel-subtitle">{{ruleForm.clauseTemplateConfigEditingIndex >= 0 ? '正在编辑评分问题配置' : '为当前被评分人规则添加评分问题'}}</view>
+        </view>
+        <view class="field">
+          <view class="field-label">评分问题</view>
+          <picker range="{{templateList}}" range-key="name" bindchange="onRuleTemplateChange">
+            <view class="picker-value">{{ruleForm.clauseTemplateName || '请选择评分问题'}}</view>
+          </picker>
+        </view>
+        <view class="field field-row">
+          <view class="field field-half">
+            <view class="field-label">权重</view>
+            <input class="field-input" data-field="clauseTemplateWeight" bindinput="onRuleFieldInput" value="{{ruleForm.clauseTemplateWeight}}" placeholder="1" />
+          </view>
+        </view>
+        <view class="button-row compact-row">
+          <button class="secondary-btn" bindtap="addClauseTemplateConfig">保存评分问题配置</button>
+          <button class="secondary-btn" bindtap="cancelClauseTemplateConfigEdit">取消评分问题编辑</button>
+        </view>
+      </view>
+
+      <view class="list-card rule-list-card">
+        <view class="rule-list-toolbar">
+          <view>
+            <view class="list-title">评分人类别列表</view>
+            <view class="rule-panel-subtitle">筛选只影响当前显示，已选择的类别会保持选中</view>
+          </view>
+          <view class="rule-list-count">{{ruleListView.length}} / {{ruleList.length}}</view>
+        </view>
+        <view class="rule-filter-row">
+          <view class="rule-filter-field">
+            <view class="field-label">部门筛选</view>
+            <picker range="{{ruleFilterOptions.departments}}" bindchange="onRuleFilterChange" data-field="department">
+              <view class="picker-value compact-picker-value">{{ruleFilters.department}}</view>
+            </picker>
+          </view>
+          <view class="rule-filter-field">
+            <view class="field-label">身份筛选</view>
+            <picker range="{{ruleFilterOptions.identities}}" bindchange="onRuleFilterChange" data-field="identity">
+              <view class="picker-value compact-picker-value">{{ruleFilters.identity}}</view>
+            </picker>
+          </view>
+        </view>
+        <view class="button-row compact-row">
+          <button class="secondary-btn" bindtap="toggleSelectAllRules">{{visibleRuleAllSelected ? '取消当前全选' : '全选当前列表'}}</button>
+          <button class="secondary-btn" bindtap="reverseSelectVisibleRules">反选当前列表</button>
+          <button class="secondary-btn" bindtap="resetRuleFilters">清除筛选</button>
+        </view>
         <scroll-view class="inner-scroll medium-scroll" scroll-y>
-          <view class="list-item" wx:for="{{ruleList}}" wx:key="id">
+          <view class="list-item rule-list-item" wx:for="{{ruleListView}}" wx:key="id">
             <view class="list-main">
-              <view class="list-name">
-                <view class="select-chip {{selectedRuleIdMap[item.id] ? 'select-chip-active' : ''}}" data-index="{{index}}" data-id="{{item.id}}" catchtap="toggleRuleSelection">
+              <view class="rule-list-action-row">
+                <view class="select-chip {{selectedRuleIdMap[item.id] ? 'select-chip-active' : ''}}" data-id="{{item.id}}" catchtap="toggleRuleSelection">
                   {{selectedRuleIdMap[item.id] ? '已选' : '选择'}}
                 </view>
-                {{item.scorerDepartment}} / {{item.scorerIdentity}}
+                <view class="inline-actions rule-list-inline-actions">
+                  <text class="link" data-id="{{item.id}}" bindtap="editRule">编辑</text>
+                  <text class="link danger" data-id="{{item.id}}" bindtap="deleteRule">删除</text>
+                </view>
               </view>
-              <view class="list-desc">{{item.clausesText}}</view>
-            </view>
-            <view class="inline-actions">
-              <text class="link" data-index="{{index}}" bindtap="editRule">编辑</text>
-              <text class="link danger" data-id="{{item.id}}" bindtap="deleteRule">删除</text>
+              <view class="rule-list-info">
+                <view class="rule-list-main-line">
+                  <text class="rule-info-text">{{item.scorerDepartment || '未设置部门'}} / {{item.scorerIdentity || '未设置身份'}}</text>
+                </view>
+                <view class="rule-list-meta">
+                  <text class="rule-tag tag-scope">{{item.ruleCount || 0}} 条被评分人规则</text>
+                </view>
+              </view>
             </view>
           </view>
+          <view class="empty-inline" wx:if="{{!ruleListView.length}}">当前筛选下暂无评分人类别</view>
         </scroll-view>
       </view>
     </view>
@@ -343,48 +415,171 @@
         </view>
         <view class="button-row compact-row">
           <button class="secondary-btn" loading="{{loadingMap.results}}" bindtap="reloadScoreResults">重算并刷新</button>
-          <button class="secondary-btn" bindtap="openScorerTaskPage">查看评分人未完成任务</button>
+
+        </view>
+        <view class="filter-loading-bar" wx:if="{{loadingMap.results}}">
+          <view class="filter-loading-spinner"></view>
+          <text class="filter-loading-text">正在加载评分结果...</text>
         </view>
       </view>
 
       <view class="edit-box">
-        <view class="list-title">按当前筛选导出</view>
+        <view class="list-title">总分速览导出</view>
         <view class="button-row">
-          <button class="secondary-btn" loading="{{loadingMap.export_overview_csv}}" data-report="overview" data-format="csv" bindtap="exportScoreResults">速览 CSV</button>
-          <button class="secondary-btn" loading="{{loadingMap.export_overview_excel}}" data-report="overview" data-format="excel" bindtap="exportScoreResults">速览 Excel</button>
-          <button class="secondary-btn" loading="{{loadingMap.export_calculation_csv}}" data-report="calculation" data-format="csv" bindtap="exportScoreResults">计算表 CSV</button>
-          <button class="secondary-btn" loading="{{loadingMap.export_calculation_excel}}" data-report="calculation" data-format="excel" bindtap="exportScoreResults">计算表 Excel</button>
-          <button class="secondary-btn" loading="{{loadingMap.export_detail_csv}}" data-report="detail" data-format="csv" bindtap="exportScoreResults">明细 CSV</button>
-          <button class="secondary-btn" loading="{{loadingMap.export_detail_excel}}" data-report="detail" data-format="excel" bindtap="exportScoreResults">明细 Excel</button>
-          <button class="secondary-btn" loading="{{loadingMap.export_records_csv}}" data-report="records" data-format="csv" bindtap="exportScoreResults">记录 CSV</button>
-          <button class="secondary-btn" loading="{{loadingMap.export_records_excel}}" data-report="records" data-format="excel" bindtap="exportScoreResults">记录 Excel</button>
+          <button class="secondary-btn" loading="{{loadingMap.export_overview_csv}}" data-report="overview" data-format="csv" bindtap="exportScoreResults">总分速览 CSV</button>
+          <button class="secondary-btn" loading="{{loadingMap.export_overview_excel}}" data-report="overview" data-format="excel" bindtap="exportScoreResults">总分速览 Excel</button>
+        </view>
+      </view>
+
+      <view class="edit-box">
+        <view class="list-title">评分明细导出</view>
+        <view class="button-row">
+          <button class="secondary-btn" loading="{{loadingMap.export_detail_csv}}" data-report="detail" data-format="csv" bindtap="exportScoreResults">评分明细 CSV</button>
+          <button class="secondary-btn" loading="{{loadingMap.export_detail_excel}}" data-report="detail" data-format="excel" bindtap="exportScoreResults">评分明细 Excel</button>
+        </view>
+      </view>
+
+      <view class="edit-box">
+        <view class="list-title">完成率导出</view>
+        <view class="button-row">
+          <button class="secondary-btn" loading="{{loadingMap.export_completion_csv}}" data-report="completion" data-format="csv" bindtap="exportScoreResults">完成率 CSV</button>
+          <button class="secondary-btn" loading="{{loadingMap.export_completion_excel}}" data-report="completion" data-format="excel" bindtap="exportScoreResults">完成率 Excel</button>
         </view>
       </view>
 
       <view class="list-card" wx:if="{{resultFilters.viewMode === 'overview'}}">
-        <view class="list-title">总分速览</view>
+        <view class="list-title">明细查看</view>
         <scroll-view
           class="inner-scroll large-scroll"
           scroll-y
           lower-threshold="80"
           bindscrolltolower="loadMoreScoreResults"
         >
+          <view class="card-loading-overlay" wx:if="{{loadingMap.results}}">
+            <view class="card-loading-spinner"></view>
+          </view>
+          <block wx:else>
+            <view class="result-table">
+              <view class="result-table-head">
+                <view class="result-col result-col-name">成员</view>
+                <view class="result-col result-col-score">得分</view>
+                <view class="result-col result-col-progress">已评/应评</view>
+              </view>
+              <view class="result-table-row" wx:for="{{scoreResultsView.overviewRows}}" wx:key="id" data-target-id="{{item.targetId || item.id}}" bindtap="openTargetScoreRecords">
+                <view class="result-col result-col-name">
+                  <view class="result-name">{{item.name}}</view>
+                  <view class="result-meta">{{item.department}}</view>
+                </view>
+                <view class="result-col result-col-score">{{item.finalScoreDisplay}}</view>
+                <view class="result-col result-col-progress">
+                  <view class="progress-cell">
+                    <view class="progress-top">
+                      <text class="progress-count">{{item.progressText}}</text>
+                      <text class="progress-percent">{{item.progressPercentText}}</text>
+                    </view>
+                    <view class="progress-track">
+                      <view class="progress-fill" style="{{item.progressFillStyle}}"></view>
+                    </view>
+                  </view>
+                </view>
+              </view>
+            </view>
+            <view class="empty-inline" wx:if="{{!scoreResultsView.overviewRows.length}}">当前没有可展示的总分结果。</view>
+          </block>
+        </scroll-view>
+      </view>
+
+      <view class="list-card" wx:if="{{resultFilters.viewMode === 'overview' && selectedResultTarget}}">
+        <view class="popup-header result-drill-header">
+          <view class="list-title">{{selectedResultTarget.name}}的评分情况</view>
+          <text class="popup-close" bindtap="closeTargetScoreRecords">收起</text>
+        </view>
+        <scroll-view
+          class="inner-scroll large-scroll"
+          scroll-y
+          lower-threshold="80"
+          bindscrolltolower="loadMoreScoreResults"
+        >
+          <view
+            class="list-item scorer-result-card {{item.canViewDetail ? 'scorer-result-card-clickable' : ''}}"
+            wx:for="{{targetRecordRows}}"
+            wx:key="scorerKey"
+            data-record-id="{{item.recordId}}"
+            bindtap="openScoreRecordDetail"
+          >
+            <view class="list-main">
+              <view class="scorer-card-title">
+                <view class="list-name scorer-name">{{item.scorerName}}</view>
+                <view class="status-chip scorer-inline-status {{item.statusClass}}">{{item.statusText}}</view>
+              </view>
+              <view class="scorer-meta-lines">
+                <view class="list-desc">部门：{{item.departmentText}}</view>
+                <view class="list-desc">身份：{{item.identityText}}</view>
+                <view class="list-desc" wx:if="{{item.workGroupText}}">工作分工（职能组）：{{item.workGroupText}}</view>
+              </view>
+              <view class="list-desc submitted-text" wx:if="{{item.submittedAt}}">{{item.submittedAt}}</view>
+            </view>
+          </view>
+          <view class="empty-inline" wx:if="{{targetRecordLoading}}">正在加载评分情况...</view>
+          <view class="empty-inline" wx:if="{{!targetRecordLoading && !targetRecordRows.length}}">当前暂无评分记录。</view>
+        </scroll-view>
+      </view>
+
+      <view class="list-card" wx:if="{{resultFilters.viewMode === 'completion'}}">
+        <view class="list-title">完成率看板</view>
+        <view class="card-loading-overlay" wx:if="{{loadingMap.results}}">
+          <view class="card-loading-spinner"></view>
+        </view>
+        <block wx:else>
+          <view class="list-desc completion-intro">这里展示各部门评分人的完成情况，进度按已完成全部评分任务的人数统计。</view>
+          <view class="stats-grid stats-grid-completion">
+            <view class="stat-card stat-card-clickable {{selectedCompletionDepartment === item.groupName ? 'stat-card-selected' : ''}}" wx:for="{{scoreResultsView.completionBoards.departments}}" wx:key="groupName" data-group-name="{{item.groupName}}" bindtap="toggleDepartmentScorers">
+              <view class="stat-card-top">
+                <view class="stat-group-name">{{item.groupName}}</view>
+                <view class="stat-value stat-value-large">{{item.progressPercentText}}</view>
+              </view>
+              <view class="completion-progress">
+                <view class="progress-top">
+                  <text class="progress-count">{{item.completionText}}</text>
+                </view>
+                <view class="progress-track">
+                  <view class="progress-fill" style="{{item.progressFillStyle}}"></view>
+                </view>
+              </view>
+            </view>
+          </view>
+          <view class="empty-inline" wx:if="{{!scoreResultsView.completionBoards.departments.length}}">当前筛选条件下暂无完成率数据。</view>
+        </block>
+      </view>
+
+      <view class="list-card" wx:if="{{resultFilters.viewMode === 'completion' && selectedCompletionDepartment}}">
+        <view class="popup-header result-drill-header">
+          <view class="list-title">{{selectedCompletionDepartment}}评分人完成情况</view>
+          <text class="popup-close" bindtap="closeDepartmentScorers">收起</text>
+        </view>
+        <view class="card-loading-overlay" wx:if="{{departmentScorerLoading}}">
+          <view class="card-loading-spinner"></view>
+        </view>
+        <block wx:else>
           <view class="result-table">
             <view class="result-table-head">
-              <view class="result-col result-col-name">成员</view>
-              <view class="result-col result-col-score">得分</view>
-              <view class="result-col result-col-progress">已评/应评</view>
+              <view class="result-col result-col-popup-name">评分人</view>
+              <view class="result-col result-col-popup-detail">具体信息</view>
+              <view class="result-col result-col-popup-progress">已评/应评</view>
+              <view class="result-col result-col-popup-status">状态</view>
             </view>
-            <view class="result-table-row" wx:for="{{scoreResultsView.overviewRows}}" wx:key="id">
-              <view class="result-col result-col-name">
-                <view class="result-name">{{item.name}}</view>
-                <view class="result-meta">{{item.department}}</view>
+            <view class="result-table-row result-table-row-clickable" wx:for="{{departmentScorerRows}}" wx:key="scorerKey" data-scorer-key="{{item.scorerKey}}" bindtap="openScorerTargetPopup">
+              <view class="result-col result-col-popup-name">
+                <view class="result-name">{{item.scorerName}}</view>
+                <view class="result-meta">{{item.scorerStudentId}}</view>
               </view>
-              <view class="result-col result-col-score">{{item.finalScoreDisplay}}</view>
-              <view class="result-col result-col-progress">
+              <view class="result-col result-col-popup-detail">
+                <view class="result-meta result-meta-strong">{{item.detailText}}</view>
+              </view>
+              <view class="result-col result-col-popup-progress">
                 <view class="progress-cell">
                   <view class="progress-top">
-                    <text class="progress-count">{{item.progressText}}</text>
+                    <text class="progress-count">{{item.completionText}}</text>
                     <text class="progress-percent">{{item.progressPercentText}}</text>
                   </view>
                   <view class="progress-track">
@@ -392,98 +587,15 @@
                   </view>
                 </view>
               </view>
-            </view>
-          </view>
-          <view class="empty-inline" wx:if="{{!scoreResultsView.overviewRows.length}}">当前没有可展示的总分结果。</view>
-        </scroll-view>
-      </view>
-
-      <view class="list-card" wx:if="{{resultFilters.viewMode === 'calculation'}}">
-        <view class="list-title">总分计算表</view>
-        <scroll-view
-          class="inner-scroll large-scroll"
-          scroll-y
-          lower-threshold="80"
-          bindscrolltolower="loadMoreScoreResults"
-        >
-          <view class="list-item" wx:for="{{scoreResultsView.calculationRows}}" wx:key="index">
-            <view class="list-main">
-              <view class="list-name">{{item.name}} - {{item.templateName}} - {{item.contributionScore}}</view>
-              <view class="list-desc">{{item.department}} - {{item.identity}} - {{item.workGroup}}</view>
-              <view class="list-desc">{{item.scorerCategoryLabel}} - 平均分 {{item.averageScore}} - 权重 {{item.weight}} - {{item.recordCount}} 份</view>
-            </view>
-          </view>
-          <view class="empty-inline" wx:if="{{!scoreResultsView.calculationRows.length}}">当前没有可展示的计算结果。</view>
-        </scroll-view>
-      </view>
-
-      <view class="list-card" wx:if="{{resultFilters.viewMode === 'detail'}}">
-        <view class="list-title">评分明细</view>
-        <scroll-view
-          class="inner-scroll large-scroll"
-          scroll-y
-          lower-threshold="80"
-          bindscrolltolower="loadMoreScoreResults"
-        >
-          <view class="list-item" wx:for="{{scoreResultsView.detailRows}}" wx:key="index">
-            <view class="list-main">
-              <view class="list-name">{{item.name}} - {{item.templateName}} - {{item.templateScore}}</view>
-              <view class="list-desc">{{item.department}} - {{item.identity}} - {{item.workGroup}}</view>
-              <view class="list-desc">{{item.scorerName}} - {{item.scorerCategoryLabel}} - 加权 {{item.weightedScore}}</view>
-              <view class="list-desc" wx:if="{{item.excludedByRequireAll}}">该条记录因“要求全评”未满足，未计入最终核算</view>
-              <view class="list-desc">{{item.submittedAt}}</view>
-            </view>
-          </view>
-          <view class="empty-inline" wx:if="{{!scoreResultsView.detailRows.length}}">当前没有评分明细。</view>
-        </scroll-view>
-      </view>
-
-      <view class="list-card" wx:if="{{resultFilters.viewMode === 'completion'}}">
-        <view class="list-title">完成率看板</view>
-        <view class="list-desc completion-intro">这里展示各部门评分人的完成情况，进度按已完成全部评分任务的人数统计。</view>
-        <view class="stats-grid stats-grid-completion">
-          <view class="stat-card stat-card-clickable" wx:for="{{scoreResultsView.completionBoards.departments}}" wx:key="groupName" data-group-name="{{item.groupName}}" bindtap="openCompletionBoardPopup">
-            <view class="stat-card-top">
-              <view class="stat-group-name">{{item.groupName}}</view>
-              <view class="stat-value stat-value-large">{{item.progressPercentText}}</view>
-            </view>
-            <view class="completion-progress">
-              <view class="progress-top">
-                <text class="progress-count">{{item.completionText}}</text>
-              </view>
-              <view class="progress-track">
-                <view class="progress-fill" style="{{item.progressFillStyle}}"></view>
+              <view class="result-col result-col-popup-status">
+                <view class="status-chip {{item.statusClass}}">{{item.statusText}}</view>
               </view>
             </view>
           </view>
-        </view>
-        <view class="empty-inline" wx:if="{{!scoreResultsView.completionBoards.departments.length}}">当前筛选条件下暂无完成率数据。</view>
+          <view class="empty-inline" wx:if="{{!departmentScorerRows.length}}">当前条件下暂无评分人数据。</view>
+        </block>
       </view>
 
-      <view class="list-card" wx:if="{{resultFilters.viewMode === 'records'}}">
-        <view class="list-title">评分记录管理</view>
-        <scroll-view
-          class="inner-scroll large-scroll"
-          scroll-y
-          lower-threshold="80"
-          bindscrolltolower="loadMoreScoreResults"
-        >
-          <view class="list-item" wx:for="{{scoreResultsView.recordRows}}" wx:key="recordId">
-            <view class="list-main">
-              <view class="list-name">{{item.scorerName}} -> {{item.name}}</view>
-              <view class="list-desc">{{item.scorerCategoryLabel}}</view>
-              <view class="list-desc">{{item.department}} - {{item.identity}} - {{item.workGroup}}</view>
-              <view class="list-desc">{{item.templateSummary || '未记录评分问题组合'}} - 总分 {{item.weightedTotalScore}}</view>
-              <view class="list-desc" wx:if="{{item.excludedByRequireAll}}">该记录未计入最终核算：对应评分人未完成该类别全部评分任务</view>
-              <view class="list-desc">{{item.submittedAt}}</view>
-            </view>
-            <view class="inline-actions">
-              <text class="link danger" data-id="{{item.recordId}}" bindtap="revokeScoreRecord">撤销</text>
-            </view>
-          </view>
-          <view class="empty-inline" wx:if="{{!scoreResultsView.recordRows.length}}">当前筛选条件下暂无评分记录。</view>
-        </scroll-view>
-      </view>
     </view>
 
     <view class="section" wx:if="{{activeTab === 'profile'}}">
@@ -632,7 +744,7 @@
           lower-threshold="80"
           bindscrolltolower="loadMoreScoreResults"
         >
-          <view class="list-item" wx:for="{{hrProfileRows}}" wx:key="id">
+          <view class="list-item list-item-stacked" wx:for="{{hrProfileRows}}" wx:key="id">
             <view class="list-main">
               <view class="list-name">{{item.name}} - {{item.identity}}</view>
               <view class="list-desc">{{item.studentId}} - {{item.department}} {{item.workGroup}}</view>
@@ -642,10 +754,10 @@
               <view class="chip-row">
                 <view class="status-chip current-chip">{{item.auditStatusText}}</view>
               </view>
-            </view>
-            <view class="inline-actions" wx:if="{{item.hasPending}}">
-              <text class="link" data-student-id="{{item.studentId}}" bindtap="approveHrProfileChange">通过</text>
-              <text class="link danger" data-student-id="{{item.studentId}}" bindtap="rejectHrProfileChange">驳回</text>
+              <view class="inline-actions list-actions-below" wx:if="{{item.hasPending}}">
+                <text class="link" data-student-id="{{item.studentId}}" bindtap="approveHrProfileChange">通过</text>
+                <text class="link danger" data-student-id="{{item.studentId}}" bindtap="rejectHrProfileChange">驳回</text>
+              </view>
             </view>
           </view>
           <view class="empty-inline" wx:if="{{!hrProfileRows.length}}">当前筛选条件下暂无记录</view>
@@ -657,7 +769,7 @@
       <view class="section-title">人事成员</view>
       <view class="button-row compact-row">
         <button class="primary-btn" bindtap="startCreateHr">新增成员</button>
-        <button class="secondary-btn" bindtap="chooseCsv">导入 CSV</button>
+        <button class="secondary-btn" loading="{{loadingMap.importCsv}}" bindtap="chooseCsv">导入 CSV</button>
         <button class="secondary-btn" loading="{{loadingMap.batchMaintain}}" bindtap="batchMaintainFromHrInfo">从人事成员同步组织字典</button>
         <view class="csv-tip" wx:if="{{csvName}}">{{csvName}}</view>
       </view>
@@ -704,14 +816,14 @@
           lower-threshold="80"
           bindscrolltolower="loadMoreScoreResults"
         >
-          <view class="list-item" wx:for="{{hrList}}" wx:key="id">
+          <view class="list-item list-item-stacked" wx:for="{{hrList}}" wx:key="id">
             <view class="list-main">
               <view class="list-name">{{item.name}} - {{item.identity}}</view>
               <view class="list-desc">{{item.department}} {{item.workGroup}}</view>
-            </view>
-            <view class="inline-actions">
-              <text class="link" data-index="{{index}}" bindtap="editHr">编辑</text>
-              <text class="link danger" data-id="{{item.id}}" bindtap="deleteHr">删除</text>
+              <view class="inline-actions list-actions-below">
+                <text class="link" data-index="{{index}}" bindtap="editHr">编辑</text>
+                <text class="link danger" data-id="{{item.id}}" bindtap="deleteHr">删除</text>
+              </view>
             </view>
           </view>
         </scroll-view>
@@ -719,32 +831,13 @@
     </view>
 
     <view class="section" wx:if="{{activeTab === 'admins'}}">
+
       <view class="section-title">管理员</view>
       <view class="edit-box" wx:if="{{canManageAdmins}}">
         <view class="list-title">{{adminForm.id ? '编辑管理员' : '新增管理员'}}</view>
         <view class="button-row compact-row">
           <button class="secondary-btn" bindtap="startCreateAdmin">新增管理员</button>
-          <button class="secondary-btn" loading="{{loadingMap.exportAdmins}}" wx:if="{{isSuperAdmin}}" bindtap="exportAdmins">导出管理员</button>
-        </view>
-
-        <view class="field">
-          <view class="field-label">搜索人事成员</view>
-          <input class="field-input" bindinput="onAdminCandidateKeyword" bindconfirm="onAdminCandidateConfirm" confirm-type="search" value="{{adminCandidateKeyword}}" placeholder="按姓名、学号、部门、身份或职能组搜索" />
-        </view>
-
-        <view class="list-card nested-card">
-          <view class="list-title">快捷选择</view>
-          <scroll-view class="inner-scroll medium-scroll" scroll-y>
-            <view class="list-item" wx:for="{{adminCandidateList}}" wx:key="id">
-              <view class="list-main">
-                <view class="list-name">{{item.name}} - {{item.identity}}</view>
-                <view class="list-desc">{{item.studentId}} {{item.department}} {{item.workGroup}}</view>
-              </view>
-              <view class="inline-actions">
-                <text class="link" data-index="{{index}}" bindtap="pickAdminCandidate">填入</text>
-              </view>
-            </view>
-          </scroll-view>
+          <button class="secondary-btn" loading="{{loadingMap.exportAdmins}}" wx:if="{{isSuperAdmin || isRootAdmin}}" bindtap="exportAdmins">导出管理员</button>
         </view>
 
         <view class="field">
@@ -757,9 +850,29 @@
         </view>
         <view class="field">
           <view class="field-label">管理员类别</view>
-          <picker range="{{adminLevelOptions}}" bindchange="onAdminLevelChange">
-            <view class="picker-value">{{adminForm.adminLevel === 'super_admin' ? '超级管理员' : '普通管理员'}}</view>
+          <picker range="{{adminLevelOptions}}" value="{{adminLevelIndex}}" bindchange="onAdminLevelChange">
+            <view class="picker-value">{{adminLevelOptions[adminLevelIndex]}}</view>
           </picker>
+        </view>
+
+        <view class="field">
+          <view class="field-label">搜索人事成员</view>
+          <input class="field-input" bindinput="onAdminCandidateKeyword" bindconfirm="onAdminCandidateConfirm" confirm-type="search" value="{{adminCandidateKeyword}}" placeholder="按姓名、学号、部门、身份或职能组搜索" />
+        </view>
+
+        <view class="list-card nested-card">
+          <view class="list-title">快捷选择</view>
+          <scroll-view class="inner-scroll medium-scroll" scroll-y>
+            <view class="list-item list-item-stacked" wx:for="{{adminCandidateList}}" wx:key="id">
+              <view class="list-main">
+                <view class="list-name">{{item.name}} - {{item.identity}}</view>
+                <view class="list-desc">{{item.studentId}} {{item.department}} {{item.workGroup}}</view>
+                <view class="inline-actions list-actions-below">
+                  <text class="link" data-index="{{index}}" bindtap="pickAdminCandidate">填入</text>
+                </view>
+              </view>
+            </view>
+          </scroll-view>
         </view>
         <view class="field">
           <view class="field-label">邀请码</view>
@@ -776,17 +889,17 @@
       </view>
 
       <view class="list-card">
-        <view class="list-title">{{isSuperAdmin ? '全部管理员' : '管理员列表'}}</view>
+        <view class="list-title">{{isSuperAdmin || isRootAdmin ? '全部管理员' : '管理员列表'}}</view>
         <scroll-view class="inner-scroll medium-scroll" scroll-y>
-          <view class="list-item" wx:for="{{adminList}}" wx:key="id">
+          <view class="list-item list-item-stacked" wx:for="{{adminList}}" wx:key="id">
             <view class="list-main">
               <view class="list-name">{{item.name}} - {{item.adminLevelLabel}}</view>
               <view class="list-desc">{{item.studentId}} - {{item.bindStatus}}</view>
               <view class="invite-chip">邀请码：{{item.inviteCode || '未设置'}}</view>
-            </view>
-            <view class="inline-actions" wx:if="{{canManageAdmins}}">
-              <text class="link" data-index="{{index}}" bindtap="editAdmin">编辑</text>
-              <text class="link danger" data-id="{{item.id}}" bindtap="deleteAdmin">删除</text>
+              <view class="inline-actions list-actions-below" wx:if="{{canManageAdmins}}">
+                <text class="link" data-index="{{index}}" bindtap="editAdmin">编辑</text>
+                <text class="link danger" data-id="{{item.id}}" bindtap="deleteAdmin">删除</text>
+              </view>
             </view>
           </view>
         </scroll-view>
@@ -814,14 +927,14 @@
       <view class="list-card">
         <view class="list-title">部门列表</view>
         <scroll-view class="inner-scroll medium-scroll" scroll-y>
-          <view class="list-item" wx:for="{{departmentList}}" wx:key="id">
+          <view class="list-item list-item-stacked" wx:for="{{departmentList}}" wx:key="id">
             <view class="list-main">
               <view class="list-name">{{item.name}}</view>
               <view class="list-desc">{{item.description}}</view>
-            </view>
-            <view class="inline-actions">
-              <text class="link" data-index="{{index}}" bindtap="editDepartment">编辑</text>
-              <text class="link danger" data-id="{{item.id}}" bindtap="deleteDepartment">删除</text>
+              <view class="inline-actions list-actions-below">
+                <text class="link" data-index="{{index}}" bindtap="editDepartment">编辑</text>
+                <text class="link danger" data-id="{{item.id}}" bindtap="deleteDepartment">删除</text>
+              </view>
             </view>
           </view>
         </scroll-view>
@@ -856,15 +969,15 @@
       <view class="list-card">
         <view class="list-title">工作分工列表</view>
         <scroll-view class="inner-scroll medium-scroll" scroll-y>
-          <view class="list-item" wx:for="{{workGroupList}}" wx:key="id">
+          <view class="list-item list-item-stacked" wx:for="{{workGroupList}}" wx:key="id">
             <view class="list-main">
               <view class="list-name">{{item.name}}</view>
               <view class="list-desc">部门：{{item.departmentName}}</view>
               <view class="list-desc">{{item.description}}</view>
-            </view>
-            <view class="inline-actions">
-              <text class="link" data-index="{{index}}" bindtap="editWorkGroup">编辑</text>
-              <text class="link danger" data-id="{{item.id}}" bindtap="deleteWorkGroup">删除</text>
+              <view class="inline-actions list-actions-below">
+                <text class="link" data-index="{{index}}" bindtap="editWorkGroup">编辑</text>
+                <text class="link danger" data-id="{{item.id}}" bindtap="deleteWorkGroup">删除</text>
+              </view>
             </view>
           </view>
         </scroll-view>
@@ -893,62 +1006,180 @@
       <view class="list-card">
         <view class="list-title">身份类别列表</view>
         <scroll-view class="inner-scroll medium-scroll" scroll-y>
-          <view class="list-item" wx:for="{{identityList}}" wx:key="id">
+          <view class="list-item list-item-stacked" wx:for="{{identityList}}" wx:key="id">
             <view class="list-main">
               <view class="list-name">{{item.name}}</view>
               <view class="list-desc">{{item.description}}</view>
-            </view>
-            <view class="inline-actions">
-              <text class="link" data-index="{{index}}" bindtap="editIdentity">编辑</text>
-              <text class="link danger" data-id="{{item.id}}" bindtap="deleteIdentity">删除</text>
+              <view class="inline-actions list-actions-below">
+                <text class="link" data-index="{{index}}" bindtap="editIdentity">编辑</text>
+                <text class="link danger" data-id="{{item.id}}" bindtap="deleteIdentity">删除</text>
+              </view>
             </view>
           </view>
         </scroll-view>
         <view class="empty-inline" wx:if="{{!identityList.length}}">当前没有身份类别数据。</view>
       </view>
     </view>
-  </view>
 
-  <view class="popup-mask" wx:if="{{completionBoardPopupVisible}}" bindtap="closeCompletionBoardPopup">
-    <view class="popup-card completion-popup-card" catchtap="noop">
-      <view class="popup-header">
-        <view class="popup-title">{{completionBoardPopupTitle}}</view>
-        <text class="popup-close" bindtap="closeCompletionBoardPopup">关闭</text>
-      </view>
-      <scroll-view class="popup-scroll" scroll-y>
-        <view class="result-table">
-          <view class="result-table-head">
-            <view class="result-col result-col-popup-name">评分人</view>
-            <view class="result-col result-col-popup-detail">具体信息</view>
-            <view class="result-col result-col-popup-progress">已评/应评</view>
-            <view class="result-col result-col-popup-status">状态</view>
-          </view>
-          <view class="result-table-row" wx:for="{{completionBoardPopupRows}}" wx:key="scorerKey">
-            <view class="result-col result-col-popup-name">
-              <view class="result-name">{{item.scorerName}}</view>
-              <view class="result-meta">{{item.scorerStudentId}}</view>
-            </view>
-            <view class="result-col result-col-popup-detail">
-              <view class="result-meta result-meta-strong">{{item.detailText}}</view>
-            </view>
-            <view class="result-col result-col-popup-progress">
-              <view class="progress-cell">
-                <view class="progress-top">
-                  <text class="progress-count">{{item.completionText}}</text>
-                  <text class="progress-percent">{{item.progressPercentText}}</text>
+    <view class="section" wx:if="{{activeTab === 'settings'}}">
+      <view class="section-title">基础配置</view>
+
+      <view class="edit-box" wx:if="{{isRootAdmin}}">
+        <view class="list-title">组织管理</view>
+        <view class="field" wx:if="{{currentOrganizationId}}">
+          <view class="field-label">当前组织</view>
+          <view class="field-value">{{currentOrganizationName}}</view>
+        </view>
+        <view class="button-row compact-row">
+          <button class="secondary-btn" bindtap="openOrgForm">新建组织</button>
+        </view>
+        <view class="list-card nested-card" wx:if="{{organizationList.length}}">
+          <view class="list-title">组织列表</view>
+          <scroll-view class="inner-scroll small-scroll" scroll-y>
+            <view class="list-item list-item-stacked" wx:for="{{organizationList}}" wx:key="id">
+              <view class="list-main">
+                <view class="list-name">{{item.name}}</view>
+                <view class="chip-row">
+                  <view class="status-chip current-chip" wx:if="{{item.id === currentOrganizationId}}">当前组织</view>
                 </view>
-                <view class="progress-track">
-                  <view class="progress-fill" style="{{item.progressFillStyle}}"></view>
+                <view class="inline-actions list-actions-below">
+                  <text class="link" data-id="{{item.id}}" data-name="{{item.name}}" bindtap="switchOrganization" wx:if="{{item.id !== currentOrganizationId}}">切换</text>
+                  <text class="link" bindtap="openOrgForm" data-id="{{item.id}}">编辑</text>
+                  <text class="link danger" data-id="{{item.id}}" bindtap="deleteOrganization" wx:if="{{item.id !== currentOrganizationId}}">删除</text>
                 </view>
               </view>
+            </view>
+          </scroll-view>
+        </view>
+      </view>
+
+      <view class="edit-box">
+        <view class="list-title">时区设置</view>
+        <view class="field">
+          <view class="field-label">显示时区</view>
+          <picker range="{{timezoneOptions}}" range-key="label" value="{{timezoneIndex}}" bindchange="onTimezoneChange">
+            <view class="picker-value">{{timezoneOptions[timezoneIndex].label}}</view>
+          </picker>
+        </view>
+        <view class="button-row">
+          <button class="primary-btn" loading="{{loadingMap.saveSystemConfig}}" bindtap="saveSystemConfig">保存配置</button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="popup-mask" wx:if="{{orgFormVisible}}" bindtap="closeOrgForm">
+    <view class="popup-card" catchtap="noop">
+      <view class="popup-header">
+        <view class="list-title">{{orgFormData.id ? '编辑组织名称' : '新建组织'}}</view>
+        <text class="popup-close" bindtap="closeOrgForm">关闭</text>
+      </view>
+      <view class="popup-body">
+        <view class="field">
+          <view class="field-label">组织名称</view>
+          <input class="field-input" bindinput="onOrgFieldInput" value="{{orgFormData.name}}" placeholder="请输入组织名称" />
+        </view>
+        <view class="button-row compact-row">
+          <button class="primary-btn" loading="{{loadingMap.saveOrganization}}" bindtap="saveOrganization">保存组织</button>
+          <button class="secondary-btn" wx:if="{{!orgFormData.id}}" loading="{{loadingMap.switchOrganization}}" bindtap="createAndSwitchOrganization">保存并切换</button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="popup-mask" wx:if="{{scorerTargetPopupVisible}}" bindtap="closeScorerTargetPopup">
+    <view class="popup-card completion-popup-card" catchtap="noop">
+      <view class="popup-header">
+        <view class="popup-title">{{scorerTargetPopupTitle}}</view>
+        <text class="popup-close" bindtap="closeScorerTargetPopup">关闭</text>
+      </view>
+      <view class="popup-loading-overlay" wx:if="{{scorerTargetPopupLoading}}">
+        <view class="card-loading-spinner"></view>
+      </view>
+      <scroll-view class="popup-scroll" scroll-y wx:else>
+        <view class="result-table">
+          <view class="result-table-head">
+            <view class="result-col result-col-target-name">被评人</view>
+            <view class="result-col result-col-target-detail">具体信息</view>
+            <view class="result-col result-col-popup-status">状态</view>
+          </view>
+          <view class="result-table-row {{item.status === 'submitted' ? 'result-table-row-clickable' : ''}}" wx:for="{{scorerTargetPopupRows}}" wx:key="targetId" data-record-id="{{item.recordId}}" bindtap="openScorerTargetRecordDetail">
+            <view class="result-col result-col-target-name">
+              <view class="result-name">{{item.targetName}}</view>
+              <view class="result-meta">{{item.targetStudentId}}</view>
+            </view>
+            <view class="result-col result-col-target-detail">
+              <view class="result-meta result-meta-strong">{{item.detailText}}</view>
             </view>
             <view class="result-col result-col-popup-status">
               <view class="status-chip {{item.statusClass}}">{{item.statusText}}</view>
             </view>
           </view>
         </view>
-        <view class="empty-inline" wx:if="{{!completionBoardPopupRows.length}}">当前条件下暂无评分人数据。</view>
+        <view class="empty-inline" wx:if="{{!scorerTargetPopupRows.length}}">该评分人暂无待评任务。</view>
       </scroll-view>
     </view>
   </view>
+
+  <view class="popup-mask" wx:if="{{recordDetailPopupVisible}}" bindtap="closeScoreRecordDetail">
+    <view class="popup-card completion-popup-card" catchtap="noop">
+      <view class="popup-header">
+        <view class="popup-title">评分详情</view>
+        <text class="popup-close" bindtap="closeScoreRecordDetail">关闭</text>
+      </view>
+      <scroll-view class="popup-scroll" scroll-y wx:if="{{recordDetail}}">
+        <view class="list-item detail-summary-card">
+          <view class="list-main">
+            <view class="detail-people-row">
+              <view class="detail-person-block">
+                <view class="detail-person-label">评分人</view>
+                <view class="detail-person-name">{{recordDetail.scorer.name}}</view>
+              </view>
+              <view class="detail-person-divider"></view>
+              <view class="detail-person-block">
+                <view class="detail-person-label">被评分人</view>
+                <view class="detail-person-name">{{recordDetail.target.name}}</view>
+              </view>
+            </view>
+            <view class="list-desc">{{recordDetail.submittedAt}}</view>
+            <view class="detail-action-row">
+              <button
+                class="secondary-btn danger-btn compact-action-btn"
+                data-id="{{recordDetail.recordId}}"
+                bindtap="revokeScoreRecord"
+              >撤销这条评分</button>
+            </view>
+          </view>
+        </view>
+        <view class="question-card" wx:for="{{recordDetail.templates}}" wx:for-index="templateIndex" wx:key="templateId">
+          <view class="question-title">{{item.templateName}}</view>
+          <view class="detail-tag-row">
+            <view class="score-tag score-tag-template">模板得分 {{item.score}}</view>
+            <view class="score-tag score-tag-weight">权重 {{item.weight}}</view>
+            <view class="score-tag score-tag-weighted">加权 {{item.weightedScore}}</view>
+          </view>
+          <view class="detail-question compact-question" wx:for="{{item.questions}}" wx:for-item="question" wx:for-index="questionIndex" wx:key="questionIndex">
+            <view class="compact-question-head">
+              <view class="list-name detail-question-title">{{question.question}}</view>
+              <view class="question-score-corner">{{question.score}} / {{question.maxValue}}</view>
+            </view>
+            <view
+              class="score-label-toggle"
+              wx:if="{{question.hasScoreLabel}}"
+              data-template-index="{{templateIndex}}"
+              data-question-index="{{questionIndex}}"
+              bindtap="toggleScoreLabel"
+            >
+              {{question.scoreLabelExpanded ? '收起评分说明' : '查看评分说明'}}
+            </view>
+            <view class="score-label-box" wx:if="{{question.hasScoreLabel && question.scoreLabelExpanded}}">{{question.scoreLabel}}</view>
+          </view>
+        </view>
+      </scroll-view>
+      <view class="card-loading-overlay" wx:if="{{!recordDetail}}">
+        <view class="card-loading-spinner"></view>
+      </view>
+    </view>
+  </view>
+
 </view>

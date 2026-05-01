@@ -1,18 +1,42 @@
 const cloud = require('wx-server-sdk');
 
-cloud.init({
-  env: cloud.DYNAMIC_CURRENT_ENV
-});
+cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
 const db = cloud.database();
 
-function normalizeUser(record) {
+function safeString(value) {
+  return String(value == null ? '' : value).trim();
+}
+
+async function getOrgName(collectionName, id) {
+  const safeId = safeString(id);
+  if (!safeId) return '';
+  const res = await db.collection(collectionName).doc(safeId).get().catch(() => ({ data: null }));
+  return safeString(res.data && res.data.name);
+}
+
+async function normalizeUserFromHr(hr = {}) {
+  const departmentId = safeString(hr.departmentId);
+  const identityId = safeString(hr.identityId);
+  const workGroupId = safeString(hr.workGroupId);
+
+  const [department, identity, workGroup] = await Promise.all([
+    getOrgName('departments', departmentId),
+    getOrgName('identities', identityId),
+    getOrgName('work_groups', workGroupId)
+  ]);
+
   return {
-    name: record.name || record['姓名'] || '',
-    studentId: record.studentId || record['学号'] || '',
-    department: record.department || record['所属部门'] || '',
-    identity: record.identity || record['身份'] || '',
-    workGroup: record.workGroup || record['工作分工（职能组）'] || ''
+    id: safeString(hr._id),
+    hrId: safeString(hr._id),
+    name: safeString(hr.name),
+    studentId: safeString(hr.studentId),
+    departmentId,
+    department,
+    identityId,
+    identity,
+    workGroupId,
+    workGroup
   };
 }
 
@@ -25,14 +49,25 @@ exports.main = async () => {
     .limit(1)
     .get();
 
-  if (userRes.data.length > 0) {
-    return {
-      status: 'login_success',
-      user: normalizeUser(userRes.data[0])
-    };
+  if (!userRes.data.length) {
+    return { status: 'need_bind' };
+  }
+
+  const binding = userRes.data[0];
+  const hrId = safeString(binding.hrId);
+
+  if (!hrId) {
+    return { status: 'need_bind' };
+  }
+
+  const hrRes = await db.collection('hr_info').doc(hrId).get().catch(() => ({ data: null }));
+
+  if (!hrRes.data) {
+    return { status: 'need_bind', message: '绑定的人事信息不存在，请重新绑定' };
   }
 
   return {
-    status: 'need_bind'
+    status: 'login_success',
+    user: await normalizeUserFromHr(hrRes.data)
   };
 };

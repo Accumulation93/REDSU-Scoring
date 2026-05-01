@@ -105,7 +105,11 @@
         <text class="popup-close" bindtap="closePendingPopup">关闭</text>
       </view>
       <scroll-view class="popup-scroll" scroll-y>
-        <view class="popup-table">
+        <view class="popup-loading-overlay" wx:if="{{pendingPopupLoading}}">
+          <view class="popup-loading-spinner"></view>
+          <text class="popup-loading-text">正在加载...</text>
+        </view>
+        <view class="popup-table" wx:else>
           <view class="popup-table-head">
             <view class="popup-col popup-col-name">被评分人</view>
             <view class="popup-col popup-col-dept">具体信息</view>

@@ -20,7 +20,7 @@ function getDisplayIdentity(user, activeRole) {
   }
 
   if (activeRole === 'admin') {
-    return user.adminLevel === 'super_admin' ? '超级管理员' : '普通管理员';
+    return user.adminLevel === 'root_admin' ? '至高权限管理员' : (user.adminLevel === 'super_admin' ? '超级管理员' : '普通管理员');
   }
 
   return user.identity || '未设置身份';
@@ -237,7 +237,57 @@ Page({
 
   onShow() {
     this.refreshCurrentUser();
+    this.refreshUserFromCloud();
     this.loadCurrentActivity();
+  },
+
+  refreshUserFromCloud() {
+    const activeRole = wx.getStorageSync(ACTIVE_ROLE_KEY) || '';
+  
+    if (activeRole !== 'user') {
+      return;
+    }
+  
+    wx.cloud.callFunction({
+      name: 'userLogin',
+      success: (res) => {
+        const result = res.result || {};
+  
+        if (result.status !== 'login_success' || !result.user) {
+          const roleProfiles = wx.getStorageSync(STORAGE_KEY) || {};
+          delete roleProfiles.user;
+          wx.setStorageSync(STORAGE_KEY, roleProfiles);
+  
+          if (activeRole === 'user') {
+            const roleList = Object.keys(roleProfiles);
+            if (roleList.length) {
+              wx.setStorageSync(ACTIVE_ROLE_KEY, roleList[0]);
+            } else {
+              wx.removeStorageSync(ACTIVE_ROLE_KEY);
+            }
+          }
+  
+          this.refreshCurrentUser();
+          return;
+        }
+  
+        this.updateStoredProfile('user', result.user);
+  
+        if (this.data.activeRole === 'user') {
+          this.setData({
+            user: result.user,
+            hasUser: true,
+            showWorkGroup: shouldShowWorkGroup(result.user),
+            heroName: result.user.name || '欢迎使用',
+            heroIdentity: getDisplayIdentity(result.user, 'user'),
+            heroSubtitle: '当前已进入对应身份首页'
+          });
+  
+          this.fetchRateTargets('user');
+          this.loadUserHrProfile();
+        }
+      }
+    });
   },
 
   refreshCurrentUser() {
@@ -275,8 +325,8 @@ Page({
     });
 
     if (currentUser && activeRole === 'user') {
-      this.fetchRateTargets(activeRole);
-      this.loadUserHrProfile();
+      // 用户信息现在以 checkLogin 云端合并结果为准，
+      // 不再用本地缓存直接加载被评分人，避免旧缓存缺字段导致误报。
     }
   },
 

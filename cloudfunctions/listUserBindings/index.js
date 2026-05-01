@@ -6,6 +6,47 @@ cloud.init({
 
 const db = cloud.database();
 
+function safeString(value) {
+  return String(value == null ? '' : value).trim();
+}
+
+async function getOrgName(collectionName, id) {
+  const safeId = safeString(id);
+  if (!safeId) return '';
+  const res = await db.collection(collectionName).doc(safeId).get().catch(() => ({ data: null }));
+  return safeString(res.data && res.data.name);
+}
+
+async function buildRow(binding = {}) {
+  const hrId = safeString(binding.hrId);
+  const hrRes = hrId
+    ? await db.collection('hr_info').doc(hrId).get().catch(() => ({ data: null }))
+    : { data: null };
+  const hr = hrRes.data || {};
+  const departmentId = safeString(hr.departmentId);
+  const identityId = safeString(hr.identityId);
+  const workGroupId = safeString(hr.workGroupId);
+  const [department, identity, workGroup] = await Promise.all([
+    getOrgName('departments', departmentId),
+    getOrgName('identities', identityId),
+    getOrgName('work_groups', workGroupId)
+  ]);
+
+  return {
+    id: safeString(binding._id),
+    openid: safeString(binding.openid),
+    hrId,
+    name: safeString(hr.name),
+    studentId: safeString(hr.studentId),
+    departmentId,
+    department,
+    identityId,
+    identity,
+    workGroupId,
+    workGroup
+  };
+}
+
 exports.main = async () => {
   const wxContext = cloud.getWXContext();
   const openid = wxContext.OPENID;
@@ -19,20 +60,11 @@ exports.main = async () => {
     .get();
 
   if (!operator.data.length) {
-    return {
-      status: 'forbidden'
-    };
+    return { status: 'forbidden' };
   }
 
   const res = await db.collection('user_info').limit(1000).get();
-  const list = res.data.map((item) => ({
-    id: item._id,
-    name: item.name || item['姓名'] || '',
-    studentId: item.studentId || item['学号'] || '',
-    department: item.department || item['所属部门'] || '',
-    identity: item.identity || item['身份'] || '',
-    workGroup: item.workGroup || item['工作分工（职能组）'] || ''
-  }));
+  const list = await Promise.all((res.data || []).map((item) => buildRow(item)));
 
   return {
     status: 'success',

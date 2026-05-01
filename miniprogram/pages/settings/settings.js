@@ -8,7 +8,7 @@ function getDisplayIdentity(user, activeRole) {
   }
 
   if (activeRole === 'admin') {
-    return user.adminLevel === 'super_admin' ? '超级管理员' : '普通管理员';
+    return user.adminLevel === 'root_admin' ? '至高权限管理员' : (user.adminLevel === 'super_admin' ? '超级管理员' : '普通管理员');
   }
 
   return user.identity || '未设置身份';

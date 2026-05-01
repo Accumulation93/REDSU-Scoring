@@ -1,95 +1,86 @@
 const cloud = require('wx-server-sdk');
 
-cloud.init({
-  env: cloud.DYNAMIC_CURRENT_ENV
-});
+cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
 const db = cloud.database();
-const CACHE_META_COLLECTIONS = ['score_results_cache_meta', 'scorer_task_cache_meta'];
+const PAGE_SIZE = 100;
 
-async function invalidateActivityCaches(activityId) {
-  if (!activityId) {
-    return;
+function safeString(value) {
+  return String(value == null ? '' : value).trim();
+}
+
+async function ensureAdmin(openid) {
+  const res = await db.collection('admin_info').where({ openid, bindStatus: 'active' }).limit(1).get();
+  return res.data[0] || null;
+}
+
+async function getAllRecords(query) {
+  const list = [];
+  let skip = 0;
+  while (true) {
+    const res = await query.where({}).skip(skip).limit(PAGE_SIZE).get();
+    const batch = res.data || [];
+    list.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    skip += batch.length;
   }
-  await Promise.all(CACHE_META_COLLECTIONS.map((collectionName) => (
-    db.collection(collectionName)
-      .where({ activityId })
-      .update({
-        data: {
-          isInvalid: true,
-          invalidatedAt: db.serverDate()
-        }
-      })
-      .catch(() => null)
-  )));
+  return list;
+}
+
+function buildNameMap(rows = []) {
+  const map = new Map();
+  rows.forEach((item) => {
+    const id = safeString(item._id);
+    if (id) map.set(id, safeString(item.name));
+  });
+  return map;
+}
+
+async function fetchOrgLookups() {
+  const [departments, identities] = await Promise.all([
+    getAllRecords(db.collection('departments')),
+    getAllRecords(db.collection('identities'))
+  ]);
+  return {
+    departmentsById: buildNameMap(departments),
+    identitiesById: buildNameMap(identities)
+  };
 }
 
 async function runInBatches(items, handler, batchSize = 20) {
   for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    await Promise.all(batch.map((item) => handler(item)));
+    await Promise.all(items.slice(i, i + batchSize).map((item) => handler(item)));
   }
 }
 
-exports.main = async (event) => {
+exports.main = async (event = {}) => {
   const wxContext = cloud.getWXContext();
-  const openid = wxContext.OPENID;
-  const activityId = String(event.activityId || '').trim();
+  const admin = await ensureAdmin(wxContext.OPENID);
+  if (!admin) return { status: 'forbidden', message: '无管理权限' };
 
-  const operator = await db.collection('admin_info')
-    .where({
-      openid,
-      bindStatus: 'active'
-    })
-    .limit(1)
-    .get();
+  const activityId = safeString(event.activityId);
+  if (!activityId) return { status: 'invalid_params', message: '请提供评分活动ID' };
+  const activityRes = await db.collection('score_activities').doc(activityId).get().catch(() => ({ data: null }));
+  if (!activityRes.data) return { status: 'invalid_params', message: '评分活动不存在' };
 
-  if (!operator.data.length) {
-    return {
-      status: 'forbidden',
-      message: '没有管理权限'
-    };
-  }
-
-  if (!activityId) {
-    return {
-      status: 'invalid_params',
-      message: '请先选择评分活动'
-    };
-  }
-
-  const activityRes = await db.collection('score_activities')
-    .doc(activityId)
-    .get();
-
-  if (!activityRes.data) {
-    return {
-      status: 'invalid_params',
-      message: '评分活动不存在'
-    };
-  }
-
-  const [hrRes, existingRulesRes] = await Promise.all([
-    db.collection('hr_info').limit(1000).get(),
-    db.collection('rate_target_rules').where({ activityId }).limit(1000).get()
+  const [hrRows, existingRules, lookups] = await Promise.all([
+    getAllRecords(db.collection('hr_info')),
+    getAllRecords(db.collection('rate_target_rules').where({ activityId })),
+    fetchOrgLookups()
   ]);
 
-  const uniqueCategoryMap = new Map();
-  (hrRes.data || []).forEach((item) => {
-    const department = String(item['所属部门'] || '').trim();
-    const identity = String(item['身份'] || '').trim();
-    if (!department || !identity) {
-      return;
-    }
-
-    const scorerKey = `${department}::${identity}`;
-    if (!uniqueCategoryMap.has(scorerKey)) {
-      uniqueCategoryMap.set(scorerKey, {
+  const categories = new Map();
+  hrRows.forEach((item) => {
+    const departmentId = safeString(item.departmentId);
+    const identityId = safeString(item.identityId);
+    if (!departmentId || !identityId) return;
+    const scorerKey = departmentId + '::' + identityId;
+    if (!categories.has(scorerKey)) {
+      categories.set(scorerKey, {
         activityId,
-        activityName: activityRes.data.name || '',
         scorerKey,
-        scorerDepartment: department,
-        scorerIdentity: identity,
+        scorerDepartmentId: departmentId,
+        scorerIdentityId: identityId,
         clauses: [],
         isActive: true
       });
@@ -98,49 +89,33 @@ exports.main = async (event) => {
 
   const existingRuleMap = new Map();
   const duplicateRuleIds = [];
-  (existingRulesRes.data || []).forEach((item) => {
-    const scorerKey = String(item.scorerKey || '').trim();
-    if (!scorerKey) {
+  existingRules.forEach((item) => {
+    const key = safeString(item.scorerKey);
+    if (!key) {
       duplicateRuleIds.push(item._id);
       return;
     }
-
-    if (!existingRuleMap.has(scorerKey)) {
-      existingRuleMap.set(scorerKey, item);
-    } else {
-      duplicateRuleIds.push(item._id);
-    }
+    if (!existingRuleMap.has(key)) existingRuleMap.set(key, item);
+    else duplicateRuleIds.push(item._id);
   });
 
   const rulesToAdd = [];
-  for (const rule of uniqueCategoryMap.values()) {
-    if (!existingRuleMap.has(rule.scorerKey)) {
-      rulesToAdd.push(rule);
-    }
+  for (const rule of categories.values()) {
+    if (!existingRuleMap.has(rule.scorerKey)) rulesToAdd.push(rule);
   }
 
-  await runInBatches(duplicateRuleIds, (id) => (
-    db.collection('rate_target_rules').doc(id).remove()
-  ));
-
-  await runInBatches(rulesToAdd, (rule) => (
-    db.collection('rate_target_rules').add({
-      data: {
-        ...rule,
-        createdAt: db.serverDate(),
-        updatedAt: db.serverDate()
-      }
-    })
-  ));
-
-  await invalidateActivityCaches(activityId);
-
+  await runInBatches(duplicateRuleIds, (id) => db.collection('rate_target_rules').doc(id).remove());
+  await runInBatches(rulesToAdd, (rule) => db.collection('rate_target_rules').add({
+    data: { ...rule, createdAt: db.serverDate(), updatedAt: db.serverDate() }
+  }));
   return {
     status: 'success',
     collectionName: 'rate_target_rules',
-    ruleCount: uniqueCategoryMap.size,
+    ruleCount: categories.size,
     createdCount: rulesToAdd.length,
-    keptCount: uniqueCategoryMap.size - rulesToAdd.length,
-    removedDuplicateCount: duplicateRuleIds.length
+    keptCount: categories.size - rulesToAdd.length,
+    removedDuplicateCount: duplicateRuleIds.length,
+    departmentsResolved: Array.from(categories.values()).filter((rule) => lookups.departmentsById.has(rule.scorerDepartmentId)).length,
+    identitiesResolved: Array.from(categories.values()).filter((rule) => lookups.identitiesById.has(rule.scorerIdentityId)).length
   };
 };

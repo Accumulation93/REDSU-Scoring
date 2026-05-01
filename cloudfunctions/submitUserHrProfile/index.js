@@ -184,19 +184,14 @@ exports.main = async (event) => {
   let existingRes = { data: [] };
   try {
     existingRes = await db.collection('hr_profile_records')
-      .where({
-        studentId: user.studentId || user['学号'] || ''
-      })
+      .where({ hrId: user.hrId || user._id || '' })
       .limit(1)
       .get();
   } catch (error) {}
 
   const basePayload = {
-    name: user.name || user['姓名'] || '',
-    studentId: user.studentId || user['学号'] || '',
-    department: user.department || user['所属部门'] || '',
-    identity: user.identity || user['身份'] || '',
-    workGroup: user.workGroup || user['工作分工（职能组）'] || '',
+    hrId: user.hrId || user._id || '',
+    name: user.name || '',
     openid,
     templateKey: TEMPLATE_KEY,
     templateUpdatedAt: templateDoc.updatedAt || null

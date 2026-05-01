@@ -6,152 +6,80 @@ cloud.init({
 
 const db = cloud.database();
 const _ = db.command;
-const CACHE_META_COLLECTIONS = ['score_results_cache_meta', 'scorer_task_cache_meta'];
-const SCORER_TASK_CACHE_CHUNKS = 'scorer_task_cache_chunks';
+const PAGE_SIZE = 100;
 
 function toNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 }
 
-async function markScoreCachesTouched(activityId) {
-  if (!activityId) {
-    return;
-  }
-  await Promise.all(CACHE_META_COLLECTIONS.map((collectionName) => (
-    db.collection(collectionName)
-      .where({ activityId })
-      .update({
-        data: {
-          hasScoreUpdates: true,
-          scoreUpdatedAt: db.serverDate()
-        }
-      })
-      .catch(() => null)
-  )));
+function safeString(value) {
+  return String(value == null ? '' : value).trim();
 }
 
-async function incrementallyUpdateScorerTaskCache(activityId, scorerKey, targetId) {
-  if (!activityId || !scorerKey || !targetId) {
-    return;
+async function getAllRecords(query) {
+  const list = [];
+  let skip = 0;
+  while (true) {
+    const res = await query.where({}).skip(skip).limit(PAGE_SIZE).get().catch(() => ({ data: [] }));
+    const batch = res.data || [];
+    list.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    skip += batch.length;
   }
-
-  const chunkRes = await db.collection(SCORER_TASK_CACHE_CHUNKS)
-    .where({ activityId })
-    .limit(100)
-    .get()
-    .catch(() => ({ data: [] }));
-
-  for (const chunk of chunkRes.data || []) {
-    const rows = Array.isArray(chunk.rows) ? [...chunk.rows] : [];
-    const rowIndex = rows.findIndex((row) => String(row.scorerKey || '') === scorerKey);
-    if (rowIndex === -1) {
-      continue;
-    }
-
-    const row = {
-      ...rows[rowIndex],
-      pendingList: Array.isArray(rows[rowIndex].pendingList) ? [...rows[rowIndex].pendingList] : []
-    };
-    const before = row.pendingList.length;
-    row.pendingList = row.pendingList.filter((item) => String(item.targetId || '') !== targetId);
-    if (row.pendingList.length === before) {
-      return;
-    }
-
-    row.submittedCount = Number(row.submittedCount || 0) + 1;
-    row.pendingCount = Math.max(Number(row.expectedCount || 0) - row.submittedCount, 0);
-    row.completionRate = row.expectedCount
-      ? Number(((row.submittedCount / row.expectedCount) * 100).toFixed(2))
-      : 100;
-
-    if (row.pendingCount > 0) {
-      rows[rowIndex] = row;
-    } else {
-      rows.splice(rowIndex, 1);
-      await db.collection('scorer_task_cache_meta')
-        .where({ activityId })
-        .update({
-          data: {
-            'stats.totalPendingScorers': _.inc(-1),
-            total: _.inc(-1),
-            updatedAt: db.serverDate()
-          }
-        })
-        .catch(() => null);
-    }
-
-    await db.collection(SCORER_TASK_CACHE_CHUNKS)
-      .doc(chunk._id)
-      .update({
-        data: {
-          rows,
-          updatedAt: db.serverDate()
-        }
-      })
-      .catch(() => null);
-    return;
-  }
+  return list;
 }
 
-async function refreshScorerTaskCacheMeta(activityId) {
-  if (!activityId) {
-    return;
-  }
-
-  const chunkRes = await db.collection(SCORER_TASK_CACHE_CHUNKS)
-    .where({ activityId })
-    .limit(100)
-    .get()
-    .catch(() => ({ data: [] }));
-  const chunks = (chunkRes.data || []).sort((a, b) => Number(a.chunkIndex || 0) - Number(b.chunkIndex || 0));
-  let rowStart = 0;
-  const chunkMap = chunks.map((chunk) => {
-    const rowCount = Array.isArray(chunk.rows) ? chunk.rows.length : 0;
-    const meta = {
-      chunkIndex: Number(chunk.chunkIndex || 0),
-      rowStart,
-      rowCount
-    };
-    rowStart += rowCount;
-    return meta;
+function buildNameMap(rows = []) {
+  const map = new Map();
+  rows.forEach((item) => {
+    const id = safeString(item && item._id);
+    if (id) map.set(id, safeString(item.name));
   });
-
-  await db.collection('scorer_task_cache_meta')
-    .where({ activityId })
-    .update({
-      data: {
-        chunkMap,
-        total: rowStart,
-        'stats.totalPendingScorers': rowStart,
-        updatedAt: db.serverDate()
-      }
-    })
-    .catch(() => null);
+  return map;
 }
 
-function normalizePerson(record) {
+async function fetchOrgLookups() {
+  const [departments, identities, workGroups] = await Promise.all([
+    getAllRecords(db.collection('departments')),
+    getAllRecords(db.collection('identities')),
+    getAllRecords(db.collection('work_groups'))
+  ]);
   return {
-    id: record._id || '',
-    name: record.name || record['姓名'] || '',
-    studentId: record.studentId || record['学号'] || '',
-    identity: record.identity || record['身份'] || '',
-    department: record.department || record['所属部门'] || '',
-    workGroup: record.workGroup || record['工作分工（职能组）'] || ''
+    departmentsById: buildNameMap(departments),
+    identitiesById: buildNameMap(identities),
+    workGroupsById: buildNameMap(workGroups)
   };
 }
 
-function getRuleKey(person) {
-  return `${person.department}::${person.identity}`;
+function isStepAligned(score, startValue, stepValue) {
+  const step = toNumber(stepValue, 0);
+  if (!step) return true;
+  const diff = (toNumber(score, 0) - toNumber(startValue, 0)) / step;
+  return Math.abs(diff - Math.round(diff)) < 1e-8;
 }
 
-function isStepAligned(value, startValue, stepValue) {
-  if (!Number.isFinite(stepValue) || stepValue <= 0) {
-    return true;
-  }
+function getRuleKey(person) {
+  const departmentId = String(person.departmentId || '').trim();
+  const identityId = String(person.identityId || '').trim();
+  return departmentId && identityId ? departmentId + '::' + identityId : '';
+}
 
-  const diff = (value - startValue) / stepValue;
-  return Math.abs(diff - Math.round(diff)) < 1e-8;
+function normalizeHrPerson(record = {}, orgLookups = {}) {
+  const departmentId = String(record.departmentId || '').trim();
+  const identityId = String(record.identityId || '').trim();
+  const workGroupId = String(record.workGroupId || '').trim();
+  return {
+    id: record._id || '',
+    name: String(record.name || '').trim(),
+    studentId: String(record.studentId || '').trim(),
+    identityId,
+    identity: String((orgLookups.identitiesById && orgLookups.identitiesById.get(identityId)) || '').trim(),
+    departmentId,
+    department: String((orgLookups.departmentsById && orgLookups.departmentsById.get(departmentId)) || '').trim(),
+    workGroupId,
+    workGroup: String((orgLookups.workGroupsById && orgLookups.workGroupsById.get(workGroupId)) || '').trim()
+  };
 }
 
 function normalizeClause(clause = {}) {
@@ -159,18 +87,17 @@ function normalizeClause(clause = {}) {
     ? clause.templateConfigs
     : (clause.templateId ? [{
       templateId: clause.templateId,
-      templateName: clause.templateName || '',
       weight: clause.weight == null ? 1 : clause.weight,
       sortOrder: clause.sortOrder == null ? 1 : clause.sortOrder
     }] : []);
 
   return {
     scopeType: clause.scopeType || '',
-    targetIdentity: clause.targetIdentity || '',
+    targetIdentityId: clause.targetIdentityId || '',
+    targetIdentity: '',
     templateConfigs: templateConfigs
       .map((item) => ({
         templateId: item.templateId || '',
-        templateName: item.templateName || '',
         weight: Number(item.weight),
         sortOrder: Number(item.sortOrder)
       }))
@@ -179,119 +106,113 @@ function normalizeClause(clause = {}) {
   };
 }
 
-function buildTemplateConfigSignature(templateConfigs) {
-  return templateConfigs
-    .map((item) => `${item.templateId}@${item.weight}@${item.sortOrder}`)
+function buildTemplateConfigSignature(templateConfigs, templatesById) {
+  return (templateConfigs || [])
+    .map((config) => {
+      const template = templatesById && templatesById.get(safeString(config.templateId));
+      if (!template || !Array.isArray(template.questions) || !template.questions.length) return '';
+      const qSig = template.questions
+        .map((q) => [
+          toNumber(q.minValue, 0),
+          toNumber(q.startValue, 0),
+          toNumber(q.maxValue, 0),
+          toNumber(q.stepValue, 0.5)
+        ].join(':'))
+        .join(',');
+      return `${safeString(config.templateId)}[${qSig}]`;
+    })
+    .filter(Boolean)
     .join('|');
+}
+
+function normalizeTemplateConfigSignature(signature = '') {
+  return String(signature || '').trim();
+}
+
+function stripTemplateConfigWeight(config = {}) {
+  return {
+    templateId: safeString(config.templateId),
+    weight: toNumber(config.weight, 0),
+    sortOrder: toNumber(config.sortOrder, 0)
+  };
 }
 
 async function fetchClauseTargets(scorer, clause) {
   const where = {};
-
   if (clause.scopeType === 'same_department_identity') {
-    where['所属部门'] = scorer.department;
-    where['身份'] = clause.targetIdentity;
+    where.departmentId = scorer.departmentId;
+    where.identityId = clause.targetIdentityId;
   } else if (clause.scopeType === 'same_department_all') {
-    where['所属部门'] = scorer.department;
+    where.departmentId = scorer.departmentId;
   } else if (clause.scopeType === 'same_work_group_identity') {
-    where['所属部门'] = scorer.department;
-    where['工作分工（职能组）'] = scorer.workGroup;
-    where['身份'] = clause.targetIdentity;
+    where.departmentId = scorer.departmentId;
+    where.workGroupId = scorer.workGroupId;
+    where.identityId = clause.targetIdentityId;
   } else if (clause.scopeType === 'same_work_group_all') {
-    where['所属部门'] = scorer.department;
-    where['工作分工（职能组）'] = scorer.workGroup;
+    where.departmentId = scorer.departmentId;
+    where.workGroupId = scorer.workGroupId;
   } else if (clause.scopeType === 'identity_only') {
-    where['身份'] = clause.targetIdentity;
+    where.identityId = clause.targetIdentityId;
   } else if (clause.scopeType === 'all_people') {
     return db.collection('hr_info').limit(1000).get();
   } else {
     return { data: [] };
   }
-
-  return db.collection('hr_info')
-    .where(where)
-    .limit(1000)
-    .get();
+  return db.collection('hr_info').where(where).limit(1000).get();
 }
 
-async function fetchFirstMatchingRecord(where) {
-  const res = await db.collection('score_records')
-    .where(where)
-    .limit(1)
-    .get();
-
-  return res.data.length ? res.data[0] : null;
+async function fetchClauseTargetsByNormalizedFields(scorer, clause, members = null, orgLookups = {}) {
+  const source = Array.isArray(members) ? members : ((await db.collection('hr_info').limit(1000).get()).data || []);
+  const data = source.filter((item) => {
+    const target = normalizeHrPerson(item, orgLookups);
+    if (clause.scopeType === 'same_department_identity') return target.departmentId === scorer.departmentId && target.identityId === clause.targetIdentityId;
+    if (clause.scopeType === 'same_department_all') return target.departmentId === scorer.departmentId;
+    if (clause.scopeType === 'same_work_group_identity') return target.departmentId === scorer.departmentId && target.workGroupId === scorer.workGroupId && target.identityId === clause.targetIdentityId;
+    if (clause.scopeType === 'same_work_group_all') return target.departmentId === scorer.departmentId && target.workGroupId === scorer.workGroupId;
+    if (clause.scopeType === 'identity_only') return target.identityId === clause.targetIdentityId;
+    if (clause.scopeType === 'all_people') return true;
+    return false;
+  });
+  return { data };
 }
 
 async function fetchExistingRecord(scorer, openid, targetId, activityId) {
-  const baseWhere = {
-    targetId,
-    activityId
-  };
-
-  const queries = [];
-
-  if (openid) {
-    queries.push({
-      ...baseWhere,
-      openid
-    });
-  }
-
-  if (scorer.studentId) {
-    queries.push({
-      ...baseWhere,
-      scorerStudentId: scorer.studentId
-    });
-  }
-
-  if (scorer.id) {
-    queries.push({
-      ...baseWhere,
-      scorerId: scorer.id
-    });
-  }
-
-  for (const where of queries) {
-    const record = await fetchFirstMatchingRecord(where);
-    if (record) {
-      return record;
-    }
-  }
-
-  return null;
+  if (!scorer.id || !targetId || !activityId) return null;
+  const res = await db.collection('score_records')
+    .where({ scorerId: scorer.id, targetId, activityId })
+    .limit(1)
+    .get();
+  return res.data.length ? res.data[0] : null;
 }
 
 exports.main = async (event) => {
-  const wxContext = cloud.getWXContext();
-  const openid = wxContext.OPENID;
   const targetId = String(event.targetId || '').trim();
   const activityId = String(event.activityId || '').trim();
-  const activityName = String(event.activityName || '').trim();
   const templateConfigSignature = String(event.templateConfigSignature || '').trim();
   const answers = Array.isArray(event.answers) ? event.answers : [];
+  const scorerId = String(event.scorerId || '').trim();
 
-  if (!targetId || !templateConfigSignature || !answers.length) {
+  if (!scorerId || !targetId || !templateConfigSignature || !answers.length) {
     return {
       status: 'invalid_params',
       message: '评分信息不完整'
     };
   }
 
-  const scorerRes = await db.collection('user_info')
-    .where({ openid })
-    .limit(1)
-    .get();
+  const [orgLookups, hrRes, targetRes] = await Promise.all([
+    fetchOrgLookups(),
+    db.collection('hr_info').doc(scorerId).get().catch(() => ({ data: null })),
+    db.collection('hr_info').doc(targetId).get().catch(() => ({ data: null }))
+  ]);
 
-  if (!scorerRes.data.length) {
+  if (!hrRes.data) {
     return {
-      status: 'user_not_found',
-      message: '未找到当前评分人'
+      status: 'invalid_scorer',
+      message: '当前评分人信息不存在，请重新登录'
     };
   }
 
-  const scorer = normalizePerson(scorerRes.data[0]);
-  const targetRes = await db.collection('hr_info').doc(targetId).get();
+  const scorer = normalizeHrPerson(hrRes.data, orgLookups);
   const targetDoc = targetRes.data;
 
   if (!targetDoc) {
@@ -327,6 +248,7 @@ exports.main = async (event) => {
   const rule = ruleRes.data[0];
   let matchedClause = null;
   const allowedTargetIds = new Set();
+  const allHrMembers = (await db.collection('hr_info').limit(1000).get()).data || [];
 
   for (const rawClause of rule.clauses || []) {
     const clause = normalizeClause(rawClause);
@@ -334,14 +256,14 @@ exports.main = async (event) => {
       continue;
     }
 
-    if ((clause.scopeType === 'same_work_group_identity' || clause.scopeType === 'same_work_group_all') && !scorer.workGroup) {
+    if ((clause.scopeType === 'same_work_group_identity' || clause.scopeType === 'same_work_group_all') && !scorer.workGroupId) {
       continue;
     }
 
-    const res = await fetchClauseTargets(scorer, clause);
+    const res = await fetchClauseTargetsByNormalizedFields(scorer, clause, allHrMembers, orgLookups);
     (res.data || []).forEach((item) => {
       allowedTargetIds.add(item._id);
-      if (item._id === targetId && !matchedClause) {
+      if (item._id === targetId && (!matchedClause || !matchedClause.templateConfigs.length)) {
         matchedClause = clause;
       }
     });
@@ -361,16 +283,9 @@ exports.main = async (event) => {
     };
   }
 
-  if (buildTemplateConfigSignature(matchedClause.templateConfigs) !== templateConfigSignature) {
-    return {
-      status: 'template_mismatch',
-      message: '评分模板配置已变更，请重新进入评分页'
-    };
-  }
-
+  // 先拉取所有模板数据，用于构建新的结构签名和后续校验
+  const templatesById = new Map();
   const questionBundle = [];
-  const templateScores = [];
-
   for (const config of matchedClause.templateConfigs) {
     const templateRes = await db.collection('score_question_templates').doc(config.templateId).get();
     const templateDoc = templateRes.data;
@@ -382,10 +297,10 @@ exports.main = async (event) => {
       };
     }
 
+    templatesById.set(safeString(config.templateId), templateDoc);
+
     const questions = (templateDoc.questions || []).map((question, questionIndex) => ({
       templateId: templateDoc._id,
-      templateName: templateDoc.name || config.templateName || '',
-      templateWeight: config.weight,
       templateSortOrder: config.sortOrder,
       questionIndex,
       question: question.question || '',
@@ -396,15 +311,15 @@ exports.main = async (event) => {
       stepValue: toNumber(question.stepValue, 0.5)
     }));
 
-    templateScores.push({
-      templateId: templateDoc._id,
-      templateName: templateDoc.name || config.templateName || '',
-      weight: config.weight,
-      sortOrder: config.sortOrder,
-      score: 0
-    });
-
     questionBundle.push(...questions);
+  }
+
+  // 基于模板实际题目结构构建签名并校验
+  if (buildTemplateConfigSignature(matchedClause.templateConfigs, templatesById) !== normalizeTemplateConfigSignature(templateConfigSignature)) {
+    return {
+      status: 'template_mismatch',
+      message: '评分模板配置已变更，请重新进入评分页'
+    };
   }
 
   questionBundle.sort((a, b) => {
@@ -419,7 +334,6 @@ exports.main = async (event) => {
   );
 
   const normalizedAnswers = [];
-  let rawTotalScore = 0;
 
   for (let i = 0; i < questionBundle.length; i += 1) {
     const question = questionBundle[i];
@@ -446,66 +360,53 @@ exports.main = async (event) => {
       };
     }
 
-    rawTotalScore += score;
     normalizedAnswers.push({
       questionIndex: i,
-      templateId: question.templateId,
-      templateName: question.templateName,
-      templateWeight: question.templateWeight,
-      templateSortOrder: question.templateSortOrder,
-      templateQuestionIndex: question.questionIndex,
-      question: question.question,
-      scoreLabel: question.scoreLabel,
-      minValue: question.minValue,
-      startValue: question.startValue,
-      maxValue: question.maxValue,
-      stepValue: question.stepValue,
       score
     });
-
-    const targetTemplateScore = templateScores.find((item) => item.templateId === question.templateId);
-    if (targetTemplateScore) {
-      targetTemplateScore.score += score;
-    }
   }
-
-  const weightedTotalScore = templateScores.reduce((sum, item) => sum + (item.score * item.weight), 0);
-  const finalizedTemplateScores = templateScores.map((item) => ({
-    ...item,
-    weightedScore: item.score * item.weight
-  }));
 
   const record = {
     activityId,
-    activityName,
     ruleId: rule._id,
     templateConfigSignature,
-    templateConfigs: matchedClause.templateConfigs,
-    templateDisplayName: finalizedTemplateScores.map((item) => item.templateName).join(' + '),
     scorerId: scorer.id,
-    scorerOpenId: openid,
-    scorerName: scorer.name,
-    scorerStudentId: scorer.studentId,
-    scorerIdentity: scorer.identity,
     targetId: targetDoc._id,
-    targetName: targetDoc['姓名'] || '',
-    targetStudentId: targetDoc['学号'] || '',
-    targetIdentity: targetDoc['身份'] || '',
     answers: normalizedAnswers,
-    templateScores: finalizedTemplateScores,
-    rawTotalScore,
-    weightedTotalScore,
-    submittedAt: db.serverDate(),
-    openid
+    submittedAt: db.serverDate()
   };
 
-  const existingRecord = await fetchExistingRecord(scorer, openid, targetDoc._id, activityId);
+  const existingRecord = await fetchExistingRecord(scorer, null, targetDoc._id, activityId);
   let recordId = '';
 
   if (existingRecord) {
     recordId = existingRecord._id;
     await db.collection('score_records').doc(recordId).update({
-      data: record
+      data: {
+        ...record,
+        activityName: _.remove(),
+        templateConfigs: _.remove(),
+        openid: _.remove(),
+        templateDisplayName: _.remove(),
+        templateScores: _.remove(),
+        scorerOpenId: _.remove(),
+        scorerName: _.remove(),
+        scorerStudentId: _.remove(),
+        scorerDepartmentId: _.remove(),
+        scorerDepartment: _.remove(),
+        scorerIdentityId: _.remove(),
+        scorerIdentity: _.remove(),
+        scorerWorkGroupId: _.remove(),
+        scorerWorkGroup: _.remove(),
+        targetName: _.remove(),
+        targetStudentId: _.remove(),
+        targetDepartmentId: _.remove(),
+        targetDepartment: _.remove(),
+        targetIdentityId: _.remove(),
+        targetIdentity: _.remove(),
+        targetWorkGroupId: _.remove(),
+        targetWorkGroup: _.remove()
+      }
     });
   } else {
     const addRes = await db.collection('score_records').add({
@@ -514,16 +415,8 @@ exports.main = async (event) => {
     recordId = addRes._id;
   }
 
-  await Promise.all([
-    markScoreCachesTouched(activityId),
-    incrementallyUpdateScorerTaskCache(activityId, getRuleKey(scorer), targetDoc._id)
-  ]);
-  await refreshScorerTaskCacheMeta(activityId);
-
   return {
     status: 'success',
-    recordId,
-    totalScore: weightedTotalScore,
-    rawTotalScore
+    recordId
   };
 };
