@@ -634,6 +634,14 @@ module.exports = Behavior({
 
     closeDesignationPicker() { this.setData({ showDesignationPicker: false }); },
 
+    confirmSharedDesignationPicker(e) {
+      const detail = e.detail || {};
+      this.setData({
+        designationPickerSelectedIds: Array.isArray(detail.keys) ? detail.keys : [],
+        designationPickerSelectedList: Array.isArray(detail.items) ? detail.items : []
+      }, () => this.saveDesignations());
+    },
+
     onDesignationPickerToggle(e) {
       const assignmentId = e.currentTarget.dataset.assignmentId;
       if (!assignmentId) return;

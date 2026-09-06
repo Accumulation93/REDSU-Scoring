@@ -28,6 +28,18 @@ const { toAssignmentSnapshot } = require('../services/venueAssignmentContext');
 const { effectiveBookingStart } = require('../services/venueEffectiveBookingTime');
 const dictionaryUsage = require('../../../core/services/dictionaryUsage');
 
+function readDesignationAssignmentIds(body, listKey, legacyKey) {
+  const source = body || {};
+  const hasList = Object.prototype.hasOwnProperty.call(source, listKey);
+  if (hasList && !Array.isArray(source[listKey])) return { valid: false, ids: [] };
+  const raw = hasList ? source[listKey] : [source[legacyKey]];
+  return {
+    valid: true,
+    hasList,
+    ids: [...new Set(raw.map(function(value) { return safeString(value); }).filter(Boolean))]
+  };
+}
+
 function collectRuleDictionaryReferences(rule) {
   const item = rule || {};
   return {
@@ -72,7 +84,7 @@ router.post('/listVenueApprovalFlows', async (req, res) => {
   }
 });
 
-// saveVenueApprovalFlowMeta — 创建/更新审批流元信息（名称与三个开关）
+// saveVenueApprovalFlowMeta — 仅按显式 flowId 更新审批流元信息（名称与三个开关）
 router.post('/saveVenueApprovalFlowMeta', async (req, res) => {
   const conn = await pool.getConnection();
   let transactionStarted = false;
@@ -95,27 +107,23 @@ router.post('/saveVenueApprovalFlowMeta', async (req, res) => {
       transactionStarted = false;
       return res.json({ status: 'invalid_params', message: localeCopy.copy_3458928c55 });
     }
-    let flow = null;
-    if (flowId) {
-      flow = await flowModel.getById(flowId, conn, true);
-      if (flow && flow.venue_id !== venueId) {
-        await conn.rollback();
-        transactionStarted = false;
-        return res.json({ status: 'invalid_params', message: localeCopy.copy_00853d1d28 });
-      }
+    if (!flowId) {
+      await conn.rollback();
+      transactionStarted = false;
+      return res.json({ status: 'invalid_params', message: localeCopy.copy_3458928c55 });
     }
-    if (flow) {
-      await flowModel.update(flow.id, { name, allowUserSelect, allowDesignateFirst, allowDesignateNext }, conn);
-    } else {
-      flow = { id: generateId() };
-      await flowModel.create(flow.id, {
-        venueId,
-        name,
-        allowUserSelect,
-        allowDesignateFirst,
-        allowDesignateNext
-      }, conn);
+    const flow = await flowModel.getById(flowId, conn, true);
+    if (!flow) {
+      await conn.rollback();
+      transactionStarted = false;
+      return res.json({ status: 'not_found', message: localeCopy.copy_db3e12e237 });
     }
+    if (safeString(flow.venue_id) !== venueId) {
+      await conn.rollback();
+      transactionStarted = false;
+      return res.json({ status: 'invalid_params', message: localeCopy.copy_00853d1d28 });
+    }
+    await flowModel.update(flow.id, { name, allowUserSelect, allowDesignateFirst, allowDesignateNext }, conn);
     await conn.commit();
     transactionStarted = false;
     res.json({ status: 'success', flowId: flow.id, message: localeCopy.copy_d185bef128 });
@@ -146,13 +154,8 @@ router.post('/deleteVenueApprovalFlow', async (req, res) => {
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
     const venueId = safeString(req.body.venueId);
     const flowId = safeString(req.body.flowId);
-    if (!venueId && !flowId) return res.json({ status: 'invalid_params', message: localeCopy.copy_3458928c55 });
-    let resolvedVenueId = venueId;
-    if (!resolvedVenueId && flowId) {
-      const existing = await flowModel.getById(flowId);
-      resolvedVenueId = safeString(existing && existing.venue_id);
-    }
-    if (!resolvedVenueId) return res.json({ status: 'not_found', message: localeCopy.copy_db3e12e237 });
+    if (!venueId || !flowId) return res.json({ status: 'invalid_params', message: localeCopy.copy_3458928c55 });
+    const resolvedVenueId = venueId;
     await conn.beginTransaction();
     transactionStarted = true;
     const venue = await venueModel.getByIdForUpdate(resolvedVenueId, conn);
@@ -161,9 +164,7 @@ router.post('/deleteVenueApprovalFlow', async (req, res) => {
       transactionStarted = false;
       return res.json({ status: 'not_found', message: localeCopy.copy_db3e12e237 });
     }
-    const flow = flowId
-      ? await flowModel.getById(flowId, conn, true)
-      : await flowModel.getByVenueId(resolvedVenueId, conn, true);
+    const flow = await flowModel.getById(flowId, conn, true);
     if (!flow) {
       await conn.rollback();
       transactionStarted = false;
@@ -243,16 +244,19 @@ router.post('/saveVenueApprovalWholeFlow', async (req, res) => {
       }
     }
 
-    // Upsert flow（多流程：flowId 优先，无 flowId 时兼容旧的单流程场地）
+    // 无 flowId 创建新流程；有 flowId 时只允许更新该场地下的精确记录。
     let flow = null;
     if (flowIdParam) {
       flow = await flowModel.getById(flowIdParam, conn, true);
-      if (flow && flow.venue_id !== venueId) {
+      if (!flow) {
+        await conn.rollback();
+        return res.json({ status: 'not_found', message: localeCopy.copy_db3e12e237 });
+      }
+      if (safeString(flow.venue_id) !== venueId) {
         await conn.rollback();
         return res.json({ status: 'invalid_params', message: localeCopy.copy_00853d1d28 });
       }
     }
-    if (!flow) flow = await flowModel.getByVenueId(venueId, conn, true);
     if (flow) {
       await flowModel.update(flow.id, {
         name: flowName,
@@ -383,6 +387,15 @@ router.post('/approveVenueBookingStep', async (req, res) => {
     }
     const actor = actorResult.actor;
     const orgId = await getCurrentOrgId();
+    const nextDesignationRequest = readDesignationAssignmentIds(
+      req.body,
+      'nextApproverAssignmentIds',
+      'nextApproverAssignmentId'
+    );
+    if (!nextDesignationRequest.valid) {
+      return res.json({ status: 'invalid_params', message: venueApprovalMultiFlow.REASONS.DESIGNATE_INVALID });
+    }
+    const nextApproverAssignmentIds = nextDesignationRequest.ids;
 
     await conn.beginTransaction();
     const approvalSubjects = [{
@@ -391,10 +404,10 @@ router.post('/approveVenueBookingStep', async (req, res) => {
       assignmentId: safeString(actor.assignmentId),
       requireMembership: safeString(actor.type) === 'user'
     }];
-    if (safeString(req.body.nextApproverAssignmentId)) {
+    for (const assignmentId of nextApproverAssignmentIds) {
       approvalSubjects.push({
         organizationId: orgId,
-        assignmentId: safeString(req.body.nextApproverAssignmentId)
+        assignmentId
       });
     }
     await unifiedIdentityModel.lockActiveBusinessSubjects(conn, approvalSubjects);
@@ -412,22 +425,23 @@ router.post('/approveVenueBookingStep', async (req, res) => {
       return res.json({ status: 'invalid_state', message: localeCopy.copy_a56890077c });
     }
 
-    if (req.body.nextApproverHrId && !req.body.nextApproverAssignmentId) {
+    if (!nextDesignationRequest.hasList && req.body.nextApproverHrId && !nextApproverAssignmentIds.length) {
       await conn.rollback();
       return res.json({ status: 'invalid_params', message: localeCopy.copy_legacyApproverSelection });
     }
-    const nextDesignation = req.body.nextApproverAssignmentId
-      ? { assignmentId: safeString(req.body.nextApproverAssignmentId) }
-      : null;
+    const nextDesignations = nextApproverAssignmentIds.map(function(assignmentId) {
+      return { assignmentId };
+    });
     let prepared;
     try {
       prepared = await venueApprovalMultiFlow.prepareApproval(
         booking,
         actor,
         comment,
-        nextDesignation,
+        nextDesignations,
         orgId,
-        safeString(req.body.flowId)
+        safeString(req.body.flowId),
+        conn
       );
     } catch (e) {
       await conn.rollback();

@@ -7,19 +7,14 @@ const {
   buildBookingRuleDisplayList
 } = require('../miniprogram/subpackages/venue/utils/venueRuleDisplay');
 
-const flow = { id: 'flow-43', name: '场地审批流程' };
-const steps = [{ id: 'step-1' }, { id: 'step-2' }];
-
-const flowOnly = buildBookingRuleDisplayList([], flow, steps);
-assert.strictEqual(flowOnly.length, 1);
-assert.strictEqual(flowOnly[0].id, '__flow__');
-assert.strictEqual(flowOnly[0]._flowSteps, '2步');
+const flowOnly = buildBookingRuleDisplayList([]);
+assert.strictEqual(flowOnly.length, 0);
 
 const mixed = buildBookingRuleDisplayList([
   { id: 'admin-rule', rule_type: 'admin' }
-], flow, steps);
-assert.deepStrictEqual(mixed.map((item) => item.id), ['__flow__', 'admin-rule']);
-assert.strictEqual(mixed[1]._ruleTypeLabel, '管理员审核');
+]);
+assert.deepStrictEqual(mixed.map((item) => item.id), ['admin-rule']);
+assert.strictEqual(mixed[0]._ruleTypeLabel, '管理员审核');
 
 const noFlow = buildBookingRuleDisplayList([
   { id: 'direct-rule', rule_type: 'direct' }

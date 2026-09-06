@@ -3096,40 +3096,8 @@
   </view>
   </viewport-portal>
 
-  <!-- ══════════════ Audit Personnel Picker (page level) ══════════════ -->
-  <viewport-portal wx:if="{{auditPersonnelPickerVisible}}">
-  <view class="popup-mask ui-overlay" wx:if="{{auditPersonnelPickerVisible}}" bindtap="closeAuditPersonnelPicker">
-    <view class="ui-overlay-blocker" catchtouchmove="noop"></view>
-    <view class="popup-card desig-popup-card ui-dialog-shell ui-dialog-shell--complex" catchtap="noop">
-      <view class="popup-header ui-dialog-header"><view class="popup-title">{{localeCopy.copy_21d0297fd5}} — {{auditPersonnelPickerLabel}}</view><text class="popup-close ui-motion-chip" catchtap="closeAuditPersonnelPicker" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_09614cef6c}}</text></view>
-      <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="ui-dialog-body ui-dialog-content ui-dialog-scroll--fill ui-dialog-stack-scroll">
-      <view class="rule-filter-row ui-inline-field-row audit-personnel-filter-row">
-        <view class="rule-filter-field audit-personnel-filter-field"><view class="field-label">{{localeCopy.copy_02419589be}}</view><picker range="{{auditPersonnelDeptOptions}}" range-key="label" value="{{auditPersonnelFilterDeptIndex}}" bindchange="onAuditPersonnelFilterDept"><view class="picker-value compact-picker-value">{{auditPersonnelDeptOptions[auditPersonnelFilterDeptIndex].label}}</view></picker></view>
-        <view class="rule-filter-field audit-personnel-filter-field"><view class="field-label">{{localeCopy.copy_c1965e0690}}</view><picker range="{{auditPersonnelIdentOptions}}" range-key="label" value="{{auditPersonnelFilterIdentIndex}}" bindchange="onAuditPersonnelFilterIdent"><view class="picker-value compact-picker-value">{{auditPersonnelIdentOptions[auditPersonnelFilterIdentIndex].label}}</view></picker></view>
-        <view class="rule-filter-field audit-personnel-filter-field"><view class="field-label">{{localeCopy.copy_303b7a8611}}</view><picker range="{{auditPersonnelWorkGroupOptions}}" range-key="label" value="{{auditPersonnelFilterWorkGroupIndex}}" bindchange="onAuditPersonnelFilterWorkGroup"><view class="picker-value compact-picker-value">{{auditPersonnelWorkGroupOptions[auditPersonnelFilterWorkGroupIndex].label}}</view></picker></view>
-        <view class="rule-filter-field rule-filter-field--grow audit-personnel-search-field"><view class="field-label">{{localeCopy.copy_cea1da7603}}</view><input class="field-input" placeholder="{{localeCopy.copy_803b577438}}" value="{{auditPersonnelSearchKeyword}}" bindinput="onAuditPersonnelSearch"/></view>
-      </view>
-      <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="desig-inner-scroll desig-candidate-scroll ui-dialog-scroll--pane ui-dialog-selection-options">
-        <view class="list-item selection-option-card ui-motion-card" wx:for="{{auditPersonnelFilteredList}}" wx:key="id" data-hr-id="{{item.id}}" catchtap="onAuditPersonnelToggle" hover-class="ui-press-card" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">
-          <view class="select-chip selection-card-toggle {{auditPersonnelPickerSelectedId === item.id ? 'select-chip-active' : ''}}">{{auditPersonnelPickerSelectedId === item.id ? localeCopy.copy_06dbb49961 : localeCopy.copy_c47f370afa}}</view>
-          <view class="list-main">
-            <view class="list-name">{{item.name}}</view>
-            <view class="list-desc">{{item.studentId}}</view>
-            <view class="audit-personnel-assignment-list" wx:if="{{item.assignments.length}}">
-              <view class="audit-personnel-assignment-line" wx:for="{{item.assignments}}" wx:key="assignmentId" wx:for-item="assignmentItem">{{assignmentItem.assignmentLabel}}</view>
-            </view>
-            <view class="list-desc" wx:else>{{localeCopy.adminCandidateNoPosition}}</view>
-          </view>
-        </view>
-        <view class="empty-inline" wx:if="{{!auditPersonnelFilteredList.length}}">{{localeCopy.copy_3f9ec35c15}}</view>
-        <view class="scroll-tail-space"></view>
-      </scroll-view>
-      </scroll-view>
-      <view class="button-row ui-dialog-footer"><button class="secondary-btn ui-motion-button" catchtap="closeAuditPersonnelPicker" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_06dbb49961}}</button><button class="primary-btn ui-motion-button" catchtap="confirmAuditPersonnelPicker" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_7a62b752fe}}</button></view>
-    </view>
-  </view>
-  </viewport-portal>
-
+  <!-- ══════════════ Shared audit personnel picker ══════════════ -->
+  <personnel-picker visible="{{auditPersonnelPickerVisible}}" title="{{localeCopy.copy_21d0297fd5}} — {{auditPersonnelPickerLabel}}" options="{{auditPersonnelPickerOptions}}" value="{{auditPersonnelPickerValue}}" selectionLevel="person" multiple="{{false}}" bindconfirm="confirmSharedAuditPersonnelPicker" bindcancel="closeAuditPersonnelPicker" />
   <!-- ══════════════ Audit Identity Picker (page level) ══════════════ -->
   <viewport-portal wx:if="{{auditIdentityPickerVisible}}">
   <view class="popup-mask ui-overlay" wx:if="{{auditIdentityPickerVisible}}" bindtap="closeAuditIdentityPicker">
@@ -3157,38 +3125,8 @@
   </view>
   </viewport-portal>
 
-  <!-- Designation Picker Popup (page level, outside tab sections) -->
-  <viewport-portal wx:if="{{showDesignationPicker}}">
-  <view class="popup-mask ui-overlay" wx:if="{{showDesignationPicker}}" bindtap="closeDesignationPicker">
-    <view class="ui-overlay-blocker" catchtouchmove="noop"></view>
-    <view class="popup-card desig-popup-card ui-dialog-shell ui-dialog-shell--complex" catchtap="noop">
-      <view class="popup-header ui-dialog-header"><view class="popup-title">{{localeCopy.copy_74b0241999}}</view><text class="popup-close ui-motion-chip" catchtap="closeDesignationPicker" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_09614cef6c}}</text></view>
-      <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="ui-dialog-body ui-dialog-content ui-dialog-scroll--fill ui-dialog-stack-scroll">
-      <view class="list-title">{{localeCopy.copy_757dfc5eab}}{{designationPickerSelectedIds.length}}{{localeCopy.copy_72dd9e6203}}</view>
-        <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="desig-inner-scroll desig-current-scroll ui-dialog-scroll--pane ui-dialog-selection-current">
-          <view class="list-item desig-current-item selection-option-card" wx:for="{{designationPickerSelectedList}}" wx:key="assignmentId"><view class="select-chip select-chip-active selection-card-toggle ui-motion-chip" data-assignment-id="{{item.assignmentId}}" catchtap="onDesignationPickerToggle" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_06dbb49961}}</view><view class="list-main"><view class="list-name">{{item.name}}</view><view class="list-desc">{{item.studentId}} · {{item.assignmentLabel}}</view></view></view>
-          <view class="empty-inline" wx:if="{{!designationPickerSelectedList.length}}">{{localeCopy.copy_ec9aab61b0}}</view>
-          <view class="scroll-tail-space"></view>
-        </scroll-view>
-        <view class="list-title audit-file-section-title">{{localeCopy.copy_6d4987d954}}</view>
-        <view class="rule-filter-row ui-inline-field-row"><view class="rule-filter-field"><view class="field-label">{{localeCopy.copy_02419589be}}</view><picker range="{{desigFilterDeptOptions}}" bindchange="onDesigFilterChange" data-field="department"><view class="picker-value compact-picker-value">{{desigFilterDept}}</view></picker></view><view class="rule-filter-field"><view class="field-label">{{localeCopy.copy_c1965e0690}}</view><picker range="{{desigFilterIdentOptions}}" bindchange="onDesigFilterChange" data-field="identity"><view class="picker-value compact-picker-value">{{desigFilterIdent}}</view></picker></view><view class="rule-filter-field rule-filter-field--grow"><view class="field-label">{{localeCopy.copy_cea1da7603}}</view><input class="field-input" placeholder="{{localeCopy.copy_803b577438}}" value="{{desigSearchKeyword}}" bindinput="onDesigSearchInput"/></view></view>
-        <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="desig-inner-scroll desig-candidate-scroll ui-dialog-scroll--pane ui-dialog-selection-options">
-          <view class="list-item selection-option-card ui-motion-card" wx:for="{{designationPickerFilteredList}}" wx:key="assignmentId" data-assignment-id="{{item.assignmentId}}" catchtap="onDesignationPickerToggle" hover-class="ui-press-card" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">
-            <view class="select-chip selection-card-toggle {{item.isSelected ? 'select-chip-active' : ''}}">{{item.isSelected ? localeCopy.copy_06dbb49961 : localeCopy.copy_c47f370afa}}</view>
-            <view class="list-main">
-              <view class="list-name">{{item.name}}</view>
-              <view class="list-desc">{{item.studentId}} · {{item.assignmentLabel}}</view>
-            </view>
-          </view>
-          <view class="empty-inline" wx:if="{{!designationPickerFilteredList.length}}">{{localeCopy.copy_43e8603f7a}}</view>
-          <view class="scroll-tail-space"></view>
-        </scroll-view>
-        </scroll-view>
-        <view class="button-row ui-dialog-footer"><button class="secondary-btn ui-motion-button" catchtap="closeDesignationPicker" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_06dbb49961}}</button><button class="primary-btn ui-motion-button" loading="{{loadingMap.saveDesignations}}" catchtap="saveDesignations" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_4da037e8e6}}{{designationPickerSelectedIds.length}}{{localeCopy.copy_72dd9e6203}}</button></view>
-    </view>
-  </view>
-  </viewport-portal>
-
+  <!-- Shared designation personnel picker -->
+  <personnel-picker visible="{{showDesignationPicker}}" title="{{localeCopy.copy_74b0241999}}" options="{{designationPickerHrList}}" value="{{designationPickerSelectedList}}" selectionLevel="assignment" multiple="{{true}}" confirmLoading="{{loadingMap.saveDesignations}}" bindconfirm="confirmSharedDesignationPicker" bindcancel="closeDesignationPicker" />
   <viewport-portal wx:if="{{orgFormVisible}}">
   <view class="popup-mask ui-overlay" wx:if="{{orgFormVisible}}" bindtap="closeOrgForm">
     <view class="ui-overlay-blocker" catchtouchmove="noop"></view>

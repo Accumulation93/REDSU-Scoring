@@ -5,6 +5,7 @@ const eventBus = require('../../../../utils/eventBus');
 const orgSession = require('../../../../utils/orgSession');
 const adminPermissions = require('../../../../utils/adminPermissions');
 const { buildBookingRuleDisplayList } = require('../../utils/venueRuleDisplay');
+const flowManagementCopy = require('../../../../locales/zh-CN/venueFlowManagement');
 const { navigateToTrustedRoute } = require('../../../../utils/trustedNavigation');
 const { prepareVenueBookingDetail } = require('../../utils/venueBookingDetail');
 const {
@@ -239,6 +240,7 @@ function bookingWindowMinutes(item) {
 Page({
   data: {
     localeCopy,
+    flowManagementCopy,
     // ── Main tab ──
     activeTab: 'venue',  // 'venue' | 'bookings' | 'pending' | 'purposes'
     hasPermission: true,
@@ -689,11 +691,7 @@ Page({
         this.setData({
           bookingWindow: res.bookingWindow || null,
           bookingWindowForm: bookingWindowFromRow(res.bookingWindow),
-          bookingRules: buildBookingRuleDisplayList(
-            res.rules,
-            this.data.approvalFlow,
-            this.data.approvalFlowSteps
-          )
+          bookingRules: buildBookingRuleDisplayList(res.rules)
         });
       } else console.warn('[loadBookingRules] failed:', res.message);
     } catch (e) { console.error('[loadBookingRules] error:', e); }
@@ -811,22 +809,7 @@ Page({
         const r = this.data.bookingRules.find(r => r.id === ruleId);
         if (r) {
           const rt = r.rule_type || 'admin';
-          form = { ...form, ruleType: rt, _ruleTypeIndex: rt === 'direct' ? 2 : (rt === 'flow' ? 1 : 0) };
-          // If flow type, load existing flow steps
-          if (rt === 'flow') {
-            const steps = (this.data.approvalFlowSteps || []).map(s => ({
-              name: s.name || '',
-              approvalMode: s.approval_mode || ((s.rules || []).length ? 'hr_rule' : 'admin_any'),
-              rules: (s.rules || []).map(r => ({
-                departmentScope: r.department_scope || 'all', specificDepartmentId: r.specific_department_id || '',
-                workGroupScope: r.work_group_scope || 'all', specificWorkGroupId: r.specific_work_group_id || '',
-                identityScope: r.identity_scope || 'all', specificIdentityId: r.specific_identity_id || ''
-              }))
-            }));
-            form._flowSteps = this._decorateFlowSteps(steps);
-          } else {
-            form._flowSteps = [];
-          }
+          form = { ...form, ruleType: rt === 'direct' ? 'direct' : 'admin', _ruleTypeIndex: rt === 'direct' ? 1 : 0, _flowSteps: [] };
         } else {
           form = { ...form, ruleType: 'admin', _ruleTypeIndex: 0, _flowSteps: [] };
         }
@@ -981,7 +964,7 @@ Page({
 
   onBookingRuleTypeChange(e) {
     const idx = parseInt(e.detail.value);
-    const types = ['admin', 'flow', 'direct'];
+    const types = ['admin', 'direct'];
     const rt = types[idx] || 'admin';
     const update = {
       'ruleForm.ruleType': rt,
@@ -990,30 +973,7 @@ Page({
       'ruleForm._editingConditionIdx': null,
       'ruleForm._editingCondition': null
     };
-    // When switching to flow type, load existing flow steps if not already loaded
-    if (rt === 'flow' && (!this.data.ruleForm._flowSteps || !this.data.ruleForm._flowSteps.length)) {
-      const existingSteps = this.data.approvalFlowSteps || [];
-      if (existingSteps.length) {
-        update['ruleForm._flowSteps'] = this._decorateFlowSteps(existingSteps.map(s => ({
-          name: s.name || '',
-          approvalMode: s.approval_mode || ((s.rules || []).length ? 'hr_rule' : 'admin_any'),
-          rules: (s.rules || []).map(r => ({
-            departmentScope: r.department_scope || 'all',
-            specificDepartmentId: r.specific_department_id || '',
-            workGroupScope: r.work_group_scope || 'all',
-            specificWorkGroupId: r.specific_work_group_id || '',
-            identityScope: r.identity_scope || 'all',
-            specificIdentityId: r.specific_identity_id || ''
-          }))
-        })));
-      } else {
-        update['ruleForm._flowSteps'] = [];
-      }
-    }
     this.setData(update, () => this._scheduleRuleEditorViewportSync());
-    if (rt === 'flow' && (!this.data.allDepartments.length || !this.data.allWorkGroups.length)) {
-      this.loadFlowReferenceData();
-    }
   },
 
   onBookingIdentityChange(e) {
@@ -1184,6 +1144,21 @@ Page({
         data = { id: ruleEditId, venueId: rulesVenueId, ruleType: ruleForm.ruleType || 'admin', bookingWindow: ruleForm.bookingWindow };
       }
     }
+    const removesDirectRule = ruleEditorType === 'booking' && ruleForm.ruleType === 'flow'
+      && (this.data.bookingRules || []).some(function(rule) { return rule.rule_type === 'direct'; });
+    const removesFlows = ruleEditorType === 'booking' && ruleForm.ruleType === 'direct'
+      && (this.data.approvalFlows || []).length > 0;
+    if (removesDirectRule || removesFlows) {
+      const confirmed = await new Promise(function(resolve) {
+        wx.showModal({
+          title: flowManagementCopy.switchTitle,
+          content: removesDirectRule ? flowManagementCopy.directToFlow : flowManagementCopy.flowToDirect,
+          success: function(result) { resolve(Boolean(result.confirm)); },
+          fail: function() { resolve(false); }
+        });
+      });
+      if (!confirmed) return;
+    }
     try {
       const res = await callFunction({ name: endpoint, data });
       if (res.status === 'success') {
@@ -1202,25 +1177,6 @@ Page({
   async deleteRule(e) {
     const type = e.currentTarget.dataset.type;
     const id = e.currentTarget.dataset.id;
-
-    // Special handling for flow pseudo-entry
-    if (id === '__flow__') {
-      wx.showModal({
-        title: localeCopy.copy_7f31eec657, content: localeCopy.copy_5da3188f19,
-        success: async (r) => {
-          if (!r.confirm) return;
-          try {
-            const res = await callFunction({ name: 'deleteVenueApprovalFlow', data: { venueId: this.data.rulesVenueId } });
-            if (res.status === 'success') {
-              showShortToast(localeCopy.copy_5398fec054);
-              this.setData({ approvalFlow: null, approvalFlowSteps: [] });
-              this.loadBookingRules();
-            } else showShortToast(res.message);
-          } catch (e) { showShortToast(getErrorText(e, localeCopy.copy_076bb5d383)); }
-        }
-      });
-      return;
-    }
 
     const ep = type === 'open' ? 'deleteVenueOpenRule' : (type === 'activity' ? 'deleteVenueActivityRule' : 'deleteVenueBookingRule');
     try {
@@ -2049,20 +2005,15 @@ Page({
     } catch (_) {}
   },
 
-  async addApprovalFlow() {
-    const venueId = this.data.rulesVenueId;
-    if (!venueId) return;
-    try {
-      const res = await callFunction({
-        name: 'saveVenueApprovalFlowMeta',
-        data: { venueId, flowId: '', name: localeCopy.copy_9835b165c7 }
-      });
-      if (res.status === 'success') {
-        showShortToast(localeCopy.copy_082455b28c);
-        this.setData({ selectedFlowId: res.flowId });
-        await this.loadApprovalFlow();
-      } else showShortToast(res.message || localeCopy.copy_bff49f783f);
-    } catch (e) { showShortToast(getErrorText(e, localeCopy.copy_bff49f783f)); }
+  addApprovalFlow() {
+    this._openApprovalFlowEditor({
+      id: '',
+      name: localeCopy.copy_9835b165c7,
+      allow_user_select: 0,
+      allow_designate_first: 0,
+      allow_designate_next: 0,
+      steps: []
+    });
   },
 
   onBookingWindowSettingMode(e) {
@@ -2182,6 +2133,10 @@ Page({
     const id = String(e.currentTarget.dataset.id || '');
     const flow = (this.data.approvalFlows || []).find(function(item) { return item.id === id; });
     if (!flow) return;
+    this._openApprovalFlowEditor(flow);
+  },
+
+  _openApprovalFlowEditor(flow) {
     const steps = (flow.steps || []).map(function(s) {
       return {
         name: s.name || '',
@@ -2203,7 +2158,7 @@ Page({
       allowDesignateFirstFlow: Number(flow.allow_designate_first) === 1,
       allowDesignateNextFlow: Number(flow.allow_designate_next) === 1,
       ruleEditorVisible: true,
-      ruleEditId: '__flow__',
+      ruleEditId: flow.id || '',
       ruleEditorType: 'booking',
       ruleForm: {
         name: '', cycleType: 'weekly', cycleValues: [], timeStart: '09:00', timeEnd: '18:00', bookingWindow: bookingWindowFromRow(this.data.bookingWindow),

@@ -14,6 +14,7 @@ const templateStepModelPath = path.resolve(__dirname, '../src/modules/audit/mode
 const submissionStepModelPath = path.resolve(__dirname, '../src/modules/audit/models/auditSubmissionStep.js');
 const migrationPath = path.resolve(__dirname, '../db/deploy/20260802123000_audit_approver_designation.sql');
 const appWxssPath = path.resolve(__dirname, '../../miniprogram/app.wxss');
+const personnelPickerWxmlPath = path.resolve(__dirname, '../../miniprogram/components/personnel-picker/personnel-picker.wxml');
 
 function hydrateLocale(source, locale, variableName, asLiteral) {
   return Object.entries(locale).reduce((result, entry) => {
@@ -35,6 +36,7 @@ const adminRouteSource = hydrateLocale(
   true
 );
 const behaviorSource = fs.readFileSync(behaviorPath, 'utf8');
+const personnelPickerWxmlSource = fs.readFileSync(personnelPickerWxmlPath, 'utf8');
 const adminWxmlSource = hydrateLocale(
   fs.readFileSync(adminWxmlPath, 'utf8'),
   require('../../miniprogram/locales/zh-CN/generated/subpackages/scoring/pages/admin/admin'),
@@ -134,13 +136,15 @@ for (const visibleState of [
   'auditStarterConditionEditorVisible',
   'auditSubmissionDetailVisible',
   'auditMultiPickerVisible',
-  'auditPersonnelPickerVisible',
   'auditIdentityPickerVisible'
 ]) {
   const portalPattern = new RegExp(`<viewport-portal\\s+wx:if="\\{\\{${visibleState}\\}\\}">[\\s\\S]*?<view\\s+class="popup-mask ui-overlay"\\s+wx:if="\\{\\{${visibleState}\\}\\}"`);
   assert(portalPattern.test(adminWxmlSource),
     `${visibleState} 必须由按需创建的 viewport-portal 提升到页面根层，关闭时必须销毁原生脱离层`);
 }
+assert(/<personnel-picker\s+visible="\{\{auditPersonnelPickerVisible\}\}"/.test(adminWxmlSource)
+  && /<viewport-portal\s+wx:if="\{\{visible\}\}"/.test(personnelPickerWxmlSource),
+  '审核人员选择必须复用按需创建 viewport-portal 的全局 personnel-picker');
 
 assert(/\.ui-overlay\s*\{[\s\S]*?position:\s*fixed\s*!important;[\s\S]*?top:\s*0\s*!important;[\s\S]*?left:\s*0\s*!important;/m.test(appWxssSource),
   '弹窗遮罩必须固定覆盖整个可视区域');

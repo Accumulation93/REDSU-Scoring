@@ -116,7 +116,7 @@ async function assertPendingPageRoute(pagePath, methodName, target, action, expe
     approvalAction: action,
     approvalComment: '测试意见',
     approvalSubmitting: false,
-    nextApproverAssignmentId: '',
+    nextApproverAssignmentIds: [],
     lastPendingCount: 1,
     lastPendingSignature: ''
   }, {
@@ -157,6 +157,42 @@ async function assertManagePageRoute(target, action, expectedEndpoint) {
   assert.strictEqual(loaded.calls[0].name, expectedEndpoint, '管理端应按记录类型选择接口');
   assert.strictEqual(loaded.calls[0].data.id, target.id);
   assert.strictEqual(context.data.loading, false, '管理端完成后必须复位 loading');
+}
+
+async function assertIndependentFlowDrafts() {
+  const loaded = loadVenuePage('miniprogram/subpackages/venue/pages/venueManage/venueManage.js');
+  const context = createPageContext(loaded.pageDefinition, {
+    rulesVenueId: 'venue-1',
+    bookingRules: [],
+    approvalFlows: [
+      { id: 'flow-1', name: '流程一', steps: [{ name: '一审', rules: [] }] },
+      { id: 'flow-2', name: '流程二', steps: [{ name: '二审', rules: [] }, { name: '三审', rules: [] }] }
+    ],
+    bookingWindow: null
+  }, {
+    _scheduleRuleEditorViewportSync() {},
+    loadFlowReferenceData() {},
+    loadOpenRules() {},
+    loadActivityRules() {},
+    loadApprovalFlow() {},
+    loadBookingRules() {}
+  });
+
+  context.addApprovalFlow();
+  assert.strictEqual(context.data.selectedFlowId, '', '新增流程必须使用空 ID 草稿');
+  assert.deepStrictEqual(context.data.ruleForm._flowSteps, [], '新增流程不得继承已有步骤');
+  assert.strictEqual(context.data.allowUserSelectFlow, false);
+  assert.strictEqual(context.data.allowDesignateFirstFlow, false);
+  assert.strictEqual(context.data.allowDesignateNextFlow, false);
+
+  context.openApprovalFlowStepEditor({ currentTarget: { dataset: { id: 'flow-2' } } });
+  assert.strictEqual(context.data.selectedFlowId, 'flow-2', '编辑必须携带当前卡片真实 flowId');
+  assert.strictEqual(context.data.ruleForm._flowSteps.length, 2, '编辑不同流程不得串用第一条流程步骤');
+
+  await context.saveRule();
+  const saveCall = loaded.calls.find(function(call) { return call.name === 'saveVenueApprovalWholeFlow'; });
+  assert.ok(saveCall, '流程编辑必须使用整流原子保存接口');
+  assert.strictEqual(saveCall.data.flowId, 'flow-2', '保存时必须精确提交当前编辑流程 ID');
 }
 
 async function run() {
@@ -216,6 +252,7 @@ async function run() {
     await assertManagePageRoute(nestedLegacy, 'approve', 'approveVenueBooking');
     await assertManagePageRoute(nestedLegacy, 'reject', 'rejectVenueBooking');
     await assertManagePageRoute(nestedWithoutFlowMarker, 'approve', 'approveVenueBooking');
+    await assertIndependentFlowDrafts();
 
     console.log('场地历史非流程与流程审批分流测试通过');
   } finally {

@@ -1,5 +1,19 @@
 # 页面模板清单
 
+## 人员选择弹窗接入模板
+
+业务页面注册 `/components/personnel-picker/personnel-picker`，传入完整候选 `options`、当前已选 `value`、`selectionLevel` 与 `multiple`。页面负责接口加载和确认后的业务保存，组件负责搜索、同岗位元组筛选、草稿选择、取消回滚、清空确认及手机/Pad 竖横屏滚动。不得在页面重新创建候选卡片或筛选状态机；额外业务字段通过 `slot="extra"` 注入。
+
+```json
+{ "usingComponents": { "personnel-picker": "/components/personnel-picker/personnel-picker" } }
+```
+
+```xml
+<personnel-picker visible="{{pickerVisible}}" title="{{pickerTitle}}" options="{{candidates}}" value="{{selectedItems}}" selectionLevel="assignment" multiple="{{true}}" loading="{{loading}}" errorText="{{errorText}}" bindconfirm="confirmPersonnel" bindcancel="closePersonnel" bindretry="loadPersonnel" />
+```
+
+自然人授权将 `selectionLevel` 改为 `person`；审批或指定保持 `assignment`。确认处理器从 `e.detail.keys/items` 一次写回，取消处理器只关闭弹窗。
+
 ## 共享工作台模板
 
 专项契约索引：分包边界与 locale 见 [module-boundaries-and-language-migration.md](module-boundaries-and-language-migration.md)，签名坐标、场地规则编辑器和审批历史详情见 [ui-kit.md](ui-kit.md)，弹窗滚动见 `.agents/skills/wechat-popup-scroll-contract/SKILL.md`。本页只描述页面结构，不复制这些硬契约。

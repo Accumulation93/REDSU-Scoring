@@ -5,6 +5,8 @@ const { buildFlowTimeline } = require('../../utils/flowTimeline');
 const eventBus = require('../../../../utils/eventBus');
 const orgSession = require('../../../../utils/orgSession');
 const authContext = require('../../../../utils/authContext');
+const personnelPickerCopy = require('../../../../locales/zh-CN/personnelPicker');
+const personnelPickerModel = require('../../../../components/personnel-picker/personnelPickerModel');
 const { navigateToTrustedRoute } = require('../../../../utils/trustedNavigation');
 const {
   getSystemDate,
@@ -318,10 +320,10 @@ Page({
     approvalSubmitting: false,
     approvalFlowOptions: [], allowUserSelectFlow: false, selectedFlowId: '', selectedFlowName: '',
     selectedFlowAllowDesignateFirst: false,
-    firstApproverPickerVisible: false, approverCandidates: [], firstApproverKeyword: '',
-    firstApproverAssignmentId: '', firstApproverName: '',
-    nextApproverPickerVisible: false, nextApproverCandidates: [], nextApproverKeyword: '',
-    nextApproverAssignmentId: '', nextApproverName: '', canDesignateNext: false,
+    firstApproverPickerVisible: false, approverCandidates: [],
+    firstApproverAssignmentIds: [], firstApproverSelections: [], firstApproverName: '',
+    nextApproverPickerVisible: false, nextApproverCandidates: [],
+    nextApproverAssignmentIds: [], nextApproverSelections: [], nextApproverName: '', canDesignateNext: false,
     heroName: localeCopy.copy_592351d93c, heroIdentity: localeCopy.copy_5c8d830c46, heroSubtitle: '',
 
     // ── Custom time keyboard ──
@@ -669,7 +671,7 @@ Page({
       startHours: [], endHours: [], startMinIdx: -1, endMinIdx: -1,
       _dayData: null,
       selectedFlowId: '', selectedFlowName: '', selectedFlowAllowDesignateFirst: false,
-      firstApproverAssignmentId: '', firstApproverName: ''
+      firstApproverAssignmentIds: [], firstApproverSelections: [], firstApproverName: ''
     });
     this.loadApprovalFlowOptions(this.data.scheduleVenueId);
     this._loadScheduleForDate(date, presetTime);
@@ -689,7 +691,7 @@ Page({
       startHours: [], endHours: [], startMinIdx: -1, endMinIdx: -1,
       _dayData: null,
       selectedFlowId: '', selectedFlowName: '', selectedFlowAllowDesignateFirst: false,
-      firstApproverAssignmentId: '', firstApproverName: ''
+      firstApproverAssignmentIds: [], firstApproverSelections: [], firstApproverName: ''
     });
     this.loadApprovalFlowOptions(id);
     this._loadScheduleForDate(today);
@@ -709,7 +711,8 @@ Page({
           selectedFlowId: fixedSingleFlow ? fixedSingleFlow.id : '',
           selectedFlowName: fixedSingleFlow ? (fixedSingleFlow.name || '') : '',
           selectedFlowAllowDesignateFirst: Boolean(fixedSingleFlow && fixedSingleFlow.allowDesignateFirst),
-          firstApproverAssignmentId: '',
+          firstApproverAssignmentIds: [],
+          firstApproverSelections: [],
           firstApproverName: ''
         });
       }
@@ -724,7 +727,8 @@ Page({
       selectedFlowId: option.id,
       selectedFlowName: option.name || '',
       selectedFlowAllowDesignateFirst: Boolean(option.allowDesignateFirst),
-      firstApproverAssignmentId: '',
+      firstApproverAssignmentIds: [],
+      firstApproverSelections: [],
       firstApproverName: ''
     });
   },
@@ -738,8 +742,7 @@ Page({
       if (res.status === 'success') {
         this.setData({
           firstApproverPickerVisible: true,
-          approverCandidates: decorateApproverCandidates(res.candidates),
-          firstApproverKeyword: ''
+          approverCandidates: decorateApproverCandidates(res.candidates)
         });
       } else showShortToast(res.message || localeCopy.copy_e58fa637eb);
     } catch (e) { showShortToast(getErrorText(e, localeCopy.copy_e58fa637eb)); }
@@ -749,17 +752,13 @@ Page({
     this.setData({ firstApproverPickerVisible: false });
   },
 
-  onFirstApproverKeywordInput(e) {
-    this.setData({ firstApproverKeyword: e.detail.value });
-  },
-
-  pickFirstApprover(e) {
-    const assignmentId = e.currentTarget.dataset.assignmentId;
-    const name = e.currentTarget.dataset.name;
-    if (!assignmentId) return;
+  confirmFirstApprovers(e) {
+    const detail = e.detail || {};
+    const items = Array.isArray(detail.items) ? detail.items : [];
     this.setData({
-      firstApproverAssignmentId: assignmentId,
-      firstApproverName: name || '',
+      firstApproverAssignmentIds: Array.isArray(detail.keys) ? detail.keys : [],
+      firstApproverSelections: items,
+      firstApproverName: personnelPickerModel.selectionSummary(items, personnelPickerCopy.selectedCount(items.length)),
       firstApproverPickerVisible: false
     });
   },
@@ -1713,7 +1712,7 @@ Page({
         data: {
           venueId: vid, title: title, description: desc, timeStart: ts, timeEnd: te,
           flowId: this.data.selectedFlowId || '',
-          firstApproverAssignmentId: this.data.firstApproverAssignmentId || ''
+          firstApproverAssignmentIds: this.data.firstApproverAssignmentIds || []
         }
       });
       if(res.status==='success'){
@@ -1954,7 +1953,7 @@ Page({
     this.setData({
       approvalVisible: true, approvalTarget: item, approvalAction: 'approve', approvalComment: '',
       canDesignateNext: Boolean(canDesignateNext),
-      nextApproverAssignmentId: '', nextApproverName: ''
+      nextApproverAssignmentIds: [], nextApproverSelections: [], nextApproverName: ''
     });
   },
 
@@ -1985,8 +1984,7 @@ Page({
       if (res.status === 'success') {
         this.setData({
           nextApproverPickerVisible: true,
-          nextApproverCandidates: decorateApproverCandidates(res.candidates),
-          nextApproverKeyword: ''
+          nextApproverCandidates: decorateApproverCandidates(res.candidates)
         });
       } else showShortToast(res.message || localeCopy.copy_e58fa637eb);
     } catch (e) { showShortToast(getErrorText(e, localeCopy.copy_e58fa637eb)); }
@@ -1996,17 +1994,13 @@ Page({
     this.setData({ nextApproverPickerVisible: false });
   },
 
-  onNextApproverKeywordInput(e) {
-    this.setData({ nextApproverKeyword: e.detail.value });
-  },
-
-  pickNextApprover(e) {
-    const assignmentId = e.currentTarget.dataset.assignmentId;
-    const name = e.currentTarget.dataset.name;
-    if (!assignmentId) return;
+  confirmNextApprovers(e) {
+    const detail = e.detail || {};
+    const items = Array.isArray(detail.items) ? detail.items : [];
     this.setData({
-      nextApproverAssignmentId: assignmentId,
-      nextApproverName: name || '',
+      nextApproverAssignmentIds: Array.isArray(detail.keys) ? detail.keys : [],
+      nextApproverSelections: items,
+      nextApproverName: personnelPickerModel.selectionSummary(items, personnelPickerCopy.selectedCount(items.length)),
       nextApproverPickerVisible: false
     });
   },
@@ -2024,7 +2018,7 @@ Page({
     this.setData({ approvalSubmitting: true });
     try {
       let data = { id: target.id, comment: comment, flowId: target.currentFlowId };
-      if (action === 'approve' && this.data.nextApproverAssignmentId) data.nextApproverAssignmentId = this.data.nextApproverAssignmentId;
+      if (action === 'approve') data.nextApproverAssignmentIds = this.data.nextApproverAssignmentIds || [];
       let res = await callFunction({ name: endpoint, data: data });
       if (res.status === 'success') {
         showShortToast(res.message || (localeCopy.copy_f658e7b4d0 + actionLabel));

@@ -1324,6 +1324,58 @@ const wxmlFiles = walk(MINI_ROOT, '.wxml');
 const controls = wxmlFiles.flatMap(scanWxml);
 const controlSurfaceIssues = wxmlFiles.flatMap(scanControlSurfaceContracts);
 const selectionCardIssues = wxmlFiles.flatMap(scanSelectionCardContracts);
+const personnelPickerBase = path.join(MINI_ROOT, 'components', 'personnel-picker', 'personnel-picker');
+const personnelPickerMarkup = fs.readFileSync(`${personnelPickerBase}.wxml`, 'utf8');
+const personnelPickerStyle = fs.readFileSync(`${personnelPickerBase}.wxss`, 'utf8');
+const personnelPickerPages = [
+  'subpackages/audit/pages/submissionDetail/submissionDetail',
+  'subpackages/scoring/pages/admin/admin',
+  'subpackages/workspace/pages/home/home',
+  'subpackages/venue/pages/venueBooking/venueBooking',
+  'subpackages/venue/pages/pendingVenueApprovals/pendingVenueApprovals'
+];
+if (!/<viewport-portal\b/.test(personnelPickerMarkup) ||
+    !/class="ui-overlay-blocker"\s+catchtouchmove="noop"/.test(personnelPickerMarkup) ||
+    !/class="[^"]*ui-dialog-body[^"]*"/.test(personnelPickerMarkup) ||
+    !/class="[^"]*ui-dialog-footer[^"]*"/.test(personnelPickerMarkup) ||
+    !/class="select-chip[^\"]*selection-card-toggle/.test(personnelPickerMarkup) ||
+    !/@media\s*\(min-width:\s*520px\)\s*and\s*\(max-width:\s*899px\)/.test(personnelPickerStyle) ||
+    !/@media\s*\(min-width:\s*900px\)\s*and\s*\(orientation:\s*landscape\)/.test(personnelPickerStyle)) {
+  selectionCardIssues.push({
+    file: 'miniprogram/components/personnel-picker/',
+    message: '共享人员选择器缺少 portal、触摸阻断、三段式弹窗、左上选择控件或三设备响应式契约'
+  });
+}
+for (const pageBase of personnelPickerPages) {
+  const markup = fs.readFileSync(path.join(MINI_ROOT, `${pageBase}.wxml`), 'utf8');
+  const config = fs.readFileSync(path.join(MINI_ROOT, `${pageBase}.json`), 'utf8');
+  if (!/<personnel-picker\b/.test(markup) || !/"personnel-picker"\s*:\s*"\/components\/personnel-picker\/personnel-picker"/.test(config)) {
+    selectionCardIssues.push({
+      file: `miniprogram/${pageBase}`,
+      message: '人员选择页面必须注册并使用全局 personnel-picker，禁止恢复页面私有弹窗'
+    });
+  }
+}
+for (const file of wxmlFiles) {
+  if (relative(file) === 'miniprogram/components/personnel-picker/personnel-picker.wxml') continue;
+  const source = fs.readFileSync(file, 'utf8');
+  if (/\bperson-picker-item\b/.test(source)) {
+    selectionCardIssues.push({
+      file: relative(file),
+      message: '已退役的 person-picker-item 禁止继续使用；人员选择必须接入 personnel-picker'
+    });
+  }
+}
+for (const file of walk(MINI_ROOT, '.wxss')) {
+  if (relative(file) === 'miniprogram/components/personnel-picker/personnel-picker.wxss') continue;
+  const source = fs.readFileSync(file, 'utf8');
+  if (/\.person-picker-(?:card|list|item|name|id|main|assignment)\b/.test(source)) {
+    selectionCardIssues.push({
+      file: relative(file),
+      message: '已退役的页面私有人员选择器样式禁止保留；人员选择样式只能由 personnel-picker 维护'
+    });
+  }
+}
 const visibleInternalIds = wxmlFiles.flatMap(scanVisibleInternalIds);
 const staticInlineStyles = wxmlFiles.flatMap(scanStaticInlineStyles);
 const layoutContracts = wxmlFiles.map(scanLayoutContracts);

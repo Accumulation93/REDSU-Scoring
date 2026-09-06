@@ -59,6 +59,31 @@ function assertDesignationAllowed(flow, phase, designation) {
   return true;
 }
 
+function normalizeDesignationList(value) {
+  const list = Array.isArray(value) ? value : (value && typeof value === 'object' ? [value] : []);
+  const seen = new Set();
+  return list.filter(function(designation) {
+    const assignmentId = safeString(designation && designation.assignmentId);
+    if (!assignmentId || seen.has(assignmentId)) return false;
+    seen.add(assignmentId);
+    return true;
+  });
+}
+
+function normalizeStateDesignationLists(flows) {
+  const normalizedFlows = flows && typeof flows === 'object' ? flows : {};
+  for (const flowId of Object.keys(normalizedFlows)) {
+    const flowState = normalizedFlows[flowId];
+    if (!flowState || !flowState.designated || typeof flowState.designated !== 'object') continue;
+    for (const stepIndex of Object.keys(flowState.designated)) {
+      const list = normalizeDesignationList(flowState.designated[stepIndex]);
+      if (list.length) flowState.designated[stepIndex] = list;
+      else delete flowState.designated[stepIndex];
+    }
+  }
+  return normalizedFlows;
+}
+
 function parseSnapshots(raw) {
   return parseSnapshotsResult(raw).snapshots;
 }
@@ -334,9 +359,9 @@ function validateFlowState(state, flowsMap, snapshots) {
     }
     for (const designatedIndex of Object.keys(current.designated)) {
       const numericIndex = Number(designatedIndex);
-      const designation = current.designated[designatedIndex];
+      const designations = normalizeDesignationList(current.designated[designatedIndex]);
       if (!Number.isInteger(numericIndex) || numericIndex !== stepIndex
-        || !safeString(designation && designation.assignmentId)) return false;
+        || !designations.length) return false;
     }
   }
   return true;
@@ -366,7 +391,7 @@ function parseFlowState(booking) {
         return {
           selectedFlowId: safeString(parsed.selectedFlowId),
           candidateMissing: Boolean(parsed.candidateMissing),
-          flows: parsed.flows
+          flows: normalizeStateDesignationLists(parsed.flows)
         };
       }
     } catch (_) {}
@@ -417,7 +442,7 @@ function selectMatchedFlow(eligibility, requestedFlowId) {
   return matched.find(function(item) { return item.flowId === selectedFlowId; }) || matched[0] || null;
 }
 
-function buildInitialFlowState(flows, selectedFlowId, firstDesignation) {
+function buildInitialFlowState(flows, selectedFlowId, firstDesignations) {
   const list = Array.isArray(flows) ? flows : [];
   const selected = list.find(function(flow) {
     return String(flow.id) === String(selectedFlowId);
@@ -438,14 +463,17 @@ function buildInitialFlowState(flows, selectedFlowId, firstDesignation) {
       designated: {}
     };
   }
-  if (firstDesignation && firstDesignation.assignmentId) {
-    assertDesignationAllowed(designationFlow, 'first', firstDesignation);
-    state.flows[String(designationFlow.id)].designated['0'] = {
-      personId: safeString(firstDesignation.personId),
-      legacyHrId: safeString(firstDesignation.legacyHrId || firstDesignation.hrId),
-      assignmentId: safeString(firstDesignation.assignmentId),
-      assignmentSnapshot: firstDesignation.assignmentSnapshot || null
-    };
+  const normalizedFirstDesignations = normalizeDesignationList(firstDesignations);
+  if (normalizedFirstDesignations.length) {
+    assertDesignationAllowed(designationFlow, 'first', normalizedFirstDesignations[0]);
+    state.flows[String(designationFlow.id)].designated['0'] = normalizedFirstDesignations.map(function(firstDesignation) {
+      return {
+        personId: safeString(firstDesignation.personId),
+        legacyHrId: safeString(firstDesignation.legacyHrId || firstDesignation.hrId),
+        assignmentId: safeString(firstDesignation.assignmentId),
+        assignmentSnapshot: firstDesignation.assignmentSnapshot || null
+      };
+    });
   }
   return state;
 }
@@ -473,12 +501,12 @@ async function recomputeActiveFlows(state, flowsMap) {
         valid = false;
         break;
       }
-      const designated = st.designated && st.designated[String(ap.stepIndex)];
-      if (designated && !actorMatchesDesignation({
+      const designated = normalizeDesignationList(st.designated && st.designated[String(ap.stepIndex)]);
+      if (designated.length && !designated.some(function(designation) { return actorMatchesDesignation({
         id: ap.approverHrId,
         personId: ap.approverPersonId,
         assignmentId: ap.approverAssignmentId
-      }, designated)) {
+      }, designation); })) {
         valid = false;
         break;
       }
@@ -510,9 +538,11 @@ async function validateDesignation(orgId, assignmentId, step, applicantHrInfo, c
 async function actorMatchesStep(actor, flow, st, applicantHrInfo, orgId) {
   const step = flow.steps && flow.steps[Number(st.stepIndex)];
   if (!step) return false;
-  const designated = st.designated && st.designated[String(st.stepIndex)];
-  if (designated) {
-    if (!actor || actor.type !== 'user' || !actorMatchesDesignation(actor, designated)) return false;
+  const designated = normalizeDesignationList(st.designated && st.designated[String(st.stepIndex)]);
+  if (designated.length) {
+    if (!actor || actor.type !== 'user' || !designated.some(function(designation) {
+      return actorMatchesDesignation(actor, designation);
+    })) return false;
     if (!actor.assignment) return false;
     return matchesAnyRule(step.rules || [], toRuleProfile(actor.assignment), applicantHrInfo || null);
   }
@@ -529,16 +559,20 @@ async function actorMatchesStep(actor, flow, st, applicantHrInfo, orgId) {
 async function countStepCandidates(flow, st, applicantHrInfo, orgId, conn) {
   const step = flow.steps && flow.steps[Number(st.stepIndex)];
   if (!step) return 0;
-  const designated = st.designated && st.designated[String(st.stepIndex)];
-  if (designated) {
-    const assignment = await loadAssignmentById(designated.assignmentId, orgId, true, conn);
-    if (!assignment) return 0;
-    if (!actorMatchesDesignation({
-      id: assignment.legacyHrId,
-      personId: assignment.personId,
-      assignmentId: assignment.assignmentId
-    }, designated)) return 0;
-    return matchesAnyRule(step.rules || [], toRuleProfile(assignment), applicantHrInfo || null) ? 1 : 0;
+  const designated = normalizeDesignationList(st.designated && st.designated[String(st.stepIndex)]);
+  if (designated.length) {
+    let total = 0;
+    for (const designation of designated) {
+      const assignment = await loadAssignmentById(designation.assignmentId, orgId, true, conn);
+      if (!assignment) continue;
+      if (!actorMatchesDesignation({
+        id: assignment.legacyHrId,
+        personId: assignment.personId,
+        assignmentId: assignment.assignmentId
+      }, designation)) continue;
+      if (matchesAnyRule(step.rules || [], toRuleProfile(assignment), applicantHrInfo || null)) total += 1;
+    }
+    return total;
   }
   const mode = safeString(step.approval_mode) || ((step.rules || []).length ? 'hr_rule' : 'admin_any');
   if (mode === 'admin_any') {
@@ -723,7 +757,7 @@ async function evaluateActorEligibility(booking, actor, orgId) {
   };
 }
 
-async function prepareApproval(booking, actor, comment, nextDesignation, orgId, requestedFlowId) {
+async function prepareApproval(booking, actor, comment, nextDesignations, orgId, requestedFlowId, conn) {
   const eligibility = await evaluateActorEligibility(booking, actor, orgId);
   if (!eligibility.ok) return eligibility;
 
@@ -751,27 +785,31 @@ async function prepareApproval(booking, actor, comment, nextDesignation, orgId, 
   }
   const singleFlow = isSingleFlowState(state);
   let completedFlowId = null;
-  let validatedNextDesignation = null;
+  let validatedNextDesignations = [];
   let processedStepCount = 0;
   let autoApprovedStepCount = 0;
 
-  if (safeString(nextDesignation && nextDesignation.assignmentId)) {
+  const normalizedNextDesignations = normalizeDesignationList(nextDesignations);
+  if (normalizedNextDesignations.length) {
     if (!singleFlow || selected.length !== 1) {
       throw new Error(REASONS.DESIGNATE_NEXT_NOT_ALLOWED);
     }
     const matchedFlow = selectedMatchedFlow.flow;
     const matchedState = selectedMatchedFlow.st;
-    assertDesignationAllowed(matchedFlow, 'next', nextDesignation);
+    assertDesignationAllowed(matchedFlow, 'next', normalizedNextDesignations[0]);
     const nextStep = matchedFlow.steps[Number(matchedState.stepIndex) + 1];
     if (!nextStep) {
       throw new Error(REASONS.DESIGNATE_INVALID);
     }
-    validatedNextDesignation = await validateDesignation(
-      orgId,
-      nextDesignation.assignmentId,
-      nextStep,
-      applicantHrInfo
-    );
+    for (const nextDesignation of normalizedNextDesignations) {
+      validatedNextDesignations.push(await validateDesignation(
+        orgId,
+        nextDesignation.assignmentId,
+        nextStep,
+        applicantHrInfo,
+        conn
+      ));
+    }
   }
 
   function recordApproval(item, step, automatic) {
@@ -820,8 +858,8 @@ async function prepareApproval(booking, actor, comment, nextDesignation, orgId, 
       if (!completedFlowId) completedFlowId = item.flowId;
       continue;
     }
-    if (validatedNextDesignation) {
-      st.designated[String(st.stepIndex)] = validatedNextDesignation;
+    if (validatedNextDesignations.length) {
+      st.designated[String(st.stepIndex)] = validatedNextDesignations;
     }
 
     // 同一次人工审批后，连续步骤仍由同一当前岗位审批时自动推进。
@@ -830,7 +868,7 @@ async function prepareApproval(booking, actor, comment, nextDesignation, orgId, 
     while (st.active && !st.completed && st.stepIndex < flow.steps.length) {
       const automaticStep = flow.steps[Number(st.stepIndex)];
       const nextIsDesignated = Boolean(st.designated && st.designated[String(st.stepIndex)]);
-      if (validatedNextDesignation
+      if (validatedNextDesignations.length
         || !await actorMatchesStep(effectiveActor, flow, st, applicantHrInfo, orgId)) break;
       recordApproval(item, automaticStep, true);
       previousStep = automaticStep;
@@ -955,6 +993,7 @@ module.exports = {
   isSingleFlowState,
   selectMatchedFlow,
   assertDesignationAllowed,
+  normalizeDesignationList,
   validateDesignation,
   evaluateActorEligibility,
   evaluateWorkContextEligibility,

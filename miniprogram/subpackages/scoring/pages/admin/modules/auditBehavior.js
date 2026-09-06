@@ -1896,6 +1896,10 @@ module.exports = Behavior({
         auditPersonnelPickerTarget: target,
         auditPersonnelPickerLabel: label,
         auditPersonnelPickerSelectedId: String(selectedId || ''),
+        auditPersonnelPickerValue: selectedId
+          ? (this._hrList || []).filter(function(item) { return String(item.id) === String(selectedId); })
+          : [],
+        auditPersonnelPickerOptions: this._hrList || [],
         auditPersonnelSearchKeyword: '',
         auditPersonnelFilterDeptIndex: 0,
         auditPersonnelFilterIdentIndex: 0,
@@ -1909,6 +1913,13 @@ module.exports = Behavior({
 
     closeAuditPersonnelPicker() {
       this.setData({ auditPersonnelPickerVisible: false });
+    },
+
+    confirmSharedAuditPersonnelPicker(e) {
+      const keys = e.detail && Array.isArray(e.detail.keys) ? e.detail.keys : [];
+      const items = e.detail && Array.isArray(e.detail.items) ? e.detail.items : [];
+      const selected = items[0] || {};
+      this.setData({ auditPersonnelPickerSelectedId: selected.hrId || selected.id || keys[0] || '' }, () => this.confirmAuditPersonnelPicker());
     },
 
     onAuditPersonnelSearch(e) {

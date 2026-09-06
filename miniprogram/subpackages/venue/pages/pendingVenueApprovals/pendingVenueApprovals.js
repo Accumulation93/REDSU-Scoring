@@ -2,6 +2,8 @@ const localeCopy = require('../../../../locales/zh-CN/generated/subpackages/venu
 const { callFunction, getErrorText, showShortToast } = require('../../../../utils/api');
 const { buildFlowTimeline } = require('../../utils/flowTimeline');
 const eventBus = require('../../../../utils/eventBus');
+const personnelPickerCopy = require('../../../../locales/zh-CN/personnelPicker');
+const personnelPickerModel = require('../../../../components/personnel-picker/personnelPickerModel');
 const orgSession = require('../../../../utils/orgSession');
 const { navigateToTrustedRoute } = require('../../../../utils/trustedNavigation');
 const { formatSystemClock } = require('../../../../utils/dateTime');
@@ -58,8 +60,8 @@ Page({
     canDesignateNext: false,
     nextApproverPickerVisible: false,
     nextApproverCandidates: [],
-    nextApproverKeyword: '',
-    nextApproverAssignmentId: '',
+    nextApproverAssignmentIds: [],
+    nextApproverSelections: [],
     nextApproverName: '',
 
     // ── Expandable flow ──
@@ -262,7 +264,8 @@ Page({
       approvalAction: 'approve',
       approvalComment: '',
       canDesignateNext: Boolean(canDesignateNext),
-      nextApproverAssignmentId: '',
+      nextApproverAssignmentIds: [],
+      nextApproverSelections: [],
       nextApproverName: ''
     });
   },
@@ -303,8 +306,7 @@ Page({
       if (res.status === 'success') {
         this.setData({
           nextApproverPickerVisible: true,
-          nextApproverCandidates: decorateApproverCandidates(res.candidates),
-          nextApproverKeyword: ''
+          nextApproverCandidates: decorateApproverCandidates(res.candidates)
         });
       } else showShortToast(res.message || localeCopy.copy_e58fa637eb);
     } catch (e) { showShortToast(getErrorText(e, localeCopy.copy_e58fa637eb)); }
@@ -314,17 +316,13 @@ Page({
     this.setData({ nextApproverPickerVisible: false });
   },
 
-  onNextApproverKeywordInput(e) {
-    this.setData({ nextApproverKeyword: e.detail.value });
-  },
-
-  pickNextApprover(e) {
-    const assignmentId = e.currentTarget.dataset.assignmentId;
-    const name = e.currentTarget.dataset.name;
-    if (!assignmentId) return;
+  confirmNextApprovers(e) {
+    const detail = e.detail || {};
+    const items = Array.isArray(detail.items) ? detail.items : [];
     this.setData({
-      nextApproverAssignmentId: assignmentId,
-      nextApproverName: name || '',
+      nextApproverAssignmentIds: Array.isArray(detail.keys) ? detail.keys : [],
+      nextApproverSelections: items,
+      nextApproverName: personnelPickerModel.selectionSummary(items, personnelPickerCopy.selectedCount(items.length)),
       nextApproverPickerVisible: false
     });
   },
@@ -348,7 +346,7 @@ Page({
           id: target.id,
           comment: comment,
           flowId: target.currentFlowId,
-          nextApproverAssignmentId: action === 'approve' ? this.data.nextApproverAssignmentId : ''
+          nextApproverAssignmentIds: action === 'approve' ? (this.data.nextApproverAssignmentIds || []) : []
         }
       });
       if (res.status === 'success') {

@@ -1,6 +1,7 @@
 {
   "navigationBarTitleText": "",
   "usingComponents": {
-    "ui-icon": "/components/ui-icon/ui-icon"
+    "ui-icon": "/components/ui-icon/ui-icon",
+    "personnel-picker": "/components/personnel-picker/personnel-picker"
   }
 }

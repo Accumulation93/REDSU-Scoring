@@ -1566,6 +1566,14 @@ Page({
 
   closeUserDesignation() { this.setData({ showUserDesigPopup: false }); },
 
+  confirmSharedUserDesignation(e) {
+    const detail = e.detail || {};
+    this.setData({
+      userDesigSelectedIds: Array.isArray(detail.keys) ? detail.keys : [],
+      userDesigSelectedList: Array.isArray(detail.items) ? detail.items : []
+    }, () => this.saveUserDesignations());
+  },
+
   onUserDesigToggle(e) {
     const assignmentId = e.currentTarget.dataset.assignmentId;
     if (!assignmentId) return;

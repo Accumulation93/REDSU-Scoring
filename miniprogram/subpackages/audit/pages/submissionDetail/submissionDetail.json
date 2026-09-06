@@ -2,6 +2,7 @@
   "navigationBarTitleText": "",
   "usingComponents": {
     "signature-pad": "../../components/signaturePad/signaturePad",
+    "personnel-picker": "/components/personnel-picker/personnel-picker",
     "ui-icon": "/components/ui-icon/ui-icon"
   }
 }

@@ -57,6 +57,7 @@
 - 服务端 SQL 必须参数化并放在 Model 层；所有组织数据必须检查 `org_id` 隔离；保持 API 响应契约兼容。
 - 页面和控件遵循项目蓝色轻奢玻璃体系；状态必须清晰，避免纯色矩形条、过深蓝色、过强光晕、父容器连带动画和布局属性动画。
 - UI 交互只让真实点击目标产生反馈；容器壳、弹窗壳和嵌套父级不得因子控件点击而位移或缩放。
+- 新增或修改人员选择弹窗必须注册并使用 `miniprogram/components/personnel-picker/`；岗位授权使用 `assignmentId` 一岗一卡，自然人授权使用人员主键一人一卡。禁止复制页面私有候选列表、整卡点击即关闭、仅提交人员 ID 或没有“选择/取消”和确认清空路径的实现。
 - 小程序页面必须直接使用 `Page({ ... })` 注册。开发夹具、预览数据和自动化代码不得通过装饰器或公共 `require` 注入全部生产页面。
 - 原生小程序不提供隐式 `@swc/runtime` / `@babel/runtime`。引入新语法、编译插件或 npm 构建链前，必须证明 helper 已被打包，并通过真实微信开发者工具编译。
 - 当前原生构建固定使用 `nodeModules: false`、`es6: false`、`enhance: false`、`swc: false`、`disableSWC: true`，并在 `project.private.config.json` 保持 `compileHotReLoad: false`。私有配置会覆盖公共配置；任一开关变化都必须清缓存、冷启动并逐页验证。

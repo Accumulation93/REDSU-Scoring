@@ -11,6 +11,7 @@ const assignments = {
   'a-head-member': { assignmentId: 'a-head-member', legacyHrId: 'hr-head', personId: 'p-head', organizationId: ORG, departmentId: 'D1', workGroupId: '', identityCategoryId: 'member' },
   'a-head2': { assignmentId: 'a-head2', legacyHrId: 'hr-head2', personId: 'p-head2', organizationId: ORG, departmentId: 'D1', workGroupId: '', identityCategoryId: 'dept_head' },
   'a-chair': { assignmentId: 'a-chair', legacyHrId: 'hr-chair', personId: 'p-chair', organizationId: ORG, departmentId: 'D1', workGroupId: '', identityCategoryId: 'chairman' },
+  'a-chair2': { assignmentId: 'a-chair2', legacyHrId: 'hr-chair2', personId: 'p-chair2', organizationId: ORG, departmentId: 'D2', workGroupId: '', identityCategoryId: 'chairman' },
   'a-other': { assignmentId: 'a-other', legacyHrId: 'hr-other', personId: 'p-other', organizationId: ORG, departmentId: 'D2', workGroupId: '', identityCategoryId: 'member' }
 };
 
@@ -471,11 +472,11 @@ async function run() {
   const firstOnlyState = engine.buildInitialFlowState([flowDept], 'flow-dept', {
     hrId: 'hr-head', legacyHrId: 'hr-head', personId: 'p-head', assignmentId: 'a-head'
   });
-  assert.strictEqual(firstOnlyState.flows['flow-dept'].designated['0'].assignmentId, 'a-head');
+  assert.strictEqual(firstOnlyState.flows['flow-dept'].designated['0'][0].assignmentId, 'a-head');
   const fixedFirstOnlyState = engine.buildInitialFlowState([flowDept], null, {
     hrId: 'hr-head', legacyHrId: 'hr-head', personId: 'p-head', assignmentId: 'a-head'
   });
-  assert.strictEqual(fixedFirstOnlyState.flows['flow-dept'].designated['0'].assignmentId, 'a-head',
+  assert.strictEqual(fixedFirstOnlyState.flows['flow-dept'].designated['0'][0].assignmentId, 'a-head',
     '固定单流程无需用户选择流程，也必须支持已授权的第一步指定');
   const firstOnlyBooking = makeBooking(engine.buildInitialFlowState([flowDept], 'flow-dept', null));
   await assert.rejects(
@@ -503,7 +504,45 @@ async function run() {
     { assignmentId: 'a-chair' },
     ORG
   );
-  assert.strictEqual(nextOnlyApproval.state.flows['flow-dept'].designated['1'].assignmentId, 'a-chair');
+  assert.strictEqual(nextOnlyApproval.state.flows['flow-dept'].designated['1'][0].assignmentId, 'a-chair');
+
+  const multiNextApproval = await engine.prepareApproval(
+    makeBooking(engine.buildInitialFlowState([flowDept], 'flow-dept', null)),
+    userActor('hr-head'),
+    '同意',
+    [{ assignmentId: 'a-chair' }, { assignmentId: 'a-chair2' }],
+    ORG
+  );
+  assert.deepStrictEqual(
+    multiNextApproval.state.flows['flow-dept'].designated['1'].map(function(item) { return item.assignmentId; }),
+    ['a-chair', 'a-chair2'],
+    '下一步多人指定必须原子保存完整岗位候选集合'
+  );
+  const multiNextBooking = makeBooking(multiNextApproval.state);
+  multiNextBooking.approval_snapshots_json = JSON.stringify(multiNextApproval.snapshots);
+  assert.strictEqual(
+    (await engine.evaluateActorEligibility(multiNextBooking, userActor('hr-chair2', 'p-chair2', 'a-chair2'), ORG)).ok,
+    true,
+    '下一步指定集合中的任一岗位均可完成审批'
+  );
+
+  flowDept.allow_designate_first = 1;
+  const multiDesignationState = engine.buildInitialFlowState([flowDept], 'flow-dept', [
+    { hrId: 'hr-head', personId: 'p-head', assignmentId: 'a-head' },
+    { hrId: 'hr-head2', personId: 'p-head2', assignmentId: 'a-head2' },
+    { hrId: 'hr-head', personId: 'p-head', assignmentId: 'a-head' }
+  ]);
+  assert.deepStrictEqual(
+    multiDesignationState.flows['flow-dept'].designated['0'].map(function(item) { return item.assignmentId; }),
+    ['a-head', 'a-head2'],
+    '多人指定必须按岗位去重并保留任一人可审批的候选集合'
+  );
+  assert.strictEqual(
+    (await engine.evaluateActorEligibility(makeBooking(multiDesignationState), userActor('hr-head2'), ORG)).ok,
+    true,
+    '多人指定中的任一岗位都应获得审批资格'
+  );
+  flowDept.allow_designate_first = 0;
   assert.strictEqual(nextOnlyApproval.summary.flowSummary[0].allowDesignateFirst, false);
   assert.strictEqual(nextOnlyApproval.summary.flowSummary[0].allowDesignateNext, true);
 
@@ -541,14 +580,20 @@ async function run() {
     path.resolve(__dirname, '../../miniprogram/subpackages/venue/pages/pendingVenueApprovals/pendingVenueApprovals.js'),
     'utf8'
   );
-  assert.match(approvalRouteSource, /req\.body\.nextApproverAssignmentId/);
-  assert.match(pendingPageSource, /nextApproverAssignmentId:\s*action === 'approve'/);
-  assert.doesNotMatch(pendingPageSource, /nextApproverHrId/, '前端不得再提交仅人员级的下一审批人');
-
   const venueUserSource = fs.readFileSync(
     path.resolve(__dirname, '../src/modules/venue/routes/venueUser.js'),
     'utf8'
   );
+  assert.match(approvalRouteSource, /nextApproverAssignmentIds/);
+  assert.match(approvalRouteSource, /nextDesignations,[\s\S]{0,120}safeString\(req\.body\.flowId\),[\s\S]{0,40}conn/,
+    '下一步指定岗位必须使用审批事务连接完成原子校验');
+  assert.match(approvalRouteSource, /!nextDesignationRequest\.hasList\s*&&\s*req\.body\.nextApproverHrId/,
+    '下一步数组字段出现时必须优先处理，包括显式空数组');
+  assert.match(venueUserSource, /!firstDesignationRequest\.hasList\s*&&\s*requestedFirstApproverHrId/,
+    '第一步数组字段出现时必须优先处理，包括显式空数组');
+  assert.match(pendingPageSource, /nextApproverAssignmentIds:\s*action === 'approve'/);
+  assert.doesNotMatch(pendingPageSource, /nextApproverHrId/, '前端不得再提交仅人员级的下一审批人');
+
   assert.match(venueUserSource, /approvalFlowId, approvalFlowState, approvalFlowSnapshot, approvalTotalSteps/,
     '创建借用必须把流程定义快照写入记录');
   assert.match(venueUserSource, /assertDesignationAllowed\(singleSelected, 'first'/,
@@ -585,6 +630,10 @@ async function run() {
     '管理界面不得再合并两个指定开关');
   assert.doesNotMatch(venueManageSource, /allow_designate_first\) === 1 \|\| Number\([^\n]*allow_designate_next/,
     '加载和编辑必须保持两个字段独立');
+  assert.match(venueManageSource, /_openApprovalFlowEditor\(\{[\s\S]*?id: ''[\s\S]*?steps: \[\]/,
+    '新增审批流程必须打开无 ID、无步骤的本地草稿');
+  assert.doesNotMatch(venueManageSource, /saveVenueApprovalFlowMeta[\s\S]{0,200}flowId: ''/,
+    '新增审批流程不得预先持久化空流程');
   assert.match(venueBookingSource, /fixedSingleFlow = !res\.allowUserSelect && options\.length === 1/,
     '固定单流程必须自动识别第一步指定能力');
   assert.match(venueBookingTemplate, /wx:if="\{\{selectedFlowId && selectedFlowAllowDesignateFirst\}\}"/);
@@ -597,6 +646,15 @@ async function run() {
   );
   assert.doesNotMatch(venueAdminSource, /SELECT \* FROM venue_approval_flow_steps WHERE flow_id/,
     '管理端列表与历史不得回查当前流程定义');
+
+  const venueApprovalAdminSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/modules/venue/routes/venueApprovalAdmin.js'),
+    'utf8'
+  );
+  assert.doesNotMatch(venueApprovalAdminSource, /if \(!flow\) flow = await flowModel\.getByVenueId/,
+    '整条流程保存不得把空或错误 flowId 回退到场地第一条流程');
+  assert.match(venueApprovalAdminSource, /if \(!flow\) \{[\s\S]*?status: 'not_found'/,
+    '显式 flowId 不存在时必须拒绝，不能静默新建');
 
   const migrationSource = fs.readFileSync(
     path.resolve(__dirname, '../db/deploy/20260826110000_venue_approval_flow_snapshot.sql'),

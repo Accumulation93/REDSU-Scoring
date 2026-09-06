@@ -36,6 +36,18 @@ const { getActivitySlots: buildActivitySlots } = require('../services/venueActiv
 const { evaluateBookingRuleWorkContexts } = require('../services/venueBookingRuleAuthorization');
 const { matchesAnyRule } = require('../utils/venueApprovalRuleMatcher');
 
+function readDesignationAssignmentIds(body, listKey, legacyKey) {
+  const source = body || {};
+  const hasList = Object.prototype.hasOwnProperty.call(source, listKey);
+  if (hasList && !Array.isArray(source[listKey])) return { valid: false, ids: [] };
+  const raw = hasList ? source[listKey] : [source[legacyKey]];
+  return {
+    valid: true,
+    hasList,
+    ids: [...new Set(raw.map(function(value) { return safeString(value); }).filter(Boolean))]
+  };
+}
+
 function applicantMatchesAllFlowSteps(flow, applicantHrInfo) {
   if (!flow || !Array.isArray(flow.steps) || !flow.steps.length) return false;
   return flow.steps.every(function(step) {
@@ -799,14 +811,23 @@ router.post('/createVenueBooking', async (req, res) => {
     //   3. admin rule or no rules → admin approval (default)
     const bookingRules = await venueBookingRuleModel.getByVenueId(venueId, conn, true);
     const hasDirect = bookingRules.some(r => r.rule_type === 'direct');
-    const requestedFirstApproverAssignmentId = safeString(req.body.firstApproverAssignmentId);
+    const firstDesignationRequest = readDesignationAssignmentIds(
+      req.body,
+      'firstApproverAssignmentIds',
+      'firstApproverAssignmentId'
+    );
+    if (!firstDesignationRequest.valid) {
+      await conn.rollback();
+      return res.json({ status: 'invalid_params', message: venueApprovalMultiFlow.REASONS.DESIGNATE_INVALID });
+    }
+    const requestedFirstApproverAssignmentIds = firstDesignationRequest.ids;
     const requestedFirstApproverHrId = safeString(req.body.firstApproverHrId);
 
-    if (requestedFirstApproverHrId && !requestedFirstApproverAssignmentId) {
+    if (!firstDesignationRequest.hasList && requestedFirstApproverHrId && !requestedFirstApproverAssignmentIds.length) {
       await conn.rollback();
       return res.json({ status: 'invalid_params', message: localeCopy.copy_legacyApproverSelection });
     }
-    if (hasDirect && requestedFirstApproverAssignmentId) {
+    if (hasDirect && requestedFirstApproverAssignmentIds.length) {
       await conn.rollback();
       return res.json({
         status: 'invalid_params',
@@ -827,7 +848,7 @@ router.post('/createVenueBooking', async (req, res) => {
     } else {
       // 多审批流：允许用户选择时必选；否则全部流程并行
       const approvalFlows = await venueApprovalFlowModel.listUsableByVenueId(venueId, orgId, conn);
-      if (requestedFirstApproverAssignmentId && !approvalFlows.length) {
+      if (requestedFirstApproverAssignmentIds.length && !approvalFlows.length) {
         await conn.rollback();
         return res.json({
           status: 'invalid_params',
@@ -865,20 +886,22 @@ router.post('/createVenueBooking', async (req, res) => {
           const singleSelected = selectedFlowId
             ? approvalFlows.find(function(flow) { return String(flow.id) === selectedFlowId; })
             : (activeFlows.length === 1 ? activeFlows[0] : null);
-          let firstDesignation = null;
-          if (requestedFirstApproverAssignmentId) {
+          const firstDesignations = [];
+          if (requestedFirstApproverAssignmentIds.length) {
             try {
               venueApprovalMultiFlow.assertDesignationAllowed(singleSelected, 'first', {
-                assignmentId: requestedFirstApproverAssignmentId
+                assignmentId: requestedFirstApproverAssignmentIds[0]
               });
               const firstStep = (stepsByFlow[singleSelected.id] || [])[0];
-              firstDesignation = await venueApprovalMultiFlow.validateDesignation(
-                orgId,
-                requestedFirstApproverAssignmentId,
-                firstStep,
-                applicantHrInfo,
-                conn
-              );
+              for (const assignmentId of requestedFirstApproverAssignmentIds) {
+                firstDesignations.push(await venueApprovalMultiFlow.validateDesignation(
+                  orgId,
+                  assignmentId,
+                  firstStep,
+                  applicantHrInfo,
+                  conn
+                ));
+              }
             } catch (error) {
               await conn.rollback();
               return res.json({
@@ -888,7 +911,7 @@ router.post('/createVenueBooking', async (req, res) => {
             }
           }
           const effectiveFlowId = selectedFlowId || (activeFlows.length === 1 ? safeString(activeFlows[0].id) : null);
-          approvalFlowState = venueApprovalMultiFlow.buildInitialFlowState(activeFlows, effectiveFlowId, firstDesignation);
+          approvalFlowState = venueApprovalMultiFlow.buildInitialFlowState(activeFlows, effectiveFlowId, firstDesignations);
           approvalFlowSnapshot = venueApprovalMultiFlow.buildFlowDefinitionSnapshot(
             activeFlows,
             stepsByFlow,
@@ -907,7 +930,7 @@ router.post('/createVenueBooking', async (req, res) => {
             ? (stepsByFlow[effectiveFlowId] || []).length
             : Math.max.apply(null, activeFlows.map(function(flow) { return (stepsByFlow[flow.id] || []).length; }));
 
-          if (effectiveFlowId && !firstDesignation) {
+          if (effectiveFlowId && !firstDesignations.length) {
             const selectedFlow = activeFlows.find(function(flow) {
               return safeString(flow.id) === safeString(effectiveFlowId);
             });
@@ -948,7 +971,7 @@ router.post('/createVenueBooking', async (req, res) => {
               return res.json({ status: 'invalid_state', message: localeCopy.noFirstStepCandidate });
             }
           }
-        } else if (requestedFirstApproverAssignmentId) {
+        } else if (requestedFirstApproverAssignmentIds.length) {
           await conn.rollback();
           return res.json({
             status: 'invalid_params',

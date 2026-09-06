@@ -1,0 +1,205 @@
+.personnel-picker-overlay {
+  --ui-dialog-width: min(704rpx, calc(100vw - 32rpx));
+  --ui-dialog-max-height: calc(100vh - 64rpx);
+}
+
+.personnel-picker-shell {
+  overflow: hidden;
+}
+
+.personnel-picker-header,
+.personnel-picker-footer {
+  flex: none;
+}
+
+.personnel-picker-title {
+  min-width: 0;
+  color: #0f172a;
+  font-size: var(--ui-dialog-title-size, 30rpx);
+  font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.personnel-picker-close {
+  flex: none;
+  color: #2563eb;
+}
+
+.personnel-picker-body {
+  max-height: calc(100vh - 250rpx);
+  touch-action: pan-y;
+}
+
+.personnel-picker-context {
+  color: #334155;
+  font-size: var(--ui-type-body);
+  line-height: 1.6;
+}
+
+.personnel-picker-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-inline-gap, 12rpx);
+  margin-bottom: var(--ui-section-gap, 16rpx);
+  color: #0f172a;
+  font-size: var(--ui-type-section);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.personnel-picker-list {
+  width: 100%;
+  max-height: 360rpx;
+  touch-action: pan-y;
+}
+
+.personnel-picker-selected-list {
+  max-height: 250rpx;
+}
+
+.personnel-picker-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ui-inline-gap, 12rpx);
+  margin-bottom: var(--ui-list-gap, 12rpx);
+  padding: var(--ui-card-padding-y, 18rpx) var(--ui-card-padding-x, 18rpx);
+  border-radius: var(--ui-card-radius, 30rpx);
+  background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(246,249,255,0.88));
+  border: 1rpx solid rgba(219,229,241,0.96);
+  box-shadow: 0 10rpx 22rpx rgba(15,23,42,0.045), inset 0 1rpx 0 rgba(255,255,255,0.86);
+  backdrop-filter: blur(24rpx);
+}
+
+.personnel-picker-card > .selection-card-toggle {
+  flex: none;
+  align-self: flex-start;
+  min-width: 84rpx;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.personnel-picker-avatar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: var(--ui-type-body);
+  font-weight: 800;
+  background: linear-gradient(135deg, #2563eb, #60a5fa);
+}
+
+.personnel-picker-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.personnel-picker-name {
+  color: #0f172a;
+  font-size: var(--ui-type-body);
+  font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.personnel-picker-student {
+  margin-top: 4rpx;
+  color: #64748b;
+  font-size: var(--ui-type-meta);
+  line-height: 1.55;
+}
+
+.personnel-picker-assignment-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8rpx;
+  margin-top: 8rpx;
+}
+
+.personnel-picker-assignment {
+  display: inline-flex;
+  max-width: 100%;
+  margin-top: 8rpx;
+  padding: 6rpx 12rpx;
+  box-sizing: border-box;
+  border-radius: var(--ui-compact-radius, 18rpx);
+  color: #2563eb;
+  font-size: var(--ui-type-meta);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  background: linear-gradient(135deg, rgba(219,234,254,0.84), rgba(239,246,255,0.72));
+  border: 1rpx solid rgba(147,197,253,0.64);
+}
+
+.personnel-picker-assignment-list .personnel-picker-assignment {
+  margin-top: 0;
+}
+
+.personnel-picker-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ui-inline-gap, 12rpx);
+}
+
+.personnel-picker-filter {
+  min-width: 0;
+}
+
+.personnel-picker-filter-label {
+  margin-bottom: 8rpx;
+  color: #64748b;
+  font-size: var(--ui-type-meta);
+  line-height: 1.45;
+}
+
+.personnel-picker-search {
+  width: 100%;
+  margin-top: var(--ui-inline-gap, 12rpx);
+}
+
+.personnel-picker-empty,
+.personnel-picker-error {
+  padding: 20rpx 12rpx;
+  color: #64748b;
+  font-size: var(--ui-type-body);
+  line-height: 1.6;
+  text-align: center;
+}
+
+.personnel-picker-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ui-inline-gap, 12rpx);
+  flex-wrap: wrap;
+}
+
+@media (min-width: 520px) and (max-width: 899px) {
+  .personnel-picker-overlay {
+    --ui-dialog-width: min(760px, calc(100vw - 48px));
+    --ui-dialog-max-height: calc(100vh - 48px);
+  }
+  .personnel-picker-body { max-height: calc(100vh - 190px); }
+  .personnel-picker-list { max-height: 300px; }
+  .personnel-picker-selected-list { max-height: 200px; }
+  .personnel-picker-card > .selection-card-toggle { min-width: 48px; }
+  .personnel-picker-avatar { width: 40px; height: 40px; }
+}
+
+@media (min-width: 900px) and (orientation: landscape) {
+  .personnel-picker-overlay {
+    --ui-dialog-width: min(1024px, calc(100vw - 44px));
+    --ui-dialog-max-height: calc(100vh - 44px);
+  }
+  .personnel-picker-body { max-height: calc(100vh - 174px); }
+  .personnel-picker-list { max-height: 260px; }
+  .personnel-picker-selected-list { max-height: 174px; }
+  .personnel-picker-card > .selection-card-toggle { min-width: 44px; }
+  .personnel-picker-avatar { width: 36px; height: 36px; }
+}

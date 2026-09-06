@@ -8,6 +8,7 @@
 | --- | --- | --- | --- |
 | `workspace-hero` | `miniprogram/components/workspace-hero/` | 品牌、姓名、身份、组织与切换入口 | 手机换行更自然，Pad 收紧内边距，横屏压缩高度 |
 | `viewport-portal` | `miniprogram/components/viewport-portal/` | 将共享弹窗内容提升到视口层 | 三种设备都固定遮罩和弹窗位置；弹窗令牌由 portal 内的遮罩直接持有，不依赖页面变量继承 |
+| `personnel-picker` | `miniprogram/components/personnel-picker/` | 全仓人员与人员岗位选择 | `assignment` 一岗一卡、`person` 一人一卡；支持单/多选、同岗位元组筛选、可逆草稿和确认清空 |
 | `ui-icon` | `miniprogram/components/ui-icon/` | 统一 SVG 图标加载和色调 | 业务图标用 `sizeRole`；手机 rpx、Pad 竖屏/横屏 px 独立收紧；本体受槽位边界约束，不用 emoji |
 | `signaturePad` | `miniprogram/subpackages/audit/components/signaturePad/` | 审核签名输入 | 普通 View 实时笔迹；隐藏 Canvas 仅按 1:1 尺寸导出；保留专用触摸锁 |
 
@@ -67,6 +68,7 @@ Pad 横屏主按钮与页签 `12px`、紧凑控件 `11px`。页面级 WXSS 不�
 签名板、白板和文件定位的坐标硬契约见 [docs/ui-kit.md](ui-kit.md) 的“签名板与文件定位坐标硬契约”；组件不得把可视原生 Canvas 重新作为实时笔迹层。`subpackages/workspace/pages/home/home.wxss` 是指向主包共享样式的兼容桥接文件，不是共享样式源。
 
 - 共享组件只负责结构、视觉和交互契约，不读取具体业务接口。
+- 所有人员选择弹窗必须使用 `personnel-picker`。页面只提供 `options/value` 并处理 `confirm/cancel/retry`；组件内部草稿不得在确认前写回业务状态。岗位模式提交 `assignmentId`，自然人模式提交人员主键；可选指定允许空数组确认以清除。
 - 页面负责把业务数据映射成组件需要的展示字段。
 - 子应用可以拥有专用列表行，但必须复用全局字体、设备令牌、按钮角色和弹窗契约。
 - 认证与恢复操作复用人事管理的搜索行、成员卡片、状态元数据和批量工具栏，不得再建立灰暗、拥挤的独立视觉体系或第二套人员目录。

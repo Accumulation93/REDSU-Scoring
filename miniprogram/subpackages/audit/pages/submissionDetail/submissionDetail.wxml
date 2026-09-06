@@ -631,68 +631,15 @@
       </view>
       </viewport-portal>
 
-      <!-- ═══ Edit: Person picker popup ═══ -->
-      <viewport-portal wx:if="{{editPersonPickerVisible}}">
-      <view class="popup-mask ui-overlay" wx:if="{{editPersonPickerVisible}}" bindtap="closeEditPersonPicker">
-        <view class="ui-overlay-blocker" catchtouchmove="noop"></view>
-        <view class="popup-card desig-popup-card ui-dialog-shell ui-dialog-shell--complex" catchtap="noop">
-          <view class="popup-header ui-dialog-header"><view class="popup-title">{{localeCopy.copy_759682a69b}}</view><text class="popup-close ui-motion-chip" catchtap="closeEditPersonPicker" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_09614cef6c}}</text></view>
-          <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="ui-dialog-body ui-dialog-content ui-dialog-scroll--fill ui-dialog-stack-scroll">
-          <view class="picker-context-card">
-            <view class="picker-context-label">{{localeCopy.currentWorkContext}}</view>
-            <view class="picker-context-value">{{activeWorkContext.assignmentLabel || localeCopy.assignmentLabelUnavailable}}</view>
-          </view>
-          <view class="list-title">{{localeCopy.selectedAssignmentsTitle}}{{editPersonPickerSelectedIds.length}}{{localeCopy.selectedAssignmentsUnit}}</view>
-          <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="desig-inner-scroll desig-current-scroll ui-dialog-scroll--pane ui-dialog-selection-current">
-            <view class="audit-person-item selection-option-card" wx:for="{{editPersonPickerSelectedList}}" wx:key="selectionKey">
-              <view class="select-chip select-chip-active selection-card-toggle ui-motion-chip" data-assignment-id="{{item.assignmentId}}" catchtap="onEditPersonToggle" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_06dbb49961}}</view>
-              <view class="audit-person-avatar">{{item.name[0]}}</view>
-              <view class="audit-person-info">
-                <view class="audit-person-name">{{item.name}}</view>
-                <view class="audit-person-detail">{{item.studentId}}</view>
-                <view class="eligible-assignment-list"><view class="eligible-assignment-chip">{{item.assignmentLabel}}</view></view>
-              </view>
-            </view>
-            <view class="empty-inline" wx:if="{{!editPersonPickerSelectedList.length}}">{{localeCopy.copy_45ef5ac49b}}</view>
-            <view class="scroll-tail-space"></view>
-          </scroll-view>
-          <view class="list-title field-mt-8">{{localeCopy.copy_8b1a42b718}}</view>
-          <view class="rule-filter-row ui-inline-field-row">
-            <view class="rule-filter-field"><view class="field-label">{{localeCopy.copy_02419589be}}</view><picker range="{{personPickerDeptOpts}}" bindchange="onEditPersonPickerDeptChange"><view class="picker-value compact-picker-value">{{editPersonPickerDept}}</view></picker></view>
-            <view class="rule-filter-field"><view class="field-label">{{localeCopy.copy_c1965e0690}}</view><picker range="{{personPickerIdentOpts}}" bindchange="onEditPersonPickerIdentChange"><view class="picker-value compact-picker-value">{{editPersonPickerIdent}}</view></picker></view>
-            <view class="rule-filter-field"><view class="field-label">{{localeCopy.copy_303b7a8611}}</view><picker range="{{personPickerWgOpts}}" bindchange="onEditPersonPickerWgChange"><view class="picker-value compact-picker-value">{{editPersonPickerWg}}</view></picker></view>
-          </view>
-          <view class="field field-mb-8"><input class="field-input" placeholder="{{localeCopy.copy_42dba54426}}" value="{{editPersonPickerKeyword}}" bindinput="onEditPersonPickerSearch"/></view>
-          <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="desig-inner-scroll desig-candidate-scroll ui-dialog-scroll--pane ui-dialog-selection-options">
-            <view wx:if="{{editPersonPickerLoading}}" class="empty-inline">{{localeCopy.copy_213b890c07}}</view>
-            <view wx:elif="{{!editPersonPickerCandidates.length}}" class="empty-inline">{{localeCopy.copy_3f9ec35c15}}</view>
-            <block wx:if="{{!editPersonPickerLoading}}" wx:for="{{editPersonPickerCandidates}}" wx:for-item="person" wx:key="id">
-              <view class="audit-person-item selection-option-card" wx:for="{{person.eligibleAssignments}}" wx:for-item="assignment" wx:key="assignmentId">
-                <view class="select-chip selection-card-toggle ui-motion-chip {{assignment.isSelected ? 'select-chip-active' : ''}}" data-assignment-id="{{assignment.assignmentId}}" catchtap="onEditPersonToggle" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{assignment.isSelected ? localeCopy.copy_06dbb49961 : localeCopy.copy_896f105132}}</view>
-                <view class="audit-person-avatar">{{person.name[0]}}</view>
-                <view class="audit-person-info">
-                  <view class="audit-person-name">{{person.name}}</view>
-                  <view class="audit-person-detail">{{person.studentId}}</view>
-                  <view class="eligible-assignment-list"><view class="eligible-assignment-chip {{assignment.isCurrent ? 'eligible-assignment-chip-current' : ''}}">{{assignment.assignmentLabel || localeCopy.assignmentLabelUnavailable}}</view></view>
-                </view>
-              </view>
-            </block>
-            <view class="scroll-tail-space"></view>
-          </scroll-view>
-          <view class="field field-mt-8">
-            <view class="field-label">{{localeCopy.copy_dc449bac28}}</view>
-            <picker range="{{[localeCopy.copy_8e2f75159e,localeCopy.copy_49cbf30d6b,localeCopy.copy_7e6630535d,localeCopy.copy_a63d02480e]}}" bindchange="onEditPersonPickerActionTypeChange">
-              <view class="picker-value">{{editPersonPickerStepActionType === 'pass' ? localeCopy.copy_8e2f75159e : (editPersonPickerStepActionType === 'sign' ? localeCopy.copy_49cbf30d6b : (editPersonPickerStepActionType === 'estamp' ? localeCopy.copy_7e6630535d : localeCopy.copy_a63d02480e))}}</view>
-            </picker>
-          </view>
-          </scroll-view>
-          <view class="button-row ui-dialog-footer">
-            <button class="secondary-btn ui-motion-button" catchtap="closeEditPersonPicker" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_06dbb49961}}</button>
-            <button class="primary-btn ui-motion-button" catchtap="confirmEditPersonPicker" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_9aa3c3673c}} {{editPersonPickerSelectedIds.length}} {{localeCopy.assignmentUnit}}</button>
-          </view>
+      <!-- ═══ Edit: shared personnel picker ═══ -->
+      <personnel-picker visible="{{editPersonPickerVisible}}" title="{{localeCopy.copy_759682a69b}}" options="{{allHrPersons}}" value="{{editPersonPickerSelectedList}}" selectionLevel="assignment" multiple="{{true}}" loading="{{editPersonPickerLoading}}" contextText="{{activeWorkContext.assignmentLabel || localeCopy.assignmentLabelUnavailable}}" bindconfirm="confirmSharedEditPersonPicker" bindcancel="closeEditPersonPicker">
+        <view slot="extra" class="field field-mt-8">
+          <view class="field-label">{{localeCopy.copy_dc449bac28}}</view>
+          <picker range="{{[localeCopy.copy_8e2f75159e,localeCopy.copy_49cbf30d6b,localeCopy.copy_7e6630535d,localeCopy.copy_a63d02480e]}}" bindchange="onEditPersonPickerActionTypeChange">
+            <view class="picker-value">{{editPersonPickerStepActionType === 'pass' ? localeCopy.copy_8e2f75159e : (editPersonPickerStepActionType === 'sign' ? localeCopy.copy_49cbf30d6b : (editPersonPickerStepActionType === 'estamp' ? localeCopy.copy_7e6630535d : localeCopy.copy_a63d02480e))}}</view>
+          </picker>
         </view>
-      </view>
-      </viewport-portal>
+      </personnel-picker>
     </block>
   </view>
 
@@ -938,95 +885,15 @@
     </view>
   </view>
 
-    <!-- ═══ Person picker popup (multi-select) ═══ -->
-  <viewport-portal wx:if="{{personPickerVisible}}">
-  <view class="popup-mask ui-overlay" wx:if="{{personPickerVisible}}" bindtap="closePersonPicker">
-    <view class="ui-overlay-blocker" catchtouchmove="noop"></view>
-      <view class="popup-card desig-popup-card ui-dialog-shell ui-dialog-shell--complex" catchtap="noop">
-        <view class="popup-header ui-dialog-header"><view class="popup-title">{{localeCopy.copy_759682a69b}}</view><text class="popup-close ui-motion-chip" catchtap="closePersonPicker" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_09614cef6c}}</text></view>
-        <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="ui-dialog-body ui-dialog-content ui-dialog-scroll--fill ui-dialog-stack-scroll">
-        <view class="picker-context-card">
-          <view class="picker-context-label">{{localeCopy.currentWorkContext}}</view>
-          <view class="picker-context-value">{{activeWorkContext.assignmentLabel || localeCopy.assignmentLabelUnavailable}}</view>
-        </view>
-
-        <!-- Selected persons -->
-        <view class="list-title">{{localeCopy.selectedAssignmentsTitle}}{{personPickerSelectedIds.length}}{{localeCopy.selectedAssignmentsUnit}}</view>
-        <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="desig-inner-scroll desig-current-scroll ui-dialog-scroll--pane ui-dialog-selection-current">
-          <view class="audit-person-item selection-option-card" wx:for="{{personPickerSelectedList}}" wx:key="selectionKey">
-            <view class="select-chip select-chip-active selection-card-toggle ui-motion-chip" data-assignment-id="{{item.assignmentId}}" catchtap="onPersonToggle" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_06dbb49961}}</view>
-            <view class="audit-person-avatar">{{item.name[0]}}</view>
-            <view class="audit-person-info">
-              <view class="audit-person-name">{{item.name}}</view>
-              <view class="audit-person-detail">{{item.studentId}}</view>
-              <view class="eligible-assignment-list"><view class="eligible-assignment-chip">{{item.assignmentLabel}}</view></view>
-            </view>
-          </view>
-          <view class="empty-inline" wx:if="{{!personPickerSelectedList.length}}">{{localeCopy.copy_45ef5ac49b}}</view>
-          <view class="scroll-tail-space"></view>
-        </scroll-view>
-
-        <!-- Filters -->
-        <view class="list-title field-mt-8">{{localeCopy.copy_8b1a42b718}}</view>
-        <view class="rule-filter-row ui-inline-field-row">
-          <view class="rule-filter-field">
-            <view class="field-label">{{localeCopy.copy_02419589be}}</view>
-            <picker range="{{personPickerDeptOpts}}" bindchange="onPersonPickerDeptChange">
-              <view class="picker-value compact-picker-value">{{personPickerDept}}</view>
-            </picker>
-          </view>
-          <view class="rule-filter-field">
-            <view class="field-label">{{localeCopy.copy_c1965e0690}}</view>
-            <picker range="{{personPickerIdentOpts}}" bindchange="onPersonPickerIdentChange">
-              <view class="picker-value compact-picker-value">{{personPickerIdent}}</view>
-            </picker>
-          </view>
-          <view class="rule-filter-field">
-            <view class="field-label">{{localeCopy.copy_303b7a8611}}</view>
-            <picker range="{{personPickerWgOpts}}" bindchange="onPersonPickerWgChange">
-              <view class="picker-value compact-picker-value">{{personPickerWg}}</view>
-            </picker>
-          </view>
-        </view>
-        <view class="field field-mb-8">
-          <input class="field-input" placeholder="{{localeCopy.copy_42dba54426}}" value="{{personPickerKeyword}}" bindinput="onPersonPickerSearch"/>
-        </view>
-
-        <!-- Candidate list -->
-        <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="desig-inner-scroll desig-candidate-scroll ui-dialog-scroll--pane ui-dialog-selection-options">
-          <view wx:if="{{personPickerLoading}}" class="empty-inline">{{localeCopy.copy_213b890c07}}</view>
-          <view wx:elif="{{!personPickerCandidates.length}}" class="empty-inline">{{localeCopy.copy_3f9ec35c15}}</view>
-          <block wx:if="{{!personPickerLoading}}" wx:for="{{personPickerCandidates}}" wx:for-item="person" wx:key="id">
-            <view class="audit-person-item selection-option-card" wx:for="{{person.eligibleAssignments}}" wx:for-item="assignment" wx:key="assignmentId">
-              <view class="select-chip selection-card-toggle ui-motion-chip {{assignment.isSelected ? 'select-chip-active' : ''}}" data-assignment-id="{{assignment.assignmentId}}" catchtap="onPersonToggle" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{assignment.isSelected ? localeCopy.copy_06dbb49961 : localeCopy.copy_896f105132}}</view>
-              <view class="audit-person-avatar">{{person.name[0]}}</view>
-              <view class="audit-person-info">
-                <view class="audit-person-name">{{person.name}}</view>
-                <view class="audit-person-detail">{{person.studentId}}</view>
-                <view class="eligible-assignment-list"><view class="eligible-assignment-chip {{assignment.isCurrent ? 'eligible-assignment-chip-current' : ''}}">{{assignment.assignmentLabel || localeCopy.assignmentLabelUnavailable}}</view></view>
-              </view>
-            </view>
-          </block>
-          <view class="scroll-tail-space"></view>
-        </scroll-view>
-
-        <!-- Action type (only for ad-hoc mode; template/designate-next modes inherit step definition) -->
-        <view class="field field-mt-8" wx:if="{{templateOverrideStepIndex < 0 && personPickerMode !== 'designateNext'}}">
-          <view class="field-label">{{localeCopy.copy_dc449bac28}}</view>
-          <picker range="{{[localeCopy.copy_8e2f75159e,localeCopy.copy_49cbf30d6b,localeCopy.copy_7e6630535d,localeCopy.copy_a63d02480e]}}" bindchange="onPersonPickerActionTypeChange">
-            <view class="picker-value">{{personPickerStepActionType === 'pass' ? localeCopy.copy_8e2f75159e : (personPickerStepActionType === 'sign' ? localeCopy.copy_49cbf30d6b : (personPickerStepActionType === 'estamp' ? localeCopy.copy_7e6630535d : localeCopy.copy_a63d02480e))}}</view>
-          </picker>
-        </view>
-        </scroll-view>
-
-        <view class="button-row ui-dialog-footer">
-          <button class="secondary-btn ui-motion-button" catchtap="closePersonPicker" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_06dbb49961}}</button>
-          <button class="primary-btn ui-motion-button" catchtap="confirmPersonPicker" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_9aa3c3673c}} {{personPickerSelectedIds.length}} {{localeCopy.assignmentUnit}}</button>
-        </view>
-      </view>
+    <!-- ═══ Shared personnel picker (multi-select) ═══ -->
+  <personnel-picker visible="{{personPickerVisible}}" title="{{localeCopy.copy_759682a69b}}" options="{{personPickerEligibleList}}" value="{{personPickerSelectedList}}" selectionLevel="assignment" multiple="{{true}}" loading="{{personPickerLoading}}" contextText="{{activeWorkContext.assignmentLabel || localeCopy.assignmentLabelUnavailable}}" bindconfirm="confirmSharedPersonPicker" bindcancel="closePersonPicker">
+    <view slot="extra" class="field field-mt-8" wx:if="{{templateOverrideStepIndex < 0 && personPickerMode !== 'designateNext'}}">
+      <view class="field-label">{{localeCopy.copy_dc449bac28}}</view>
+      <picker range="{{[localeCopy.copy_8e2f75159e,localeCopy.copy_49cbf30d6b,localeCopy.copy_7e6630535d,localeCopy.copy_a63d02480e]}}" bindchange="onPersonPickerActionTypeChange">
+        <view class="picker-value">{{personPickerStepActionType === 'pass' ? localeCopy.copy_8e2f75159e : (personPickerStepActionType === 'sign' ? localeCopy.copy_49cbf30d6b : (personPickerStepActionType === 'estamp' ? localeCopy.copy_7e6630535d : localeCopy.copy_a63d02480e))}}</view>
+      </picker>
     </view>
-  </viewport-portal>
-
+  </personnel-picker>
   <view class="page-footer">
     <view class="footer-name">{{localeCopy.copy_aa4f0ed6cd}}</view>
     <view class="footer-org">{{localeCopy.copy_638da8ae60}}</view>

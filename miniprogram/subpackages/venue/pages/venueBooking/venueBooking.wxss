@@ -1470,41 +1470,6 @@ page {
   align-items: center;
 }
 
-.person-picker-card {
-  max-width: 680rpx;
-}
-
-.person-picker-list {
-  max-height: 56vh;
-  margin-top: 12rpx;
-  box-sizing: border-box;
-}
-
-.person-picker-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12rpx;
-  padding: 16rpx 18rpx;
-  margin-bottom: 8rpx;
-  border-radius: var(--ui-compact-radius, 18rpx);
-  background: rgba(255, 255, 255, 0.9);
-  border: 1rpx solid rgba(219, 229, 241, 0.9);
-}
-
-.person-picker-name {
-  font-size: var(--ui-type-label);
-  font-weight: 700;
-  color: #172033;
-}
-
-.person-picker-id {
-  font-size: var(--ui-type-caption);
-  color: #64748b;
-}
-.person-picker-main { display: flex; flex-direction: column; min-width: 0; }
-.person-picker-assignment { max-width: 58%; color: #2563eb; font-size: var(--ui-type-micro); line-height: 1.45; text-align: right; overflow-wrap: anywhere; }
-
 .assignment-chip {
   display: inline-flex;
   align-self: flex-start;

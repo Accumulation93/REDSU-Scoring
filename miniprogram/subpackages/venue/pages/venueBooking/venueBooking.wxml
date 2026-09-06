@@ -338,7 +338,7 @@ module.exports = { hour: hour, min: min };
           <view class="field" wx:if="{{selectedFlowId && selectedFlowAllowDesignateFirst}}">
             <view class="field-label">{{localeCopy.copy_66a92fc57e}}</view>
             <view class="pick-row" catchtap="openFirstApproverPicker">
-              <text class="picker-display {{firstApproverAssignmentId ? 'picker-has-value' : ''}}">{{firstApproverName || localeCopy.copy_6986f4a5fd}}</text>
+              <text class="picker-display {{firstApproverAssignmentIds.length ? 'picker-has-value' : ''}}">{{firstApproverName || localeCopy.copy_6986f4a5fd}}</text>
             </view>
           </view>
         </view>
@@ -349,25 +349,7 @@ module.exports = { hour: hour, min: min };
     </view>
     </view>
   </viewport-portal>
-  <viewport-portal wx:if="{{firstApproverPickerVisible}}">
-    <view class="popup-mask ui-overlay" wx:if="{{firstApproverPickerVisible}}" bindtap="closeFirstApproverPicker">
-      <view class="ui-overlay-blocker" catchtouchmove="noop"></view>
-      <view class="ui-dialog-shell ui-dialog-shell--complex popup-card person-picker-card" catchtap="noop">
-        <view class="modal-header ui-dialog-header"><view class="modal-title">{{localeCopy.copy_0522689efc}}</view><view class="modal-close ui-motion-chip" catchtap="closeFirstApproverPicker" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160">✕</view></view>
-        <view class="ui-dialog-body ui-dialog-content">
-          <input class="field-input" value="{{firstApproverKeyword}}" bindinput="onFirstApproverKeywordInput" placeholder="{{localeCopy.copy_2ea2cd3a4f}}" />
-          <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="person-picker-list ui-dialog-scroll--pane">
-            <view class="person-picker-item" wx:for="{{approverCandidates}}" wx:key="assignmentId" wx:if="{{!firstApproverKeyword || item._searchText.indexOf(firstApproverKeyword) >= 0}}" data-assignment-id="{{item.assignmentId}}" data-name="{{item._selectionText}}" catchtap="pickFirstApprover">
-              <view class="person-picker-main"><text class="person-picker-name">{{item.name}}</text><text class="person-picker-id">{{item.studentId}}</text></view>
-              <text class="person-picker-assignment" wx:if="{{item._eligibleAssignmentText}}">{{item._eligibleAssignmentText}}</text>
-            </view>
-            <view class="empty-inline" wx:if="{{!approverCandidates.length}}">{{localeCopy.copy_5dbaec0fcf}}</view>
-            <view class="scroll-tail-space"></view>
-          </scroll-view>
-        </view>
-      </view>
-    </view>
-  </viewport-portal>
+  <personnel-picker visible="{{firstApproverPickerVisible}}" title="{{localeCopy.copy_0522689efc}}" options="{{approverCandidates}}" value="{{firstApproverSelections}}" selectionLevel="assignment" multiple="{{true}}" bindconfirm="confirmFirstApprovers" bindcancel="closeFirstApproverPicker" bindretry="openFirstApproverPicker" />
 
   <!-- ═══════════════════ APPROVAL / DETAIL POPUP ═══════════════════ -->
   <viewport-portal wx:if="{{approvalVisible}}">
@@ -430,7 +412,7 @@ module.exports = { hour: hour, min: min };
             <view class="field" wx:if="{{approvalAction === 'approve' && canDesignateNext}}">
               <view class="field-label">{{localeCopy.copy_3fc6899daa}}</view>
               <view class="pick-row" catchtap="openNextApproverPicker">
-                <text class="picker-display {{nextApproverAssignmentId ? 'picker-has-value' : ''}}">{{nextApproverName || localeCopy.copy_6986f4a5fd}}</text>
+                <text class="picker-display {{nextApproverAssignmentIds.length ? 'picker-has-value' : ''}}">{{nextApproverName || localeCopy.copy_6986f4a5fd}}</text>
               </view>
             </view>
             <view class="field field--approval-comment">
@@ -449,25 +431,7 @@ module.exports = { hour: hour, min: min };
     </view>
   </view>
   </viewport-portal>
-  <viewport-portal wx:if="{{nextApproverPickerVisible}}">
-    <view class="popup-mask ui-overlay" wx:if="{{nextApproverPickerVisible}}" bindtap="closeNextApproverPicker">
-      <view class="ui-overlay-blocker" catchtouchmove="noop"></view>
-      <view class="ui-dialog-shell ui-dialog-shell--complex popup-card person-picker-card" catchtap="noop">
-        <view class="modal-header ui-dialog-header"><view class="modal-title">{{localeCopy.copy_1f13a570b9}}</view><view class="modal-close ui-motion-chip" catchtap="closeNextApproverPicker" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160">✕</view></view>
-        <view class="ui-dialog-body ui-dialog-content">
-          <input class="field-input" value="{{nextApproverKeyword}}" bindinput="onNextApproverKeywordInput" placeholder="{{localeCopy.copy_2ea2cd3a4f}}" />
-          <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="person-picker-list ui-dialog-scroll--pane">
-            <view class="person-picker-item" wx:for="{{nextApproverCandidates}}" wx:key="assignmentId" wx:if="{{!nextApproverKeyword || item._searchText.indexOf(nextApproverKeyword) >= 0}}" data-assignment-id="{{item.assignmentId}}" data-name="{{item._selectionText}}" catchtap="pickNextApprover">
-              <view class="person-picker-main"><text class="person-picker-name">{{item.name}}</text><text class="person-picker-id">{{item.studentId}}</text></view>
-              <text class="person-picker-assignment" wx:if="{{item._eligibleAssignmentText}}">{{item._eligibleAssignmentText}}</text>
-            </view>
-            <view class="empty-inline" wx:if="{{!nextApproverCandidates.length}}">{{localeCopy.copy_5dbaec0fcf}}</view>
-            <view class="scroll-tail-space"></view>
-          </scroll-view>
-        </view>
-      </view>
-    </view>
-  </viewport-portal>
+  <personnel-picker visible="{{nextApproverPickerVisible}}" title="{{localeCopy.copy_1f13a570b9}}" options="{{nextApproverCandidates}}" value="{{nextApproverSelections}}" selectionLevel="assignment" multiple="{{true}}" bindconfirm="confirmNextApprovers" bindcancel="closeNextApproverPicker" bindretry="openNextApproverPicker" />
 
   <view class="page-footer">
     <view class="footer-name">{{localeCopy.copy_aa4f0ed6cd}}</view>

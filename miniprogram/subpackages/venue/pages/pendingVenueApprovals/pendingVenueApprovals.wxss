@@ -56,8 +56,6 @@
 .context-switch-title { color: #92400e; font-size: var(--ui-type-caption); font-weight: 700; line-height: 1.45; }
 .context-switch-detail { margin-top: 4rpx; color: #a16207; font-size: var(--ui-type-micro); line-height: 1.5; overflow-wrap: anywhere; }
 .context-switch-action { display: inline-flex; margin-top: 8rpx; color: #2563eb; font-size: var(--ui-type-caption); font-weight: 700; }
-.person-picker-main { display: flex; flex-direction: column; min-width: 0; }
-.person-picker-assignment { max-width: 58%; color: #2563eb; font-size: var(--ui-type-micro); line-height: 1.45; text-align: right; overflow-wrap: anywhere; }
 
 /* Action links column */
 .pending-actions-col {

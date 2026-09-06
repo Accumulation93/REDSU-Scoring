@@ -229,7 +229,7 @@
             <view class="list-item list-item-stacked flow-meta-card ui-motion-card" wx:for="{{approvalFlows}}" wx:key="id">
               <view class="list-main">
                 <view class="list-name">{{item.name || localeCopy.copy_890d7f4874}}</view>
-                <view class="list-desc">{{item.steps.length}} {{localeCopy.copy_310413445b}}</view>
+                <view class="list-desc">{{item.steps.length}} {{localeCopy.copy_310413445b}} <text class="info-chip" wx:if="{{!item.steps.length}}">{{flowManagementCopy.incomplete}}</text></view>
                 <view class="flow-switch-row" catchtap="noop">
                   <view class="flow-switch-item"><text class="flow-switch-label">{{localeCopy.copy_6f806672e2}}</text><switch checked="{{item.allow_user_select === 1}}" data-id="{{item.id}}" data-field="allow_user_select" bindchange="toggleApprovalFlowFlag" color="#3b82f6" /></view>
                   <view class="flow-switch-item"><text class="flow-switch-label">{{localeCopy.allowDesignateFirstApprover}}</text><switch checked="{{item.allow_designate_first === 1}}" data-id="{{item.id}}" data-field="allow_designate_first" bindchange="toggleApprovalFlowFlag" color="#3b82f6" /></view>
@@ -243,12 +243,11 @@
             </view>
           </block>
           <button class="primary-btn rule-add-btn ui-motion-button" data-type="booking" catchtap="openRuleEditor" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_c013e80e7c}}</button>
-          <view wx:if="{{!bookingRules.length && !approvalFlow}}" class="empty-inline">{{localeCopy.copy_62a9684fcb}}</view>
+          <view wx:if="{{!bookingRules.length}}" class="empty-inline">{{localeCopy.copy_62a9684fcb}}</view>
           <block wx:if="{{bookingRules.length}}">
             <view class="list-item list-item-stacked" wx:for="{{bookingRules}}" wx:key="id">
               <view class="list-main">
                 <view class="list-name">{{item._ruleTypeLabel}}</view>
-                <view wx:if="{{item.rule_type === 'flow' && item._flowSteps}}" class="list-desc">{{item._flowSteps}}{{localeCopy.copy_f600823615}}</view>
                 <view class="inline-actions list-actions-below card-actions">
                   <text class="link ui-motion-chip" data-type="booking" data-id="{{item.id}}" catchtap="openRuleEditor" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_e040ae3016}}</text>
                   <text class="link danger ui-motion-chip" data-type="booking" data-id="{{item.id}}" catchtap="deleteRule" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_acc985cabc}}</text>
@@ -417,9 +416,9 @@
             </block>
           </block>
           <block wx:if="{{ruleEditorType === 'booking'}}">
-            <view class="field"><view class="field-label">{{localeCopy.copy_c5ec30e07d}}</view>
-              <picker range="{{[localeCopy.copy_af20193574,localeCopy.copy_23f77c8074,localeCopy.copy_4f15bb9939]}}" value="{{ruleForm.ruleType === 'direct' ? 2 : (ruleForm.ruleType === 'flow' ? 1 : 0)}}" bindchange="onBookingRuleTypeChange">
-                <view class="picker-display">{{ruleForm.ruleType === 'direct' ? localeCopy.copy_4f15bb9939 : (ruleForm.ruleType === 'flow' ? localeCopy.copy_02202fc2dc : localeCopy.copy_af20193574)}}</view></picker></view>
+            <view class="field" wx:if="{{ruleForm.ruleType !== 'flow'}}"><view class="field-label">{{localeCopy.copy_c5ec30e07d}}</view>
+              <picker range="{{[localeCopy.copy_af20193574,localeCopy.copy_4f15bb9939]}}" value="{{ruleForm.ruleType === 'direct' ? 1 : 0}}" bindchange="onBookingRuleTypeChange">
+                <view class="picker-display">{{ruleForm.ruleType === 'direct' ? localeCopy.copy_4f15bb9939 : localeCopy.copy_af20193574}}</view></picker></view>
 
             <!-- Flow editor — only shown when 用户审核 is selected -->
             <block wx:if="{{ruleForm.ruleType === 'flow'}}">

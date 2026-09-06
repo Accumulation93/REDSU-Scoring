@@ -1,0 +1,74 @@
+<viewport-portal wx:if="{{visible}}">
+  <view class="personnel-picker-overlay ui-overlay">
+    <view class="ui-overlay-blocker" catchtouchmove="noop"></view>
+    <view class="personnel-picker-shell ui-dialog-shell ui-dialog-shell--complex">
+      <view class="personnel-picker-header ui-dialog-header">
+        <view class="personnel-picker-title">{{title}}</view>
+        <text class="personnel-picker-close ui-motion-chip" catchtap="cancelSelection" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.close}}</text>
+      </view>
+
+      <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="personnel-picker-body ui-dialog-body ui-dialog-content ui-dialog-content--stack ui-dialog-scroll--fill">
+        <view class="personnel-picker-context ui-dialog-summary" wx:if="{{contextText}}">{{contextText}}</view>
+
+        <view class="personnel-picker-section ui-dialog-list-panel">
+          <view class="personnel-picker-section-head"><text>{{selectedHeading}}</text><text class="info-chip">{{selectedCountText}}</text></view>
+          <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="personnel-picker-list personnel-picker-selected-list ui-dialog-scroll--pane ui-dialog-selection-current">
+            <view class="personnel-picker-card selection-option-card" wx:for="{{selectedItems}}" wx:key="selectionKey">
+              <view class="select-chip select-chip-active selection-card-toggle ui-motion-chip" data-key="{{item.selectionKey}}" catchtap="toggleOption" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.cancelSelection}}</view>
+              <view class="personnel-picker-avatar">{{item._initial}}</view>
+              <view class="personnel-picker-main">
+                <view class="personnel-picker-name">{{item._displayName}}</view>
+                <view class="personnel-picker-student" wx:if="{{item.studentId}}">{{item.studentId}}</view>
+                <view class="personnel-picker-assignment" wx:if="{{selectionLevel === 'assignment'}}">{{item._assignmentText}}</view>
+                <view class="personnel-picker-assignment-list" wx:else>
+                  <view class="personnel-picker-assignment" wx:for="{{item.assignments}}" wx:key="assignmentId" wx:for-item="assignment">{{assignment.assignmentLabel || localeCopy.assignmentUnavailable}}</view>
+                </view>
+              </view>
+            </view>
+            <view class="personnel-picker-empty" wx:if="{{!selectedItems.length}}">{{localeCopy.noSelection}}</view>
+            <view class="scroll-tail-space"></view>
+          </scroll-view>
+        </view>
+
+        <view class="personnel-picker-toolbar ui-dialog-toolbar">
+          <view class="personnel-picker-filter-grid ui-inline-field-row">
+            <view class="personnel-picker-filter"><view class="personnel-picker-filter-label">{{localeCopy.department}}</view><picker range="{{departmentOptions}}" value="{{departmentIndex}}" bindchange="onDepartmentChange"><view class="picker-value compact-picker-value">{{departmentOptions[departmentIndex]}}</view></picker></view>
+            <view class="personnel-picker-filter"><view class="personnel-picker-filter-label">{{localeCopy.identity}}</view><picker range="{{identityOptions}}" value="{{identityIndex}}" bindchange="onIdentityChange"><view class="picker-value compact-picker-value">{{identityOptions[identityIndex]}}</view></picker></view>
+            <view class="personnel-picker-filter"><view class="personnel-picker-filter-label">{{localeCopy.workGroup}}</view><picker range="{{workGroupOptions}}" value="{{workGroupIndex}}" bindchange="onWorkGroupChange"><view class="picker-value compact-picker-value">{{workGroupOptions[workGroupIndex]}}</view></picker></view>
+          </view>
+          <input class="personnel-picker-search field-input" value="{{keyword}}" bindinput="onKeywordInput" placeholder="{{localeCopy.searchPlaceholder}}" />
+        </view>
+
+        <slot name="extra"></slot>
+
+        <view class="personnel-picker-section ui-dialog-list-panel">
+          <view class="personnel-picker-section-head">{{candidateHeading}}</view>
+          <view class="personnel-picker-empty" wx:if="{{loading}}">{{localeCopy.loading}}</view>
+          <view class="personnel-picker-error" wx:elif="{{errorText}}"><text>{{errorText}}</text><text class="link ui-motion-chip" catchtap="retry" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160">{{localeCopy.retry}}</text></view>
+          <scroll-view wx:else enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="personnel-picker-list personnel-picker-option-list ui-dialog-scroll--pane ui-dialog-selection-options">
+            <view class="personnel-picker-card selection-option-card" wx:for="{{filteredOptions}}" wx:key="selectionKey">
+              <view class="select-chip selection-card-toggle ui-motion-chip {{item._selected ? 'select-chip-active' : ''}}" data-key="{{item.selectionKey}}" catchtap="toggleOption" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{item._selected ? localeCopy.cancelSelection : localeCopy.choose}}</view>
+              <view class="personnel-picker-avatar">{{item._initial}}</view>
+              <view class="personnel-picker-main">
+                <view class="personnel-picker-name">{{item._displayName}}</view>
+                <view class="personnel-picker-student" wx:if="{{item.studentId}}">{{item.studentId}}</view>
+                <view class="personnel-picker-assignment" wx:if="{{selectionLevel === 'assignment'}}">{{item._assignmentText}}</view>
+                <view class="personnel-picker-assignment-list" wx:else>
+                  <view class="personnel-picker-assignment" wx:for="{{item.assignments}}" wx:key="assignmentId" wx:for-item="assignment">{{assignment.assignmentLabel || localeCopy.assignmentUnavailable}}</view>
+                </view>
+              </view>
+            </view>
+            <view class="personnel-picker-empty" wx:if="{{!normalizedOptions.length}}">{{localeCopy.empty}}</view>
+            <view class="personnel-picker-empty" wx:elif="{{!filteredOptions.length}}">{{localeCopy.noMatch}}</view>
+            <view class="scroll-tail-space"></view>
+          </scroll-view>
+        </view>
+      </scroll-view>
+
+      <view class="personnel-picker-footer button-row ui-dialog-footer">
+        <button class="secondary-btn ui-motion-button" catchtap="cancelSelection" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.close}}</button>
+        <button class="primary-btn ui-motion-button" loading="{{confirmLoading}}" catchtap="confirmSelection" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.confirm}}</button>
+      </view>
+    </view>
+  </view>
+</viewport-portal>

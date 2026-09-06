@@ -83,6 +83,7 @@ jobs:
           node scripts/login-binding-refresh-test.js
           node scripts/login-auth-continuation-test.js
           node scripts/hr-profile-export-test.js
+          node scripts/personnel-picker-test.js
           node scripts/venue-rule-display-test.js
           node scripts/scoring-work-context-test.js
           node scripts/scoring-home-lifecycle-test.js

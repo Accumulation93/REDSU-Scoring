@@ -652,6 +652,14 @@ Page({
     this.setData({ personPickerVisible: false, personPickerLoading: false, personPickerMode: '', templateOverrideStepIndex: -1 });
   },
 
+  confirmSharedPersonPicker(e) {
+    const detail = e.detail || {};
+    this.setData({
+      personPickerSelectedIds: Array.isArray(detail.keys) ? detail.keys : [],
+      personPickerSelectedList: Array.isArray(detail.items) ? detail.items : []
+    }, () => this.confirmPersonPicker());
+  },
+
   onPersonPickerDeptChange(e) {
     const opts = this.data.personPickerDeptOpts;
     this.setData({ personPickerDept: opts[parseInt(e.detail.value)] || localeCopy.copy_31d4595959 });
@@ -2892,6 +2900,14 @@ Page({
   },
 
   closeEditPersonPicker() { this.setData({ editPersonPickerVisible: false, editPersonPickerLoading: false }); },
+
+  confirmSharedEditPersonPicker(e) {
+    const detail = e.detail || {};
+    this.setData({
+      editPersonPickerSelectedIds: Array.isArray(detail.keys) ? detail.keys : [],
+      editPersonPickerSelectedList: Array.isArray(detail.items) ? detail.items : []
+    }, () => this.confirmEditPersonPicker());
+  },
 
   onEditPersonPickerDeptChange(e) {
     let opts = this.data.personPickerDeptOpts;

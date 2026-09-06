@@ -1,0 +1,6 @@
+{
+  "component": true,
+  "usingComponents": {
+    "viewport-portal": "/components/viewport-portal/viewport-portal"
+  }
+}
