@@ -687,7 +687,7 @@ page {
 .field-input,
 .field-textarea,
 .picker-display {
-  min-height: 78rpx;
+  min-height: var(--ui-field-control-height, 82rpx);
   padding: 18rpx 20rpx;
   border-radius: 20rpx;
   color: #10233d;
@@ -727,7 +727,7 @@ page {
 }
 
 .primary-btn {
-  min-height: 76rpx;
+  min-height: var(--ui-control-height, 82rpx);
   height: auto;
   padding: 14rpx 20rpx;
   line-height: 1.35;
@@ -784,17 +784,20 @@ page {
   font-size: var(--ui-type-caption);
 }
 .booking-form-popup .field-input {
-  min-height: 64rpx;
-  padding: 10rpx 16rpx;
+  min-height: var(--ui-field-control-height, 82rpx);
+  padding: 14rpx 18rpx;
   font-size: var(--ui-type-control);
-  line-height: 44rpx;
+  line-height: 1.45;
   display: block;
   box-sizing: border-box;
 }
 .booking-form-popup .picker-display {
-  padding: 10rpx 14rpx;           /* 24/20→16/18→10/14 */
-  min-height: 56rpx;
+  padding: 14rpx 18rpx;
+  min-height: var(--ui-field-control-height, 82rpx);
   font-size: var(--ui-type-control);
+  line-height: 1.45;
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
 }
 .booking-form-popup .field-textarea {
   min-height: 96rpx;              /* 156→120→96 */
@@ -853,7 +856,17 @@ page {
 
 /* ── Display row (replaces text input) ── */
 .time-kb-display-row {
-  display: flex; align-items: center; gap: 8rpx;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  width: 100%;
+  min-height: var(--ui-field-control-height, 82rpx);
+  padding: 8rpx 14rpx;
+  border: 1rpx solid rgba(219,229,241,0.96);
+  border-radius: var(--ui-field-radius, 20rpx);
+  background: linear-gradient(135deg, rgba(255,255,255,0.98), rgba(246,249,255,0.92));
+  box-shadow: 0 7rpx 16rpx rgba(15,23,42,0.032), inset 0 1rpx 0 rgba(255,255,255,0.88);
+  box-sizing: border-box;
 }
 .time-kb-display-box {
   width: 88rpx; height: 64rpx;
@@ -879,13 +892,14 @@ page {
   left: 0;
   right: 0;
   z-index: 101;
-  background: linear-gradient(180deg, rgba(248,250,252,0.98), rgba(241,245,249,0.96));
+  background: linear-gradient(180deg, rgba(255,255,255,0.995), rgba(248,251,255,0.985));
   backdrop-filter: blur(12rpx);
   border-radius: 24rpx 24rpx 0 0;
-  border: 1rpx solid rgba(226,232,240,0.8);
+  border: 1rpx solid rgba(255,255,255,0.94);
   border-bottom: none;
   padding: 20rpx 20rpx calc(28rpx + env(safe-area-inset-bottom));
-  box-shadow: 0 -8rpx 28rpx rgba(15,23,42,0.08);
+  box-shadow: 0 -16rpx 42rpx rgba(15,23,42,0.16), inset 0 1rpx 0 rgba(255,255,255,0.96);
+  box-sizing: border-box;
 }
 
 /* ── Display inside keyboard ── */
@@ -1420,6 +1434,11 @@ page {
 
 @media (min-width: 520px) {
   .time-keyboard {
+    left: 50%;
+    right: auto;
+    width: calc(100vw - 48px);
+    max-width: 560px;
+    transform: translateX(-50%);
     padding: 16px 18px calc(18px + env(safe-area-inset-bottom));
     border-radius: 20px 20px 0 0;
   }
@@ -1465,9 +1484,55 @@ page {
   }
 }
 
+@media (min-width: 520px) and (max-width: 899px) {
+  .booking-form-popup .time-kb-display-row {
+    min-height: var(--ui-field-control-height, 44px);
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: var(--ui-field-radius, 10px);
+  }
+
+  .booking-form-popup .time-kb-display-box {
+    width: 54px;
+    height: 32px;
+    border-radius: 10px;
+  }
+
+  .booking-form-popup .time-valid-badge {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+@media (min-width: 900px) and (orientation: landscape) {
+  .booking-form-popup .time-kb-display-row {
+    min-height: var(--ui-field-control-height, 44px);
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: var(--ui-field-radius, 10px);
+  }
+
+  .booking-form-popup .time-kb-display-box {
+    width: 52px;
+    height: 32px;
+    border-radius: 10px;
+  }
+
+  .booking-form-popup .time-valid-badge {
+    width: 24px;
+    height: 24px;
+  }
+
+  .time-keyboard {
+    max-width: 620px;
+  }
+}
+
 .pick-row {
   display: flex;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .assignment-chip {

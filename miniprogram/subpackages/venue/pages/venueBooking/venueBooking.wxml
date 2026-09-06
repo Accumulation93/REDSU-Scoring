@@ -246,8 +246,8 @@ module.exports = { hour: hour, min: min };
           <!-- Date (same-day only) -->
           <view class="field">
             <view class="field-label">{{localeCopy.copy_39fcaa02ad}}</view>
-            <picker mode="date" value="{{bookingStartDate}}" bindchange="onStartDateChange">
-              <view class="picker-display {{bookingStartDate ? 'picker-has-value' : ''}}">{{bookingStartDateDisplay || localeCopy.copy_9d1ff80fae}}</view>
+            <picker class="ui-field-control-host" mode="date" value="{{bookingStartDate}}" bindchange="onStartDateChange">
+              <view class="picker-display ui-field-control {{bookingStartDate ? 'picker-has-value' : ''}}">{{bookingStartDateDisplay || localeCopy.copy_9d1ff80fae}}</view>
             </picker>
           </view>
           <!-- Selected summary -->
@@ -292,7 +292,7 @@ module.exports = { hour: hour, min: min };
             <view class="field-label">{{localeCopy.copy_deb776d2af}} <text class="required">*</text></view>
             <view wx:if="{{timelineBlocks.length}}" class="time-section-new">
               <!-- Custom keyboard display -->
-              <view class="time-kb-display-row">
+              <view class="time-kb-display-row ui-field-control">
                 <view class="time-kb-display-box {{_kbTarget === 'startHour' && _kbVisible ? 'time-kb-display-active' : ''}} ui-motion-chip" data-target="startHour" catchtap="onKbOpen" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{fmt.hour(bookingTimeStart)}}</view>
                 <text class="time-kb-display-colon">:</text>
                 <view class="time-kb-display-box {{_kbTarget === 'startMin' && _kbVisible ? 'time-kb-display-active' : ''}} ui-motion-chip" data-target="startMin" catchtap="onKbOpen" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{fmt.min(bookingTimeStart)}}</view>
@@ -314,7 +314,7 @@ module.exports = { hour: hour, min: min };
           <view class="field">
             <view class="field-label">{{localeCopy.copy_2bd6adcbb9}} <text class="required">*</text></view>
             <view wx:if="{{timelineBlocks.length && bookingTimeStart}}" class="time-section-new">
-              <view class="time-kb-display-row">
+              <view class="time-kb-display-row ui-field-control">
                 <view class="time-kb-display-box {{_kbTarget === 'endHour' && _kbVisible ? 'time-kb-display-active' : ''}} ui-motion-chip" data-target="endHour" catchtap="onKbOpen" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{fmt.hour(bookingTimeEnd)}}</view>
                 <text class="time-kb-display-colon">:</text>
                 <view class="time-kb-display-box {{_kbTarget === 'endMin' && _kbVisible ? 'time-kb-display-active' : ''}} ui-motion-chip" data-target="endMin" catchtap="onKbOpen" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{fmt.min(bookingTimeEnd)}}</view>
@@ -331,14 +331,14 @@ module.exports = { hour: hour, min: min };
           </view>
           <view class="field" wx:if="{{allowUserSelectFlow}}">
             <view class="field-label">{{localeCopy.copy_3bc010171a}} <text class="required">*</text></view>
-            <picker range="{{approvalFlowOptions}}" range-key="name" bindchange="onBookingFlowSelect">
-              <view class="picker-display {{selectedFlowId ? 'picker-has-value' : ''}}">{{selectedFlowId ? selectedFlowName : localeCopy.copy_29ea17e75c}}</view>
+            <picker class="ui-field-control-host" range="{{approvalFlowOptions}}" range-key="name" bindchange="onBookingFlowSelect">
+              <view class="picker-display ui-field-control {{selectedFlowId ? 'picker-has-value' : ''}}">{{selectedFlowId ? selectedFlowName : localeCopy.copy_29ea17e75c}}</view>
             </picker>
           </view>
           <view class="field" wx:if="{{selectedFlowId && selectedFlowAllowDesignateFirst}}">
             <view class="field-label">{{localeCopy.copy_66a92fc57e}}</view>
-            <view class="pick-row" catchtap="openFirstApproverPicker">
-              <text class="picker-display {{firstApproverAssignmentIds.length ? 'picker-has-value' : ''}}">{{firstApproverName || localeCopy.copy_6986f4a5fd}}</text>
+            <view class="pick-row ui-field-control-host" catchtap="openFirstApproverPicker">
+              <view class="picker-display ui-field-control {{firstApproverAssignmentIds.length ? 'picker-has-value' : ''}}">{{firstApproverName || localeCopy.copy_6986f4a5fd}}</view>
             </view>
           </view>
         </view>
@@ -411,8 +411,8 @@ module.exports = { hour: hour, min: min };
           <view wx:if="{{approvalAction}}" class="approval-action-area">
             <view class="field" wx:if="{{approvalAction === 'approve' && canDesignateNext}}">
               <view class="field-label">{{localeCopy.copy_3fc6899daa}}</view>
-              <view class="pick-row" catchtap="openNextApproverPicker">
-                <text class="picker-display {{nextApproverAssignmentIds.length ? 'picker-has-value' : ''}}">{{nextApproverName || localeCopy.copy_6986f4a5fd}}</text>
+              <view class="pick-row ui-field-control-host" catchtap="openNextApproverPicker">
+                <view class="picker-display ui-field-control {{nextApproverAssignmentIds.length ? 'picker-has-value' : ''}}">{{nextApproverName || localeCopy.copy_6986f4a5fd}}</view>
               </view>
             </view>
             <view class="field field--approval-comment">
@@ -438,8 +438,9 @@ module.exports = { hour: hour, min: min };
     <view class="footer-org">{{localeCopy.copy_638da8ae60}}</view>
   </view>
 
-  <!-- ★ Custom time keyboard ★ (page-level fixed bottom) -->
-  <view class="time-keyboard ui-motion-chip" wx:if="{{_kbVisible}}" catchtap="noop" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">
+  <!-- ★ Custom time keyboard ★ (independent viewport portal above the booking dialog) -->
+  <viewport-portal wx:if="{{_kbVisible}}">
+  <view class="time-keyboard ui-portal-surface" catchtap="noop">
     <view class="time-kb-display">
       <view class="time-kb-box {{_kbField === 'hour' ? 'time-kb-box-active' : ''}} {{_kbField === 'hour' && _kbSelected ? 'time-kb-box-selected' : ''}} ui-motion-chip" data-field="hour" catchtap="onKbSwitchField" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{_kbHourVal || '--'}}</view>
       <text class="time-kb-colon">:</text>
@@ -469,4 +470,5 @@ module.exports = { hour: hour, min: min };
       </view>
     </view>
   </view>
+  </viewport-portal>
 </view>

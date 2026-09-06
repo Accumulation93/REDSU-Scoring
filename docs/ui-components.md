@@ -2,6 +2,8 @@
 
 当前项目使用原生微信小程序组件和项目自有 WXSS，不依赖第三方 UI provider。公共组件路径均以仓库根目录 `miniprogram/` 为前缀；公共 WXSS 源位于 `miniprogram/subpackages/main/styles/**`，不得从业务分包互相引用。
 
+本清单及其控件高度、白色窗口、灰色遮罩/阴影和视口层级约束覆盖 `miniprogram/**` 全部页面与组件。场地、审核、评分、人事、工作台和以后新增分包不得复制或缩减这些基础原语。
+
 ## 共享组件
 
 | 组件 | 路径 | 用途 | 必须保留的差异 |
@@ -28,7 +30,9 @@
 | `.card-actions` / `.card-actions--inline` | 卡片小操作行 | 查看、编辑、删除、移除；默认独立分隔行，内联仅用于无碰撞场景 |
 | `.ui-inline-control-row` / `.ui-inline-control` / `.ui-inline-field-row` | 同排控件基线 | 日期/时间选择器、筛选、清除与重置共享最终物理高度；带标签字段对齐底边 |
 | `.ui-compact-segmented` / `.ui-compact-segmented-item` | 标题行紧凑二态切换 | 宫格/列表等视图切换，不使用主页签高度 |
-| `.field-input` / `.field-textarea` / `.picker-value` | 表单控件 | 人事、认证、场地、权限 |
+| `.field-input` / `.field-textarea` / `.picker-value` / `.picker-display` | 表单控件表面 | 人事、认证、场地、权限；单行控件使用统一字段高度，长内容自然增高 |
+| `.ui-field-control-host` / `.ui-field-control` | 完整字段几何契约 | 原生 picker 或可点击行由 host 撑满，白色可见面取 `--ui-field-control-height` |
+| `.ui-portal-surface` | 无遮罩 RootPortal 子层的令牌宿主 | 弹窗上方的时间键盘或操作 sheet，禁止留在普通页面树中穿透门户 |
 | `.ui-overlay` / `.ui-dialog-shell` | 弹窗遮罩和壳 | 详情、选择、确认、编辑弹窗 |
 | `.ui-overlay-blocker` | 背景触摸拦截层 | 所有居中弹窗，位于弹窗壳下方 |
 | `.ui-dialog-header` / `.ui-dialog-body` / `.ui-dialog-footer` | 固定标题、可滚动正文、固定操作区 | 长表单、人员选择、审批步骤和详情 |
@@ -56,6 +60,8 @@
 
 `.ui-inline-control-row` 只负责直接同行控件的共同基线，子项使用 `.ui-inline-control` 把最终高度锁定到 `--ui-inline-control-height`，并清除上下 margin。带标签的字段列使用 `.ui-inline-field-row` 对齐底边，内部紧凑 picker 与原生 input 使用同一高度，且 input 仍保持 block。`.ui-compact-segmented` 仅用于标题旁的二态/少量视图切换，子项取 `--ui-compact-height`；不要把它并入整行主页签规则。
 
+完整单行字段、主按钮、紧凑控件、同行筛选和页签分别使用 `--ui-field-control-height`、`--ui-control-height`、`--ui-compact-height`、`--ui-inline-control-height`、`--ui-tab-min-height`。页面只选择语义角色，不重新写固定高度；手机值为 `82/82/52/56/76rpx`，Pad 竖屏对应 `44/44/32/32/40px`，Pad 横屏继承完整字段与主按钮高度，页签按横屏工作区令牌处理。单行角色使用最小高度，长文案只能自然增高。
+
 按钮、页签、选择项和状态气泡统一使用柔和圆角矩形，圆角由
 `--ui-control-radius` 与 `--ui-compact-radius` 按设备控制：手机主按钮
 `28rpx`、紧凑控件 `18rpx`；Pad 竖屏主按钮 `14px`、紧凑控件 `12px`；
@@ -82,6 +88,7 @@ Pad 横屏主按钮与页签 `12px`、紧凑控件 `11px`。页面级 WXSS 不�
 - 人员/选项选择列表必须能翻到底并完整显示最后一项：在滚动内容末尾放置小号尾部留白元素（约 `24–32rpx`，如 `.scroll-tail-space`），保证最后一张卡片的下边缘可完整翻出，且下方还能再翻一小段（不要多）；滚动容器自身的 `padding` 不产生可滚动距离，禁止用它代替尾部留白；嵌套滚动保持 `nested-scroll-enabled`，手机与 Pad 都要实测“翻到底可见最后一张卡片下边缘”。候选列表与已选列表同样适用。
 - 卡片式选择器的标准结构为 `.selection-option-card > .select-chip.selection-card-toggle + 正文`。选择/取消控件固定在卡片左上起始位且不收缩，正文 `flex:1; min-width:0`；未选写“选择”，已选写绿色“取消”。姓名、身份类别、部门、职能组、岗位和状态气泡不可绑定选择事件或拼接“已选”，已选区也不得改用整行 `.card-actions` / “移除”。
 - 共享人员选择器使用 `.popup-card.ui-dialog-shell` 作为统一白色窗口，内部多分区以令牌化堆栈间距分隔；禁止透明外壳让标题、正文、底栏或文字落入灰色遮罩/阴影区。人员卡正文必须另有 `flex:1; min-width:0` 的内容容器，头像不得与选择控件共同挤压文字列。
+- 所有弹窗遵守“灰色只在遮罩、白色承载内容、阴影只投向窗外”：弹窗壳必须用自身对称内边距包住标题、正文与底栏，任何可见文字或控件不得落到灰色遮罩或阴影带中。灰蓝仅可表示禁用、历史和弱提示，并须位于有边界、有内边距的内容表面内。
 - 按自然人授权的选择器仍以一人一卡呈现，但正文必须逐条展示其全部岗位；部门、身份类别、职能组三项筛选共同作用于同一岗位元组。手机端搜索框在三项筛选下方占满一行，避免四个窄控件挤压标签。
 - 人员岗位选择器以 `assignmentId` 为卡片键和选中键，同一自然人的不同岗位拆卡；账号治理、认证授权等明确按自然人授权的选择器可以使用人员 ID。单击即导航或选中后立即关闭的单选卡不强制使用可逆选择胶囊。规则选择卡的编辑/删除行必须位于 `.selection-option-card` 摘要之外。
 - 创建/编辑弹窗的提交、保存、取消必须放在滚动正文之外的 `.ui-dialog-footer`；正文不为按钮预留底部空白，按钮不自带上下 margin，正文到操作区和按钮到底边分别由 footer 与弹窗外壳承担。

@@ -283,8 +283,8 @@ page {
 }
 
 .field-input {
-  min-height: 86rpx;
-  line-height: 52rpx;
+  min-height: var(--ui-field-control-height, 82rpx);
+  line-height: 1.55;
 }
 
 .sheet-panel .primary-btn {
@@ -328,9 +328,9 @@ page {
   }
 
   .login-card .primary-btn {
-    min-height: 48px !important;
+    min-height: var(--ui-control-height, 44px) !important;
     height: auto !important;
-    padding: 12px 20px !important;
+    padding: var(--ui-control-padding-y, 10px) var(--ui-control-padding-x, 16px) !important;
     font-size: var(--ui-type-body) !important;
     line-height: 20px !important;
   }

@@ -10,7 +10,8 @@
 
 page,
 .ui-overlay,
-.ui-sheet-overlay {
+.ui-sheet-overlay,
+.ui-portal-surface {
   --ui-blue-700: #2563eb;
   --ui-blue-500: #3b82f6;
   --ui-blue-400: #60a5fa;
@@ -82,6 +83,7 @@ page,
   --ui-leading-relaxed: 1.7;
   --ui-line-control: var(--ui-leading-control);
   --ui-control-height: 82rpx;
+  --ui-field-control-height: 82rpx;
   --ui-control-padding-y: 16rpx;
   --ui-control-padding-x: 28rpx;
   --ui-compact-height: 52rpx;
@@ -128,7 +130,8 @@ page {
 @media (min-width: 390px) and (max-width: 519px) {
   page,
   .ui-overlay,
-  .ui-sheet-overlay {
+  .ui-sheet-overlay,
+  .ui-portal-surface {
     --ui-type-micro: 10.5px;
     --ui-type-caption: 11.5px;
     --ui-type-meta: 12.5px;
@@ -730,7 +733,7 @@ button[disabled],
 .compact-picker-value {
   display: block;
   width: 100%;
-  min-height: 76rpx;
+  min-height: var(--ui-field-control-height, 82rpx);
   padding: 16rpx 20rpx;
   border-radius: var(--ui-field-radius, 20rpx);
   color: #10233d;
@@ -1073,6 +1076,24 @@ button[disabled],
 .ui-overlay .ui-dialog-shell > scroll-view.ui-dialog-scroll--pane {
   overflow: hidden;
   overscroll-behavior: contain;
+}
+
+/*
+ * 完整表单控件统一几何角色：input 保持 block，picker 由 host 撑满；
+ * 单行控件使用统一最小高度，内容换行时只向下自然增长。
+ */
+.ui-field-control-host {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.ui-field-control {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--ui-field-control-height, 82rpx) !important;
+  box-sizing: border-box;
 }
 
 /* 选择列表尾部留白：放在滚动内容末尾，保证最后一张卡片能完整翻出并可再翻一小段 */
@@ -1516,7 +1537,8 @@ button:active,
 @media (min-width: 520px) {
   page,
   .ui-overlay,
-  .ui-sheet-overlay {
+  .ui-sheet-overlay,
+  .ui-portal-surface {
     /* Pad 竖屏：字号明确高于手机，布局收紧但保留充足触控间距。 */
     --ui-type-micro: 12px;
     --ui-type-caption: 13px;
@@ -1535,6 +1557,7 @@ button:active,
     --ui-dialog-control-size: 14px;
     --ui-line-control: 20px;
     --ui-control-height: 44px;
+    --ui-field-control-height: 44px;
     --ui-control-padding-y: 10px;
     --ui-control-padding-x: 16px;
     --ui-compact-height: 32px;
@@ -1873,7 +1896,7 @@ button:active,
   .picker-value,
   .picker-display,
   .compact-picker-value {
-    min-height: 42px !important;
+    min-height: var(--ui-field-control-height, 44px) !important;
     height: auto !important;
     padding: 9px 12px !important;
     border-radius: 10px !important;
@@ -1995,7 +2018,8 @@ button:active,
 @media (min-width: 900px) and (orientation: landscape) {
   page,
   .ui-overlay,
-  .ui-sheet-overlay {
+  .ui-sheet-overlay,
+  .ui-portal-surface {
     /* Pad 横屏：以横向工作区为基准，控件更矮更密，字号仍高于手机。 */
     --ui-type-micro: 12.5px;
     --ui-type-caption: 13.5px;
@@ -2343,8 +2367,8 @@ button:active,
   page .purpose-save-btn,
   page .sigpad-btn,
   page .message-dialog-btn {
-    min-height: 40px !important;
-    padding: 8px 14px !important;
+    min-height: var(--ui-control-height, 44px) !important;
+    padding: var(--ui-control-padding-y, 10px) var(--ui-control-padding-x, 16px) !important;
     border-radius: 12px !important;
   }
 

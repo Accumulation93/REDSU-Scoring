@@ -379,25 +379,25 @@ page {
 /* Small button variants */
 .secondary-btn.sm {
   flex: 0 0 auto;
-  min-width: 0; min-height: 56rpx;
+  min-width: 0; min-height: var(--ui-compact-height, 52rpx);
   height: auto; line-height: var(--ui-leading-control, 1.35);
   font-size: var(--ui-type-meta); padding: var(--ui-compact-padding-y, 6rpx) var(--ui-compact-padding-x, 14rpx);
-  border-radius: var(--ui-control-radius, 28rpx);
+  border-radius: var(--ui-compact-radius, 18rpx);
 }
 
 .primary-btn.sm {
   flex: 0 0 auto;
-  min-width: 0; min-height: 56rpx;
+  min-width: 0; min-height: var(--ui-compact-height, 52rpx);
   height: auto; line-height: var(--ui-leading-control, 1.35);
   font-size: var(--ui-type-meta); padding: var(--ui-compact-padding-y, 6rpx) var(--ui-compact-padding-x, 14rpx);
-  border-radius: var(--ui-control-radius, 28rpx);
+  border-radius: var(--ui-compact-radius, 18rpx);
 }
 
 /* ═══ Compact add button (panel head right side) ═══ */
 .panel-add-btn {
   flex: 0 0 auto;
   min-width: 108rpx; width: auto;
-  min-height: 64rpx; height: auto;
+  min-height: var(--ui-compact-height, 52rpx); height: auto;
   line-height: var(--ui-leading-control, 1.35);
   padding: var(--ui-compact-padding-y, 6rpx) var(--ui-compact-padding-x, 14rpx);
   border-radius: var(--ui-control-radius, 28rpx);
@@ -754,8 +754,8 @@ page {
 
 /* ═══ Picker display ═══ */
 .picker-display {
-  width: 100%; min-height: 88rpx;
-  padding: 0 24rpx; border-radius: 22rpx;
+  width: 100%; min-height: var(--ui-field-control-height, 82rpx);
+  padding: 0 24rpx; border-radius: var(--ui-field-radius, 20rpx);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(247, 250, 255, 0.82) 100%);
   border: 1rpx solid rgba(226, 232, 240, 0.68);
   box-shadow:
@@ -1078,8 +1078,8 @@ page {
 .rule-condition-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12rpx; }
 .rule-condition-field { min-width: 0; margin-bottom: 0; }
 .rule-condition-field--full { grid-column: 1 / -1; }
-.rule-condition-field .picker-display { min-height: 76rpx; padding: 0 14rpx; font-size: var(--ui-type-control); line-height: 1.45; overflow-wrap: anywhere; }
-.rule-condition-field .picker-value { min-height: 76rpx; padding: 12rpx 14rpx; font-size: var(--ui-type-control); line-height: 1.45; overflow-wrap: anywhere; }
+.rule-condition-field .picker-display { min-height: var(--ui-field-control-height, 82rpx); padding: 0 14rpx; font-size: var(--ui-type-control); line-height: 1.45; overflow-wrap: anywhere; }
+.rule-condition-field .picker-value { min-height: var(--ui-field-control-height, 82rpx); padding: 12rpx 14rpx; font-size: var(--ui-type-control); line-height: 1.45; overflow-wrap: anywhere; }
 .rule-condition-field .field-label { margin-bottom: 6rpx; }
 .rule-save-bar { flex: 0 0 auto; margin: 0; }
 .rule-save-bar button { width: 100%; margin: 0; }

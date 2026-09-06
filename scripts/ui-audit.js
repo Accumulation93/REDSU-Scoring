@@ -9,7 +9,7 @@ const INTERACTIVE_ATTR = /\b(bindtap|catchtap|bindlongpress|catchlongpress)\s*=/
 const INPUT_TAGS = new Set(['input', 'textarea', 'picker', 'slider', 'switch', 'checkbox', 'radio']);
 const VOID_TAGS = new Set(['input', 'textarea', 'image', 'icon', 'progress', 'slider', 'switch']);
 const SHELL_NAMES = ['card', 'section', 'edit-box', 'list-card', 'popup-card', 'modal-card', 'sheet-panel'];
-const NON_VISUAL_TARGET = /(mask|canvas|ghost|drag|handle|hit-area|physical-keyboard-capture)/;
+const NON_VISUAL_TARGET = /(mask|canvas|ghost|drag|handle|hit-area|physical-keyboard-capture|time-keyboard)/;
 const BANNED_COLORS = /#(?:1d4ed8|1e40af|172554)\b/gi;
 const LEGACY_OVERLAYS = new Set(['popup-mask', 'modal-mask', 'dialog-layer', 'sheet-layer', 'ui-sheet-overlay']);
 const LEGACY_DIALOG_SHELLS = new Set(['popup-card', 'modal-card', 'dialog-panel', 'sheet-panel']);
@@ -1324,6 +1324,45 @@ const wxmlFiles = walk(MINI_ROOT, '.wxml');
 const controls = wxmlFiles.flatMap(scanWxml);
 const controlSurfaceIssues = wxmlFiles.flatMap(scanControlSurfaceContracts);
 const selectionCardIssues = wxmlFiles.flatMap(scanSelectionCardContracts);
+for (const file of walk(MINI_ROOT, '.wxss')) {
+  if (relative(file) === 'miniprogram/app.wxss') continue;
+  const source = fs.readFileSync(file, 'utf8');
+  const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+  let ruleMatch;
+  while ((ruleMatch = rulePattern.exec(source))) {
+    const selector = ruleMatch[1].trim().replace(/\s+/g, ' ');
+    const declarations = ruleMatch[2];
+    if (!/\.(?:field-input|picker-value|picker-display|compact-picker-value)\b/.test(selector)) continue;
+    const literalHeight = declarations.match(/(?:^|;)\s*(?:height|min-height)\s*:\s*(\d+(?:\.\d+)?)(r?px)\b/i);
+    if (!literalHeight) continue;
+    controlSurfaceIssues.push({
+      file: relative(file),
+      line: lineAt(source, ruleMatch.index + literalHeight.index),
+      selector,
+      message: '全仓基础输入与选择控件禁止页面私有固定高度，必须使用 ui-field/inline/compact 语义高度令牌'
+    });
+  }
+}
+const dialogSurfaceClasses = /\b(?:popup-card|modal-card|dialog-panel|sheet-panel|message-switch-dialog|organization-picker-dialog|permission-dialog)\b/;
+for (const file of wxmlFiles) {
+  const source = fs.readFileSync(file, 'utf8');
+  for (const match of source.matchAll(/class="([^"]*\bui-dialog-shell\b[^"]*)"/g)) {
+    if (dialogSurfaceClasses.test(match[1])) continue;
+    controlSurfaceIssues.push({
+      file: relative(file),
+      line: lineAt(source, match.index),
+      className: match[1],
+      message: '全仓 ui-dialog-shell 必须同时声明可识别的白色窗口表面类，禁止内容直接落在灰色遮罩或阴影区'
+    });
+  }
+}
+if (!/\.popup-mask,[\s\S]*?background:\s*rgba\(15,23,42,0\.34\)/.test(GLOBAL_STYLE) ||
+    !/\.popup-card,[\s\S]*?background:\s*linear-gradient\(135deg,\s*rgba\(255,255,255,0\.97\),\s*rgba\(248,251,255,0\.91\)\)[^}]*box-shadow:/s.test(GLOBAL_STYLE)) {
+  controlSurfaceIssues.push({
+    file: 'miniprogram/app.wxss',
+    message: '缺少全仓“灰色只属于遮罩、白色窗口承载内容、阴影只投向窗外”的基础表面契约'
+  });
+}
 const personnelPickerBase = path.join(MINI_ROOT, 'components', 'personnel-picker', 'personnel-picker');
 const personnelPickerMarkup = fs.readFileSync(`${personnelPickerBase}.wxml`, 'utf8');
 const personnelPickerStyle = fs.readFileSync(`${personnelPickerBase}.wxss`, 'utf8');
@@ -1479,9 +1518,9 @@ const missingDialogInteriorSystem = !(
   /\.ui-dialog-stack\s*\{[^}]*padding:\s*0;[^}]*border:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/m.test(GLOBAL_STYLE)
 );
 const missingDialogPortalTokenSystem = !(
-  /page,\s*\.ui-overlay,\s*\.ui-sheet-overlay\s*\{[\s\S]*?--ui-dialog-width-inset:\s*32rpx;[\s\S]*?--ui-dialog-height-inset:\s*72rpx;/.test(GLOBAL_STYLE) &&
-  /@media\s*\(min-width:\s*520px\)[\s\S]*?page,\s*\.ui-overlay,\s*\.ui-sheet-overlay\s*\{[\s\S]*?--ui-dialog-width-inset:\s*40px;[\s\S]*?--ui-dialog-height-inset:\s*48px;/.test(GLOBAL_STYLE) &&
-  /@media\s*\(min-width:\s*900px\)\s*and\s*\(orientation:\s*landscape\)[\s\S]*?page,\s*\.ui-overlay,\s*\.ui-sheet-overlay\s*\{[\s\S]*?--ui-dialog-width-inset:\s*48px;[\s\S]*?--ui-dialog-height-inset:\s*48px;/.test(GLOBAL_STYLE) &&
+  /page,\s*\.ui-overlay,\s*\.ui-sheet-overlay,\s*\.ui-portal-surface\s*\{[\s\S]*?--ui-dialog-width-inset:\s*32rpx;[\s\S]*?--ui-dialog-height-inset:\s*72rpx;/.test(GLOBAL_STYLE) &&
+  /@media\s*\(min-width:\s*520px\)[\s\S]*?page,\s*\.ui-overlay,\s*\.ui-sheet-overlay,\s*\.ui-portal-surface\s*\{[\s\S]*?--ui-dialog-width-inset:\s*40px;[\s\S]*?--ui-dialog-height-inset:\s*48px;/.test(GLOBAL_STYLE) &&
+  /@media\s*\(min-width:\s*900px\)\s*and\s*\(orientation:\s*landscape\)[\s\S]*?page,\s*\.ui-overlay,\s*\.ui-sheet-overlay,\s*\.ui-portal-surface\s*\{[\s\S]*?--ui-dialog-width-inset:\s*48px;[\s\S]*?--ui-dialog-height-inset:\s*48px;/.test(GLOBAL_STYLE) &&
   /width:\s*calc\(100vw\s*-\s*var\(--ui-dialog-width-inset,\s*32rpx\)\)\s*!important;/.test(GLOBAL_STYLE) &&
   /max-height:\s*calc\(100vh\s*-\s*var\(--ui-dialog-height-inset,\s*72rpx\)/.test(GLOBAL_STYLE)
 );
@@ -1577,6 +1616,31 @@ if (!/--ui-inline-control-height:\s*56rpx/.test(GLOBAL_STYLE) ||
   controlSurfaceIssues.push({
     file: 'miniprogram/app.wxss',
     message: '缺少同排控件共享物理高度与垂直基线的 ui-inline-control 契约'
+  });
+}
+const venueBookingBase = path.join(MINI_ROOT, 'subpackages', 'venue', 'pages', 'venueBooking', 'venueBooking');
+const venueBookingMarkup = fs.readFileSync(`${venueBookingBase}.wxml`, 'utf8');
+const venueBookingStyle = fs.readFileSync(`${venueBookingBase}.wxss`, 'utf8');
+if (!/--ui-field-control-height:\s*82rpx/.test(GLOBAL_STYLE) ||
+    !/@media\s*\(min-width:\s*520px\)[\s\S]*?--ui-field-control-height:\s*44px/.test(GLOBAL_STYLE) ||
+    !/\.field-input,[\s\S]*?\.compact-picker-value\s*\{[^}]*min-height:\s*var\(--ui-field-control-height/s.test(GLOBAL_STYLE) ||
+    !/\.ui-field-control-host\s*\{[^}]*display:\s*block;[^}]*width:\s*100%/s.test(GLOBAL_STYLE) ||
+    !/\.ui-field-control\s*\{[^}]*min-height:\s*var\(--ui-field-control-height/s.test(GLOBAL_STYLE)) {
+  controlSurfaceIssues.push({
+    file: 'miniprogram/app.wxss',
+    message: '缺少完整表单字段统一高度令牌或 ui-field-control/host 几何契约'
+  });
+}
+if (!/<viewport-portal\s+wx:if="\{\{_kbVisible\}\}">[\s\S]*?<view\s+class="time-keyboard ui-portal-surface"/s.test(venueBookingMarkup) ||
+    /<view\s+class="time-keyboard[^\"]*ui-motion-chip/.test(venueBookingMarkup) ||
+    !/<picker\s+class="ui-field-control-host"[^>]*range="\{\{approvalFlowOptions\}\}"/.test(venueBookingMarkup) ||
+    !/class="pick-row ui-field-control-host"\s+catchtap="openFirstApproverPicker"/.test(venueBookingMarkup) ||
+    !/\.booking-form-popup \.field-input\s*\{[^}]*min-height:\s*var\(--ui-field-control-height/s.test(venueBookingStyle) ||
+    !/\.booking-form-popup \.picker-display\s*\{[^}]*min-height:\s*var\(--ui-field-control-height/s.test(venueBookingStyle) ||
+    !/\.time-kb-display-row\s*\{[^}]*min-height:\s*var\(--ui-field-control-height[^}]*background:\s*linear-gradient/s.test(venueBookingStyle)) {
+  controlSurfaceIssues.push({
+    file: 'miniprogram/subpackages/venue/pages/venueBooking/',
+    message: '借用时间键盘必须处于 RootPortal 顶层且外壳不联动；日期、时间、流程和人员入口必须使用统一完整字段高度'
   });
 }
 if (!/\.ui-compact-segmented\s*\{[\s\S]*?width:\s*auto\s*!important/s.test(GLOBAL_STYLE) ||

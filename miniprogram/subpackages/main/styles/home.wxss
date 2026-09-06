@@ -505,9 +505,9 @@ scroll-view {
 .field-input,
 .picker-value {
   width: 100%;
-  min-height: 90rpx;
+  min-height: var(--ui-field-control-height, 82rpx);
   box-sizing: border-box;
-  border-radius: 24rpx;
+  border-radius: var(--ui-field-radius, 20rpx);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.94) 0%, rgba(247, 250, 255, 0.84) 100%);
   border: 1rpx solid rgba(226, 232, 240, 0.74);
   color: #0f172a;
@@ -519,14 +519,14 @@ scroll-view {
 
 .field-input {
   display: block;
-  padding: 20rpx 24rpx;
-  line-height: 50rpx;
+  padding: 16rpx 20rpx;
+  line-height: 1.55;
 }
 
 .picker-value {
   display: flex;
   align-items: center;
-  padding: 0 24rpx;
+  padding: 16rpx 20rpx;
 }
 
 .field-hint {
@@ -1450,7 +1450,7 @@ scroll-view {
 .desig-current-item { background: rgba(255,255,255,0.85); }
 .rule-filter-row { display: flex; gap: 16rpx; margin-bottom: 6rpx; }
 .rule-filter-field { flex: 1; min-width: 0; }
-.compact-picker-value { min-height: 70rpx; padding: 0 18rpx; font-size: var(--ui-type-label); border-radius: 18rpx; }
+.compact-picker-value { min-height: var(--ui-inline-control-height, 56rpx); padding: 0 18rpx; font-size: var(--ui-type-label); border-radius: var(--ui-compact-radius, 18rpx); }
 .field-label { color: #64748b; font-size: var(--ui-type-control); margin-bottom: var(--ui-label-gap); }
 .desig-popup-card .field-input { width: 100%; padding: 12rpx 16rpx; border-radius: 18rpx; background: linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(246,249,255,0.86) 100%); border: 1rpx solid rgba(219,229,241,0.96); box-shadow: 0 7rpx 16rpx rgba(15,23,42,0.032), inset 0 1rpx 0 rgba(255,255,255,0.88); font-size: var(--ui-type-control); box-sizing: border-box; }
 .inline-actions { display: flex; flex-wrap: wrap; gap: var(--ui-inline-gap); align-items: center; }

@@ -84,9 +84,9 @@ page {
 .picker-value,
 .picker-display {
   width: 100%;
-  min-height: 86rpx;
-  padding: 22rpx 22rpx;
-  border-radius: 22rpx;
+  min-height: var(--ui-field-control-height, 82rpx);
+  padding: 16rpx 20rpx;
+  border-radius: var(--ui-field-radius, 20rpx);
   color: #0f172a;
   font-size: var(--ui-type-emphasis);
   line-height: 1.6;

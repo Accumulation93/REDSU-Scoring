@@ -1127,10 +1127,10 @@ scroll-view {
 }
 
 .compact-picker-value {
-  min-height: 70rpx;
+  min-height: var(--ui-inline-control-height, 56rpx);
   padding: 0 18rpx;
   font-size: var(--ui-type-label);
-  border-radius: 18rpx;
+  border-radius: var(--ui-compact-radius, 18rpx);
 }
 
 .rule-list-inline-actions {
@@ -2060,11 +2060,11 @@ scroll-view {
 
 .secondary-btn.revoke-score-btn {
   min-width: 188rpx;
-  min-height: 44rpx;
+  min-height: var(--ui-compact-height, 52rpx);
   height: auto;
   line-height: 1.2;
   padding: 6rpx 16rpx;
-  border-radius: var(--ui-control-radius, 28rpx);
+  border-radius: var(--ui-compact-radius, 18rpx);
   color: #b42318;
   font-size: var(--ui-type-meta);
   font-weight: 750;
