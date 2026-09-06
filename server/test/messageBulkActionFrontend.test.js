@@ -67,6 +67,8 @@ function loadPage(relativePath, responseQueues, runtimeOptions) {
   const mocks = {
     '../../../../utils/api': api,
     '../../../../utils/orgSession': orgSession,
+    // 本组仅验证消息批量操作；可选绑定的生命周期在专项测试中覆盖。
+    '../../../../utils/passwordBindingOffer': { start() {}, cancel() {} },
     '../../../../utils/messageScope': {
       getScope() { return { organizationId: '', organizationName: locale.messageCenter.messages.allOrganizations }; },
       setScope() {},
