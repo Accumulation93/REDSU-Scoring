@@ -1336,14 +1336,20 @@ const personnelPickerPages = [
 ];
 if (!/<viewport-portal\b/.test(personnelPickerMarkup) ||
     !/class="ui-overlay-blocker"\s+catchtouchmove="noop"/.test(personnelPickerMarkup) ||
+    !/class="[^"]*personnel-picker-shell[^"]*popup-card[^"]*ui-dialog-shell/.test(personnelPickerMarkup) ||
+    !/class="[^"]*personnel-picker-header[^"]*popup-header[^"]*ui-dialog-header/.test(personnelPickerMarkup) ||
+    !/class="[^"]*personnel-picker-close[^"]*popup-close/.test(personnelPickerMarkup) ||
     !/class="[^"]*ui-dialog-body[^"]*"/.test(personnelPickerMarkup) ||
     !/class="[^"]*ui-dialog-footer[^"]*"/.test(personnelPickerMarkup) ||
     !/class="select-chip[^\"]*selection-card-toggle/.test(personnelPickerMarkup) ||
+    !/\.personnel-picker-shell\.popup-card\s*\{[^}]*padding:\s*var\(--ui-dialog-padding[^}]*background:\s*linear-gradient[^}]*box-shadow:/s.test(personnelPickerStyle) ||
+    !/\.personnel-picker-stack\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*gap:\s*var\(--ui-dialog-section-gap/s.test(personnelPickerStyle) ||
+    !/\.personnel-picker-card-content\s*\{[^}]*flex:\s*1;[^}]*min-width:\s*0;/s.test(personnelPickerStyle) ||
     !/@media\s*\(min-width:\s*520px\)\s*and\s*\(max-width:\s*899px\)/.test(personnelPickerStyle) ||
     !/@media\s*\(min-width:\s*900px\)\s*and\s*\(orientation:\s*landscape\)/.test(personnelPickerStyle)) {
   selectionCardIssues.push({
     file: 'miniprogram/components/personnel-picker/',
-    message: '共享人员选择器缺少 portal、触摸阻断、三段式弹窗、左上选择控件或三设备响应式契约'
+    message: '共享人员选择器缺少白色弹窗表面、分区留白、正文宽度保护、三段式结构、左上选择控件或三设备响应式契约'
   });
 }
 for (const pageBase of personnelPickerPages) {
