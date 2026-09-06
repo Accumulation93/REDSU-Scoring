@@ -34,6 +34,16 @@ const context = {
 };
 Object.assign(context, behavior.methods);
 
+// 整卡批量选择与查看详情必须分流，不能一次点击同时触发两种动作。
+const cardActions = [];
+const cardContext = { data: { canVerifyIdentity: true },
+  toggleHrMemberSelection() { cardActions.push('select'); },
+  openHrPersonDetail() { cardActions.push('detail'); } };
+behavior.methods.onHrMemberCardTap.call(cardContext, {});
+cardContext.data.canVerifyIdentity = false;
+behavior.methods.onHrMemberCardTap.call(cardContext, {});
+assert.deepStrictEqual(cardActions, ['select', 'detail']);
+
 const governance = new Map([['hr-1', {
   id: 'hr-1',
   hrId: 'hr-1',

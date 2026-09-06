@@ -352,6 +352,14 @@ module.exports = Behavior({
       return (this._hrProfileRawRows || []).find((item) => String(item.id || '') === target) || null;
     },
 
+    onHrMemberCardTap(e) {
+      if (this.data.canVerifyIdentity || this.data.canGlobalAccountManage) {
+        this.toggleHrMemberSelection(e);
+      } else {
+        this.openHrPersonDetail(e);
+      }
+    },
+
     toggleHrMemberSelection(e) {
       const hrId = String(e.currentTarget.dataset.hrId || '');
       if (!hrId) return;

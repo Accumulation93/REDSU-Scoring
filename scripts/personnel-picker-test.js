@@ -41,4 +41,49 @@ assert.match(componentSource, /draftKeys/, '组件必须在内部维护临时选
 assert.match(componentSource, /triggerEvent\('confirm',[\s\S]*keys:/, '确认事件必须回传 keys 与 items');
 assert.match(componentSource, /cancelSelection:[\s\S]*triggerEvent\('cancel'\)/, '取消弹窗不得写回页面值');
 
+// 展开已选区只改变展示状态，不能隐式改写草稿或通知业务页面。
+let definition;
+require('vm').runInNewContext(componentSource, {
+  require: function(id) { return id.includes('personnelPickerModel') ? model : require('../miniprogram/locales/zh-CN/personnelPicker'); },
+  Component: function(value) { definition = value; }
+});
+const events = [];
+const instance = Object.assign({
+  data: Object.assign({}, definition.data),
+  properties: { value: ['a-1'], options: people, selectionLevel: 'assignment', multiple: true },
+  setData: function(patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this); },
+  triggerEvent: function(name, payload) { events.push({ name, payload }); }
+}, definition.methods);
+instance._resetDraft();
+assert.strictEqual(instance.data.selectedExpanded, false);
+instance.toggleSelectedExpanded();
+assert.strictEqual(instance.data.selectedExpanded, true);
+assert.deepStrictEqual(Array.from(instance.data.draftKeys), ['a-1']);
+instance.toggleOption({ currentTarget: { dataset: { key: 'a-1' } } });
+assert.strictEqual(instance.data.selectedItems.length, 0, '展开列表中取消最后一项应更新摘要');
+assert.strictEqual(events.length, 0, '展开与取消单项均不得通知业务保存');
+instance._resetDraft();
+assert.strictEqual(instance.data.selectedExpanded, false, '重开时恢复紧凑摘要');
+assert.deepStrictEqual(Array.from(instance.data.draftKeys), ['a-1'], '未确认的取消不能覆盖外部值');
+
 console.log('共享人员选择器逻辑测试通过');
+
+const markup = require('fs').readFileSync(require('path').join(__dirname, '../miniprogram/components/personnel-picker/personnel-picker.wxml'), 'utf8');
+assert(!/selection-card-toggle|personnel-picker-avatar|studentId|_initial/.test(markup), '人员卡不得恢复独立勾选、姓氏头像或学号');
+assert.strictEqual((markup.match(/catchtap="toggleOption"/g) || []).length, 2, '候选区与已选区均由整卡切换选择');
+assert(assignments.every(item => !Object.hasOwnProperty.call(item, 'studentId')));
+assert.strictEqual(model.filterOptions(assignments, { keyword: '20260001' }).length, 0, '不得通过学号搜索旁路识别人');
+instance.toggleOption({ currentTarget: { dataset: { key: 'a-2' } } });
+instance.cancelSelection();
+assert.strictEqual(events[0].name, 'cancel');
+assert.deepStrictEqual(instance.properties.value, ['a-1'], '取消弹窗不得改写外部值');
+instance._resetDraft();
+instance.toggleOption({ currentTarget: { dataset: { key: 'a-1' } } });
+instance.confirmSelection();
+assert.strictEqual(events[1].payload.keys.length, 0, '整卡取消全部后允许确认空数组');
+
+for (const file of ['miniprogram/subpackages/scoring/pages/admin/admin.wxml', 'miniprogram/subpackages/venue/pages/venueManage/venueManage.wxml']) {
+  const content = require('fs').readFileSync(require('path').join(__dirname, '..', file), 'utf8');
+  assert(!content.includes('selection-card-toggle'), file + ' 不得恢复独立选择控件');
+  assert(content.includes('selection-option-card-selected'), file + ' 必须使用整卡选中状态');
+}

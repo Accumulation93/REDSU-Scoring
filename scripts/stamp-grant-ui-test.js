@@ -35,6 +35,8 @@ vm.runInNewContext(source, { module: {}, Behavior(value) { behavior = value; ret
   assert.strictEqual(requests[requests.length - 1].data.assignmentIds.length, 0, '确认空选择用于清空');
   const wxml = fs.readFileSync(path.join(__dirname, '../miniprogram/subpackages/scoring/pages/admin/admin.wxml'), 'utf8');
   assert(wxml.includes('bindtap="openStampGrants"') && wxml.includes('visible="{{stampGrantVisible}}"'));
+  assert(wxml.includes('list-item list-item-stacked audit-stamp-card'), '印章外卡必须纵向分隔摘要和操作栏');
+  assert(!wxml.includes('wx:for="{{item.assignedPeople}}"'), '外卡不得展示可用人明细');
   assert(!source.includes('studentId') && !source.includes('identityId:'), '印章不读取学号、不按身份类别放行');
   console.log('印章管理入口、共享岗位选择、取消、清空和目标隔离测试通过');
 })().catch(error => { console.error(error); process.exitCode = 1; });

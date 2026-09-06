@@ -22,7 +22,6 @@ function assignmentFields(person, assignment) {
     id: text(person.id || person.hrId || source.hrId || source.legacyHrId),
     hrId: text(person.hrId || person.id || source.hrId || source.legacyHrId),
     name: text(person.name || person.personName || source.name || source.personName),
-    studentId: text(person.studentId || person.student_id || source.studentId),
     assignmentId: text(source.assignmentId || source.assignment_id || source.id),
     assignmentLabel: text(source.assignmentLabel || source.assignment_label || source._eligibleAssignmentText || source._selectionText || snapshot.assignmentLabel),
     departmentId: text(source.departmentId || source.department_id || snapshot.departmentId),
@@ -70,7 +69,6 @@ function normalizePersonOptions(options) {
       id: text(person.id || person.hrId),
       hrId: text(person.hrId || person.id),
       name: text(person.name || person.personName),
-      studentId: text(person.studentId || person.student_id),
       assignmentId: '',
       assignmentLabel: '',
       departmentId: '',
@@ -107,7 +105,7 @@ function filterOptions(options, filters) {
     const tuples = tupleList(item);
     if (!tuples.some(function(tuple) { return tupleMatches(tuple, filters || {}); })) return false;
     if (!query) return true;
-    const haystack = [item.name, item.studentId].concat(tuples.reduce(function(parts, tuple) {
+    const haystack = [item.name].concat(tuples.reduce(function(parts, tuple) {
       return parts.concat([
         tuple.assignmentLabel,
         tuple.departmentName,

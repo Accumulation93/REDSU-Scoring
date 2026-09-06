@@ -27,6 +27,7 @@ Component({
     normalizedOptions: [],
     filteredOptions: [],
     selectedItems: [],
+    selectedExpanded: false,
     draftKeys: [],
     departmentOptions: [],
     identityOptions: [],
@@ -66,6 +67,7 @@ Component({
         identity: '',
         workGroup: '',
         keyword: '',
+        selectedExpanded: false,
         draftKeys: keys
       }, function() {
         this._refreshOptions(keys);
@@ -95,7 +97,6 @@ Component({
       const decorated = this.data.normalizedOptions.map(function(item) {
         return Object.assign({}, item, {
           _selected: selectedSet.has(item.selectionKey),
-          _initial: String(item.name || localeCopy.unnamed).slice(0, 1),
           _displayName: item.name || localeCopy.unnamed,
           _assignmentText: item.assignmentLabel || localeCopy.assignmentUnavailable
         });
@@ -120,6 +121,10 @@ Component({
       if (!key) return;
       const keys = model.toggleSelection(this.data.draftKeys, key, this.properties.multiple);
       this._applyView(keys);
+    },
+
+    toggleSelectedExpanded: function() {
+      this.setData({ selectedExpanded: !this.data.selectedExpanded });
     },
 
     onDepartmentChange: function(event) {
@@ -147,7 +152,6 @@ Component({
         items: this.data.selectedItems.map(function(item) {
           const copy = Object.assign({}, item);
           delete copy._selected;
-          delete copy._initial;
           delete copy._displayName;
           delete copy._assignmentText;
           return copy;

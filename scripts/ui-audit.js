@@ -445,107 +445,21 @@ function scanControlSurfaceContracts(file) {
 
 function scanSelectionCardContracts(file) {
   const source = fs.readFileSync(file, 'utf8');
-  const stack = [];
   const findings = [];
-  const informationClass = /(?:^|\s)(?:list-name|hr-member-name|eligible-assignment-chip|identity-chip|department-chip|work-group-chip|status-chip)(?:\s|$)/;
-
   for (const token of tokenizeWxml(source)) {
     const raw = token.raw;
-    if (raw.startsWith('<!--')) continue;
-    const close = raw.match(/^<\/([\w-]+)/);
-    if (close) {
-      for (let index = stack.length - 1; index >= 0; index -= 1) {
-        if (stack[index].tag === close[1]) {
-          stack.length = index;
-          break;
-        }
-      }
-      continue;
+    if (raw.startsWith('<!--') || raw.startsWith('</')) continue;
+    const className = attrValue(raw, 'class');
+    if (/selection-card-toggle|personnel-picker-avatar/.test(className)) {
+      findings.push({ file: relative(file), line: lineAt(source, token.index),
+        message: '已退役的独立选择胶囊和姓氏头像禁止恢复，必须使用整卡蓝色选中态' });
     }
-
-    const start = raw.match(/^<([\w-]+)([\s\S]*?)\/?>(?:\s*)$/);
-    if (!start) continue;
-    const tag = start[1];
-    const attrs = start[2] || '';
-    const className = attrValue(attrs, 'class');
-    const parent = stack[stack.length - 1];
-    const selectionAncestor = [...stack].reverse().find(item => item.selectionCard);
-    const nameAncestor = [...stack].reverse().find(item => (
-      hasClass(item.className, 'list-name') ||
-      hasClass(item.className, 'hr-member-name')
-    ));
-
-    if (parent && parent.selectionCard) {
-      parent.directChildCount += 1;
-      if (parent.directChildCount === 1 && !hasClass(className, 'selection-card-toggle')) {
-        findings.push({
-          file: relative(file),
-          line: lineAt(source, token.index),
-          message: 'selection-option-card 的第一个可见子项必须是左上 selection-card-toggle'
-        });
-      }
+    if (!hasClass(className, 'selection-option-card')) continue;
+    if (!attrValue(raw, 'catchtap') || !attrValue(raw, 'aria-checked') ||
+        !/selection-option-card-selected|personnel-picker-card-selected/.test(className)) {
+      findings.push({ file: relative(file), line: lineAt(source, token.index),
+        message: '选择卡片必须在整卡绑定选择事件、无障碍选中状态与蓝色选中类' });
     }
-
-    const isSelectionControl = hasClass(className, 'select-chip') || hasClass(className, 'hr-member-select');
-    if (isSelectionControl && !hasClass(className, 'selection-card-toggle')) {
-      findings.push({
-        file: relative(file),
-        line: lineAt(source, token.index),
-        message: '卡片选择控件必须使用 selection-card-toggle，不能建立私有选择状态位置'
-      });
-    }
-    if (isSelectionControl && nameAncestor) {
-      findings.push({
-        file: relative(file),
-        line: lineAt(source, token.index),
-        message: '选择/取消控件禁止嵌入姓名文字，必须独立位于卡片左上'
-      });
-    }
-    if (hasClass(className, 'selection-card-toggle') && !selectionAncestor) {
-      findings.push({
-        file: relative(file),
-        line: lineAt(source, token.index),
-        message: 'selection-card-toggle 必须属于 selection-option-card，禁止脱离卡片建立悬空选择控件'
-      });
-    }
-    if (hasClass(className, 'selection-card-toggle') && /copy_78564bdb46|已选/.test(raw)) {
-      findings.push({
-        file: relative(file),
-        line: lineAt(source, token.index),
-        message: '选中态操作文案必须是“取消”，不能使用只描述状态的“已选”'
-      });
-    }
-    if (selectionAncestor && hasClass(className, 'card-actions')) {
-      findings.push({
-        file: relative(file),
-        line: lineAt(source, token.index),
-        message: '选择卡片禁止混入整行 card-actions/移除操作，取消必须复用左上选择控件'
-      });
-    }
-    if (selectionAncestor && informationClass.test(className) && INTERACTIVE_ATTR.test(attrs) && !hasClass(className, 'selection-card-toggle')) {
-      findings.push({
-        file: relative(file),
-        line: lineAt(source, token.index),
-        message: '姓名、身份、部门、职能组、岗位或状态气泡只表达信息，禁止承担选择事件'
-      });
-    }
-
-    const selfClosing = raw.endsWith('/>') || VOID_TAGS.has(tag);
-    if (!selfClosing) {
-      stack.push({
-        tag,
-        className,
-        selectionCard: hasClass(className, 'selection-option-card'),
-        directChildCount: 0
-      });
-    }
-  }
-
-  if (/eligible-assignment-chip-selected|selectedAssignmentPrefix/.test(source)) {
-    findings.push({
-      file: relative(file),
-      message: '岗位信息气泡禁止保存或拼接选择状态；请使用左上 selection-card-toggle'
-    });
   }
   return findings;
 }
@@ -1380,7 +1294,8 @@ if (!/<viewport-portal\b/.test(personnelPickerMarkup) ||
     !/class="[^"]*personnel-picker-close[^"]*popup-close/.test(personnelPickerMarkup) ||
     !/class="[^"]*ui-dialog-body[^"]*"/.test(personnelPickerMarkup) ||
     !/class="[^"]*ui-dialog-footer[^"]*"/.test(personnelPickerMarkup) ||
-    !/class="select-chip[^\"]*selection-card-toggle/.test(personnelPickerMarkup) ||
+    /selection-card-toggle|personnel-picker-avatar|studentId|_initial/.test(personnelPickerMarkup) ||
+    !/\.personnel-picker-card\.personnel-picker-card-selected\s*\{[^}]*border-color:\s*#3b82f6;[^}]*background:\s*linear-gradient/s.test(personnelPickerStyle) ||
     !/\.personnel-picker-shell\.popup-card\s*\{[^}]*padding:\s*var\(--ui-dialog-padding[^}]*background:\s*linear-gradient[^}]*box-shadow:/s.test(personnelPickerStyle) ||
     !/\.personnel-picker-stack\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*gap:\s*var\(--ui-dialog-section-gap/s.test(personnelPickerStyle) ||
     !/\.personnel-picker-card-content\s*\{[^}]*flex:\s*1;[^}]*min-width:\s*0;/s.test(personnelPickerStyle) ||
@@ -1388,7 +1303,7 @@ if (!/<viewport-portal\b/.test(personnelPickerMarkup) ||
     !/@media\s*\(min-width:\s*900px\)\s*and\s*\(orientation:\s*landscape\)/.test(personnelPickerStyle)) {
   selectionCardIssues.push({
     file: 'miniprogram/components/personnel-picker/',
-    message: '共享人员选择器缺少白色弹窗表面、分区留白、正文宽度保护、三段式结构、左上选择控件或三设备响应式契约'
+    message: '共享人员选择器缺少白色窗口、留白、正文宽度保护、三段式结构、整卡蓝色选中态或三设备响应式契约，或恢复了已退役元素'
   });
 }
 for (const pageBase of personnelPickerPages) {
@@ -1579,14 +1494,9 @@ const missingTabSizeSystem = !(
   /\.tab\s*\{[^}]*flex:\s*1 1 0;[^}]*min-width:\s*0;[^}]*white-space:\s*nowrap;/s.test(adminStyle)
 );
 const homeStyle = fs.readFileSync(path.join(MINI_ROOT, 'subpackages', 'main', 'styles', 'home.wxss'), 'utf8');
-if (!/\.selection-option-card\s*>\s*\.selection-card-toggle\s*\{[^}]*flex:\s*none;[^}]*align-self:\s*flex-start;[^}]*min-width:/s.test(homeStyle) ||
-    !/\.selection-option-card\s*>\s*\.list-main,[\s\S]*?\.selection-option-card\s*>\s*\.audit-person-info\s*\{[^}]*flex:\s*1;[^}]*min-width:\s*0;/s.test(homeStyle) ||
-    !/@media\s*\(min-width:\s*520px\)\s*and\s*\(max-width:\s*899px\)[\s\S]*?\.selection-option-card\s*>\s*\.selection-card-toggle\s*\{[^}]*min-width:\s*48px;/s.test(homeStyle) ||
-    !/@media\s*\(min-width:\s*900px\)\s*and\s*\(orientation:\s*landscape\)[\s\S]*?\.selection-option-card\s*>\s*\.selection-card-toggle\s*\{[^}]*min-width:\s*44px;/s.test(homeStyle)) {
-  selectionCardIssues.push({
-    file: 'miniprogram/subpackages/main/styles/home.wxss',
-    message: '缺少卡片式选择器左上固定选择控件、可收缩正文或 Pad 独立宽度契约'
-  });
+if (!/\.selection-option-card\.selection-option-card-selected\s*\{[^}]*border-color:\s*#3b82f6[^}]*background:\s*linear-gradient/s.test(homeStyle)) {
+  selectionCardIssues.push({ file: 'miniprogram/subpackages/main/styles/home.wxss',
+    message: '缺少全仓选择卡片科技蓝边框与淡蓝背景共享样式' });
 }
 if (!/\.section-control-card\s*\{[\s\S]*?background:\s*linear-gradient/.test(homeStyle)) {
   controlSurfaceIssues.push({

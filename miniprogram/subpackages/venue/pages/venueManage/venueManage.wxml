@@ -797,8 +797,7 @@
         <button class="secondary-btn ui-motion-button" catchtap="onCondMultiPickerDeselectAll" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_961862242a}}</button>
       </view>
       <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" nested-scroll-enabled="{{true}}" scroll-y class="inner-scroll large-scroll ui-dialog-scroll--pane ui-dialog-selection-options">
-        <view class="list-item selection-option-card ui-motion-card" wx:for="{{condMultiPickerFilteredList}}" wx:key="id" data-id="{{item.id}}" catchtap="onCondMultiPickerToggle" hover-class="ui-press-card" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">
-          <view class="select-chip selection-card-toggle {{condMultiPickerSelectedIds[item.id] ? 'select-chip-active' : ''}}">{{condMultiPickerSelectedIds[item.id] ? localeCopy.copy_06dbb49961 : localeCopy.copy_c47f370afa}}</view>
+        <view class="list-item selection-option-card {{condMultiPickerSelectedIds[item.id] ? 'selection-option-card-selected' : ''}} ui-motion-card" wx:for="{{condMultiPickerFilteredList}}" wx:key="id" data-id="{{item.id}}" catchtap="onCondMultiPickerToggle" aria-role="checkbox" aria-checked="{{!!condMultiPickerSelectedIds[item.id]}}" hover-class="ui-press-card" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">
           <view class="list-main">
             <view class="list-name">{{item.name}}</view>
             <view class="list-desc" wx:if="{{item.extra}}">{{item.extra}}</view>

@@ -72,24 +72,58 @@
   gap: var(--ui-inline-gap, 12rpx);
   margin-bottom: var(--ui-section-gap, 16rpx);
   color: #0f172a;
-  font-size: var(--ui-type-section);
-  font-weight: 800;
+  font-size: var(--ui-dialog-label-size);
+  font-weight: 600;
   line-height: 1.45;
+}
+
+/* 已选仅作核对摘要，把首屏空间留给筛选与候选岗位。 */
+.personnel-picker-selected-head {
+  justify-content: flex-start;
+  margin-bottom: 0;
+  color: #64748b;
+  font-size: var(--ui-dialog-meta-size);
+}
+
+.personnel-picker-count {
+  margin-left: auto;
+  color: #64748b;
+  font-size: var(--ui-dialog-meta-size);
+  font-weight: 500;
+}
+
+.personnel-picker-expand {
+  flex: none;
+  font-size: var(--ui-dialog-meta-size);
+}
+
+.personnel-picker-stack > .personnel-picker-section {
+  margin-top: 0;
 }
 
 .personnel-picker-list {
   width: 100%;
-  max-height: 360rpx;
   padding: 4rpx 6rpx 0;
   box-sizing: border-box;
   touch-action: pan-y;
 }
 
-.personnel-picker-selected-list {
-  max-height: 250rpx;
+/* 内容短时自然收缩，内容长时在自身视口内滚动，不恢复固定空白工作区。 */
+.personnel-picker-shell .personnel-picker-option-list {
+  height: auto;
+  min-height: 0;
+  max-height: 56vh;
+}
+
+.personnel-picker-shell .personnel-picker-selected-list {
+  height: auto;
+  min-height: 0;
+  max-height: 22vh;
+  margin-top: var(--ui-inline-gap, 12rpx);
 }
 
 .personnel-picker-card {
+  flex: none;
   display: flex;
   align-items: flex-start;
   gap: 16rpx;
@@ -104,12 +138,10 @@
   box-sizing: border-box;
 }
 
-.personnel-picker-card > .selection-card-toggle {
-  flex: none;
-  align-self: flex-start;
-  min-width: 84rpx;
-  box-sizing: border-box;
-  text-align: center;
+.personnel-picker-card.personnel-picker-card-selected {
+  border-color: #3b82f6;
+  background: linear-gradient(135deg, rgba(219,234,254,0.76), rgba(239,246,255,0.92));
+  box-shadow: inset 0 0 0 1px rgba(59,130,246,0.36), inset 0 1rpx 0 rgba(255,255,255,0.86);
 }
 
 .personnel-picker-card-content {
@@ -118,20 +150,6 @@
   align-items: flex-start;
   min-width: 0;
   gap: var(--ui-inline-gap, 12rpx);
-}
-
-.personnel-picker-avatar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 50%;
-  color: #ffffff;
-  font-size: var(--ui-type-body);
-  font-weight: 800;
-  background: linear-gradient(135deg, #2563eb, #60a5fa);
 }
 
 .personnel-picker-main {
@@ -145,13 +163,6 @@
   font-weight: 800;
   line-height: 1.45;
   overflow-wrap: anywhere;
-}
-
-.personnel-picker-student {
-  margin-top: 4rpx;
-  color: #64748b;
-  font-size: var(--ui-type-meta);
-  line-height: 1.55;
 }
 
 .personnel-picker-assignment-list {
@@ -185,6 +196,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--ui-inline-gap, 12rpx);
+  align-items: end;
 }
 
 .personnel-picker-filter {
@@ -192,10 +204,46 @@
 }
 
 .personnel-picker-filter-label {
-  margin-bottom: 8rpx;
-  color: #64748b;
-  font-size: var(--ui-type-meta);
+  margin-bottom: var(--ui-label-gap, 8rpx);
+  color: #334155;
+  font-size: var(--ui-dialog-label-size);
+  font-weight: 600;
   line-height: 1.45;
+}
+
+.personnel-picker-shell .personnel-picker-filter-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8rpx;
+  padding: 12rpx 14rpx;
+  min-height: var(--ui-field-control-height, 82rpx);
+  color: #334155;
+  font-size: var(--ui-dialog-control-size);
+  font-weight: 600;
+  border-color: rgba(147,197,253,0.72);
+  background: linear-gradient(135deg, rgba(255,255,255,0.98), rgba(239,246,255,0.94));
+}
+
+.personnel-picker-filter-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.personnel-picker-chevron {
+  flex: none;
+  width: 10rpx;
+  height: 10rpx;
+  border-right: 2rpx solid #64748b;
+  border-bottom: 2rpx solid #64748b;
+  transform: rotate(45deg);
+}
+
+.personnel-picker-shell .personnel-picker-filter-active {
+  color: #2563eb;
+  border-color: rgba(96,165,250,0.90);
+  background: linear-gradient(135deg, rgba(219,234,254,0.92), rgba(239,246,255,0.94));
 }
 
 .personnel-picker-search {
@@ -226,12 +274,12 @@
     --ui-dialog-max-height: calc(100vh - 48px);
   }
   .personnel-picker-body { max-height: calc(100vh - 190px); }
-  .personnel-picker-list { max-height: 300px; }
-  .personnel-picker-selected-list { max-height: 200px; }
+  .personnel-picker-shell .personnel-picker-option-list { max-height: min(56vh, 560px); }
+  .personnel-picker-shell .personnel-picker-selected-list { max-height: min(22vh, 200px); }
+  .personnel-picker-chevron { width: 6px; height: 6px; border-width: 1px; }
+  .personnel-picker-shell .personnel-picker-filter-value { gap: 6px; }
   .personnel-picker-card { gap: 12px; }
-  .personnel-picker-card > .selection-card-toggle { min-width: 48px; }
   .personnel-picker-card-content { gap: 10px; }
-  .personnel-picker-avatar { width: 40px; height: 40px; }
 }
 
 @media (min-width: 900px) and (orientation: landscape) {
@@ -240,10 +288,10 @@
     --ui-dialog-max-height: calc(100vh - 44px);
   }
   .personnel-picker-body { max-height: calc(100vh - 174px); }
-  .personnel-picker-list { max-height: 260px; }
-  .personnel-picker-selected-list { max-height: 174px; }
+  .personnel-picker-shell .personnel-picker-option-list { max-height: min(56vh, 480px); }
+  .personnel-picker-shell .personnel-picker-selected-list { max-height: min(22vh, 180px); }
+  .personnel-picker-chevron { width: 6px; height: 6px; border-width: 1px; }
+  .personnel-picker-shell .personnel-picker-filter-value { gap: 6px; }
   .personnel-picker-card { gap: 10px; }
-  .personnel-picker-card > .selection-card-toggle { min-width: 44px; }
   .personnel-picker-card-content { gap: 8px; }
-  .personnel-picker-avatar { width: 36px; height: 36px; }
 }
