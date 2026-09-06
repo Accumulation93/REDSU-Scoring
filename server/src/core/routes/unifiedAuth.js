@@ -173,12 +173,12 @@ router.post('/auth/password/session', async (req, res) => {
     );
     const hasWechatCode = Boolean(req.body && (req.body.code || req.body.openid));
     let openid = '';
-    let currentBound = null;
+    let bindingAvailable = false;
     // 微信只提供登录后可选的绑定邀请；交换失败不能否定已经验证的口令。
     if (hasWechatCode && !account.openid_hash) {
       try {
         openid = await unifiedAuth.exchangeWechatCode(req.body.code, req.body.openid);
-        currentBound = await identityModel.findAccountByOpenid(openid);
+        bindingAvailable = await identityModel.canOfferWechatBinding(account.id, openid);
       } catch (_) {
         openid = '';
       }
@@ -191,17 +191,33 @@ router.post('/auth/password/session', async (req, res) => {
       organizationId: req.body && req.body.preferredOrganizationId,
       identityId: req.body && req.body.preferredIdentityId
     }, metadata(req), temporaryOptions);
-    if (!account.openid_hash && (openid || req.body && req.body.requestBindingOffer === true)) {
+    if (!account.openid_hash && openid && bindingAvailable) {
       payload.bindingOffer = {
-        available: !currentBound,
-        currentWechatBound: Boolean(currentBound),
-        requiresWechatCode: !openid,
-        accountId: safeString(account.id),
-        personId: safeString(account.person_id),
-        name: safeString(account.name)
+        available: true,
+        currentWechatBound: false,
+        requiresWechatCode: false
       };
     }
+    // 未检查当前微信只能请求登录后的独立检查，不能声明可绑定。
+    if (!account.openid_hash && req.body && req.body.requestBindingOffer === true) {
+      payload.bindingOfferCheck = true;
+    }
     return res.json(await withSystemTimezone(payload));
+  } catch (error) {
+    return sendError(req, res, error);
+  }
+});
+
+router.post('/auth/security/wechat-binding-offer', async (req, res) => {
+  try {
+    requireUnifiedSession(req);
+    if (req.authSession.binding_mode !== 'temporary') {
+      return res.json({ status: 'success', available: false });
+    }
+    const openid = await unifiedAuth.exchangeWechatCode(req.body && req.body.code);
+    const available = await identityModel.canOfferWechatBinding(req.authAccount.id, openid);
+    // 只回答当前绑定是否可行，不暴露微信所属账号或人员信息。
+    return res.json({ status: 'success', available });
   } catch (error) {
     return sendError(req, res, error);
   }

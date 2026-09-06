@@ -32,8 +32,10 @@ const identityModel = {
     if (scenario.conflict) throw new IdentityError('wechat_conflict', '该微信已绑定其他账号', 409);
     return { id: 'account-1', person_id: 'person-1', openid_hash: 'new-hash' };
   },
-  async findAccountByOpenid(openid) {
-    return scenario.currentBound || null;
+  async canOfferWechatBinding(accountId, openid) {
+    assert.strictEqual(accountId, 'account-1');
+    assert.strictEqual(openid, 'wechat-openid');
+    return !scenario.bound && !scenario.currentBound;
   },
   temporaryPasswordSessionOptions(openid) {
     scenario.temporaryOptionsCalls += 1;
@@ -128,8 +130,7 @@ async function run() {
   const blockedBinding = await invoke({ studentId: '20260001', passphrase: 'Strong-Passphrase-2026', code: 'fresh-code' });
   assert.strictEqual(blockedBinding.statusCode, 200);
   assert.strictEqual(blockedBinding.payload.status, 'login_success');
-  assert.strictEqual(blockedBinding.payload.bindingOffer.available, false);
-  assert.strictEqual(blockedBinding.payload.bindingOffer.currentWechatBound, true);
+  assert.strictEqual(blockedBinding.payload.bindingOffer, undefined, '已被占用的微信不应出现绑定提示');
   assert.strictEqual(scenario.sessionCalls, 1, '临时口令登录不因当前微信已绑定其他账号而阻止登录');
 
   for (const exchangeFailed of [false, true]) {
@@ -147,13 +148,31 @@ async function run() {
   scenario = { bound: false, exchangeCalls: 0, bindCalls: 0, auditCalls: 0, sessionCalls: 0, temporaryOptionsCalls: 0 };
   const deferred = await invoke({ studentId: 'fixture-user', passphrase: 'fixture-passphrase', requestBindingOffer: true });
   assert.strictEqual(deferred.payload.status, 'login_success');
-  assert.strictEqual(deferred.payload.bindingOffer.requiresWechatCode, true);
+  assert.strictEqual(deferred.payload.bindingOffer, undefined, '未知状态不得当作可绑定');
+  assert.strictEqual(deferred.payload.bindingOfferCheck, true);
   assert.strictEqual(scenario.exchangeCalls, 0, '新版口令入口不交换微信凭据');
   const authenticated = {
     authAccount: { id: 'account-1', personId: 'person-1' },
     authContext: { contextId: 'context-1', personId: 'person-1' },
     authSession: { id: 'session-1', binding_mode: 'temporary' }
   };
+  for (const currentBound of [null, { id: 'account-other', status: 'verified' }, { id: 'account-other', status: 'frozen' }]) {
+    scenario.currentBound = currentBound;
+    const offer = await invoke({ code: 'fresh-code', accountId: 'forged' }, authenticated, '/auth/security/wechat-binding-offer');
+    assert.deepStrictEqual(offer.payload, { status: 'success', available: !currentBound });
+    assert.strictEqual(scenario.bindCalls, 0, '资格检查不得写入绑定');
+  }
+  scenario.bound = true;
+  const targetBound = await invoke({ code: 'fresh-code' }, authenticated, '/auth/security/wechat-binding-offer');
+  assert.strictEqual(targetBound.payload.available, false);
+  scenario.bound = false;
+  scenario.currentBound = null;
+  scenario.exchangeFailed = true;
+  const unavailable = await invoke({ code: 'fresh-code' }, authenticated, '/auth/security/wechat-binding-offer');
+  assert.strictEqual(unavailable.statusCode, 503);
+  scenario.exchangeFailed = false;
+  const anonymous = await invoke({ code: 'fresh-code' }, null, '/auth/security/wechat-binding-offer');
+  assert.strictEqual(anonymous.statusCode, 426);
   const bound = await invoke({ code: 'fresh-code', accountId: 'forged' }, authenticated, '/auth/security/bind-current-wechat');
   assert.strictEqual(bound.payload.status, 'success');
   assert.strictEqual(scenario.bindCalls, 1);

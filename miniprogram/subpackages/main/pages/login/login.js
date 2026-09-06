@@ -8,6 +8,7 @@ const {
 } = require('../../../../utils/api');
 const orgSession = require('../../../../utils/orgSession');
 const authContext = require('../../../../utils/authContext');
+const passwordBindingOffer = require('../../../../utils/passwordBindingOffer');
 const { login: copy } = require('../../../../locales/zh-CN/main');
 const { getPasswordRequiredMessage } = require('./loginValidation');
 
@@ -342,14 +343,8 @@ Page({
       });
       if (!result || result.status !== 'login_success') throw new Error(copy.messages.loginInvalid);
       authContext.applyAuthenticatedResult(result);
-      if (result.bindingOffer) {
-        this.setData({
-          stage: 'passwordBinding',
-          bindingOffer: result.bindingOffer
-        });
-      } else {
-        this.openPortal();
-      }
+      passwordBindingOffer.queue(result.bindingOfferCheck === true || Boolean(result.bindingOffer));
+      this.openPortal();
     } catch (error) {
       showShortToast(getErrorText(error, copy.messages.loginInvalid));
     } finally {

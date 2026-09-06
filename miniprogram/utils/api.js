@@ -259,6 +259,31 @@ function requestOnce(name, data, requestId, allowAuthenticationRefresh, timeoutM
   });
 }
 
+// 仅供登录后可选绑定使用：保留统一请求头和身份边界，但不触发重新登录或重放。
+function requestOptionalWechatBinding(options) {
+  const name = options.name;
+  const expected = options.session || {};
+  const requestId = createRequestId();
+  const current = function() {
+    const now = orgSession.getSnapshot();
+    return expected.token && now.token === expected.token && now.orgId === expected.orgId
+      && now.contextId === expected.contextId;
+  };
+  const fail = function(error) { if (options.fail) options.fail(error || cancelledError(requestId)); };
+  if (!['auth/security/wechat-binding-offer', 'auth/security/bind-current-wechat'].includes(name) || !current()) {
+    fail();
+    return null;
+  }
+  return wx.request({
+    url: API_BASE + '/' + name, method: 'POST', timeout: 8000,
+    header: createRequestHeaders(requestId), data: { code: options.code },
+    success(response) {
+      if (!current()) return fail();
+      if (options.success) options.success(response);
+    },
+    fail
+  });
+}
 function callFunction(options) {
   const name = options.name || '';
   const data = Object.assign({}, options.data || {});
@@ -326,6 +351,7 @@ module.exports = {
   API_BASE: API_BASE,
   CLIENT_VERSION: CLIENT_VERSION,
   callFunction: callFunction,
+  requestOptionalWechatBinding: requestOptionalWechatBinding,
   createRequestId: createRequestId,
   createRequestHeaders: createRequestHeaders,
   markAuthenticationReady: markAuthenticationReady,

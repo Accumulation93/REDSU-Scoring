@@ -2969,6 +2969,27 @@ async function authenticateWithPassphrase(studentId, passphrase) {
   });
 }
 
+async function canOfferWechatBinding(accountId, openid) {
+  if (!safeString(accountId) || !safeString(openid)) return false;
+  const [accounts] = await pool.query(
+    `SELECT a.id FROM accounts a JOIN persons p ON p.id = a.person_id
+      WHERE a.id = ? AND a.status = 'verified' AND p.status = 'active'
+        AND NOT EXISTS (SELECT 1 FROM account_wechat_bindings b
+          WHERE b.account_id = a.id AND b.app_id = ? AND b.status = 'active') LIMIT 1`,
+    [safeString(accountId), APP_ID]
+  );
+  if (!accounts.length) return false;
+  const oldHmacHash = legacyHmac(openid);
+  // 占用检查不按对方账号状态过滤，也不读取或修补对方身份记录。
+  const [bindings] = await pool.query(
+    `SELECT 1 FROM account_wechat_bindings b WHERE b.app_id = ? AND b.status = 'active'
+      AND (b.openid_hash = ? OR (? <> '' AND b.openid_hash = ?)
+        OR (b.hash_version = 'sha256_legacy' AND b.openid_hash = ?) OR b.legacy_openid = ?) LIMIT 1`,
+    [APP_ID, hmac(openid), oldHmacHash, oldHmacHash, legacyHash(openid), safeString(openid)]
+  );
+  return bindings.length === 0;
+}
+
 async function bindWechatAfterPassphraseLogin(accountId, openid, metadata) {
   const normalizedAccountId = safeString(accountId);
   const normalizedOpenid = safeString(openid);
@@ -2990,9 +3011,10 @@ async function bindWechatAfterPassphraseLogin(accountId, openid, metadata) {
     if (!account) {
       throw new IdentityError('account_unavailable', localeCopy.copy_0995192dbd, 401);
     }
-    if (account.binding_id) return account;
-
     const boundAccount = await findAccountByOpenid(normalizedOpenid, connection);
+    if (account.binding_id && (!boundAccount || safeString(boundAccount.id) !== normalizedAccountId)) {
+      throw new IdentityError('wechat_conflict', localeCopy.copy_7000bcfcbf, 409);
+    }
     if (boundAccount && safeString(boundAccount.id) !== normalizedAccountId) {
       throw new IdentityError('wechat_conflict', localeCopy.copy_6d67001148, 409);
     }
@@ -3109,6 +3131,7 @@ module.exports = {
   revokeAdminRecoveryCodes,
   authenticateWithPassphrase,
   bindWechatAfterPassphraseLogin,
+  canOfferWechatBinding,
   temporaryPasswordSessionOptions,
   bindTemporaryPasswordSessionOpenid
 };

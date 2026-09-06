@@ -24,7 +24,7 @@ async function callFunction(options) {
       context: { contextId: 'password-context', personId: 'password-person', role: 'user', organizationId: 'org-44' },
       contexts: [{ contextId: 'password-context', personId: 'password-person', role: 'user', organizationId: 'org-44' }],
       user: { id: 'password-hr', name: '口令测试用户' },
-      bindingOffer: { available: true, requiresWechatCode: true }
+      bindingOffer: { available: true, requiresWechatCode: true }, bindingOfferCheck: true
     };
   }
   if (options.name === 'auth/security/bind-current-wechat') {
@@ -258,9 +258,11 @@ async function run() {
   await passwordPage.onPasswordLogin();
   assert.strictEqual(wechatCalls, beforePasswordWechat, '微信完全不可用时口令也必须成功');
   assert.strictEqual(orgSession.getSnapshot().token, 'password-access-token');
-  assert.strictEqual(passwordPage.data.stage, 'passwordBinding');
+  assert.strictEqual(passwordPage.data.stage, 'login', '口令成功必须先进入门户，旧服务未核实邀请也不能弹出');
+  assert.strictEqual(relaunches[relaunches.length - 1], '/subpackages/main/pages/portal/portal');
   assert.strictEqual(passwordPage.data.loading, false);
   const beforeBindingRequests = calls.filter((item) => item.name === 'auth/security/bind-current-wechat').length;
+  passwordPage.setData({ bindingOffer: { available: true, requiresWechatCode: true } });
   await passwordPage.bindPasswordWechat();
   assert.strictEqual(orgSession.getSnapshot().token, 'password-access-token', '绑定失败不得清理成功口令会话');
   assert.strictEqual(calls.filter((item) => item.name === 'auth/security/bind-current-wechat').length, beforeBindingRequests);

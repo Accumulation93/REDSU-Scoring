@@ -3,6 +3,15 @@
 const common = require('./common');
 const home = require('./home');
 
+const passwordBinding = Object.freeze({
+  title: '绑定当前微信',
+  note: '是否将当前微信绑定到刚刚口令登录的账号？仅在这是你本人的账号时绑定，也可以暂不绑定。',
+  confirm: '确认绑定',
+  cancel: '暂不绑定',
+  success: '绑定成功',
+  failed: '未绑定，请稍后重试'
+});
+
 const login = Object.freeze({
   navigationTitle: '登录 - WHUSU智慧工作台',
   messages: Object.freeze({
@@ -227,4 +236,4 @@ const authContext = Object.freeze({
   relogin: '请重新微信登录'
 });
 
-module.exports = Object.freeze({ login, portal, messageCenter, home, authContext });
+module.exports = Object.freeze({ login, portal, messageCenter, home, authContext, passwordBinding });

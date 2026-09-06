@@ -3,6 +3,7 @@ const eventBus = require('../../../../utils/eventBus');
 const orgSession = require('../../../../utils/orgSession');
 const adminPermissions = require('../../../../utils/adminPermissions');
 const authContext = require('../../../../utils/authContext');
+const passwordBindingOffer = require('../../../../utils/passwordBindingOffer');
 const { shouldClearAuthenticationOnPortalExit } = require('../../../../utils/portalExit');
 const { activateOrganization } = require('../../../../utils/organizationActivation');
 const notificationReceipt = require('../../../../utils/notificationNavigationReceipt');
@@ -166,6 +167,7 @@ Page({
       eventBus.on('org:changed', this._boundOnOrgChanged);
     }
     this.openPendingTrustedRoute();
+    passwordBindingOffer.start(this);
   },
 
   openPendingTrustedRoute() {
@@ -182,6 +184,7 @@ Page({
 
   onHide() {
     this._isPageVisible = false;
+    passwordBindingOffer.cancel(this);
     if (this._timeConfigRefreshTimer) {
       clearTimeout(this._timeConfigRefreshTimer);
       this._timeConfigRefreshTimer = null;
@@ -202,6 +205,8 @@ Page({
   },
 
   onUnload() {
+    this._isPageVisible = false;
+    passwordBindingOffer.cancel(this);
     const returningToLogin = shouldClearAuthenticationOnPortalExit(getCurrentPages(), this);
     this.stopPolling();
     if (this._timeConfigRefreshTimer) {

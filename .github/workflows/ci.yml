@@ -81,6 +81,7 @@ jobs:
           node scripts/notification-org-switch-role-test.js
           node scripts/publication-summary-refresh-test.js
           node scripts/login-binding-refresh-test.js
+          node scripts/password-binding-offer-test.js
           node scripts/login-auth-continuation-test.js
           node scripts/hr-profile-export-test.js
           node scripts/personnel-picker-test.js
