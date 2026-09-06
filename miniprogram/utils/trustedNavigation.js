@@ -13,6 +13,7 @@ const TRUSTED_ROUTES = {
   '/subpackages/audit/pages/myApprovalHistory/myApprovalHistory': true,
   '/subpackages/audit/pages/signatureManager/signatureManager': true,
   '/subpackages/audit/pages/verification/verification': true,
+  '/subpackages/audit/pages/verificationReport/verificationReport': true,
   '/subpackages/venue/pages/venueManage/venueManage': true,
   '/subpackages/venue/pages/venueBookings/venueBookings': true,
   '/subpackages/venue/pages/venueBooking/venueBooking': true,

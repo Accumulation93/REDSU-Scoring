@@ -20,10 +20,12 @@ function writeOldFile(filePath, now) {
   fs.utimesSync(filePath, oldTime, oldTime);
 }
 
-function createDatabase(referencedPaths, activeTempNames) {
+function createDatabase(referencedPaths, activeTempNames, evidencePaths = []) {
   const references = new Set(referencedPaths);
   return {
     async query(sql, params) {
+      if (sql.includes('FROM audit_signing_evidence')) return [evidencePaths.filter(file => params.includes(file))
+        .map(file => ({ input_file_path: file, output_file_path: file }))];
       if (sql.includes('SELECT file_path') && sql.includes("file_path <> ''")) {
         return [Array.from(references).map((filePath) => ({ file_path: filePath }))];
       }
@@ -48,11 +50,12 @@ function createDatabase(referencedPaths, activeTempNames) {
   const orphanTemp = path.join(tempDir, 'orphan.png');
   const referencedPermanent = path.join(submissionDir, 'referenced.pdf');
   const orphanPermanent = path.join(submissionDir, 'orphan.pdf');
+  const evidencePermanent = path.join(submissionDir, 'historical-evidence.pdf');
   const legacyReferencedPermanent = path.join(submissionDir, 'legacy-reference.pdf');
   const missingReferenced = path.join(submissionDir, 'missing.pdf');
   const protectedInternal = path.join(root, '_keys', 'private-key.pdf');
 
-  [activeTemp, orphanTemp, referencedPermanent, orphanPermanent, legacyReferencedPermanent, protectedInternal]
+  [activeTemp, orphanTemp, referencedPermanent, orphanPermanent, legacyReferencedPermanent, protectedInternal, evidencePermanent]
     .forEach((filePath) => writeOldFile(filePath, now));
 
   const maintenance = createAuditFileStorageMaintenance({
@@ -60,7 +63,7 @@ function createDatabase(referencedPaths, activeTempNames) {
       referencedPermanent,
       missingReferenced,
       path.join('legacy-storage', 'legacy-reference.pdf')
-    ], ['active.png']),
+    ], ['active.png'], [evidencePermanent]),
     uploadDir: root,
     orphanGraceMs: 24 * 60 * 60 * 1000,
     logger: { info() {}, error() {} }
@@ -70,6 +73,7 @@ function createDatabase(referencedPaths, activeTempNames) {
   assert.strictEqual(fs.existsSync(activeTemp), true, '有效临时配额对应文件必须保留');
   assert.strictEqual(fs.existsSync(orphanTemp), false, '超过宽限期且无临时记录的文件应清理');
   assert.strictEqual(fs.existsSync(referencedPermanent), true, '任何数据库引用文件都不得删除');
+  assert.strictEqual(fs.existsSync(evidencePermanent), true, '仅被历史密码凭证引用的旧文件版本也必须保留');
   assert.strictEqual(fs.existsSync(legacyReferencedPermanent), true, '旧相对路径引用也必须按唯一文件名保守保留');
   assert.strictEqual(fs.existsSync(orphanPermanent), false, '超过宽限期且无数据库引用的正式附件应清理');
   assert.strictEqual(fs.existsSync(protectedInternal), true, '下划线内部目录不属于附件孤儿清理范围');

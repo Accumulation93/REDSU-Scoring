@@ -206,6 +206,8 @@ async function removeExpiredTempFiles(rows) {
     candidates
   );
   const referenced = new Set(referencedRows.map((row) => path.resolve(safeString(row.file_path))));
+  const evidencePaths = await require('../models/signingEvidence').protectedPaths(candidates);
+  evidencePaths.forEach(filePath => referenced.add(path.resolve(filePath)));
   candidates.forEach((candidate) => {
     if (referenced.has(path.resolve(candidate))) return;
     try { fs.unlinkSync(candidate); } catch (_) { /* 文件可能已由维护任务清理 */ }

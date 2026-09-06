@@ -1200,22 +1200,6 @@ button, input, textarea, picker, view, text, scroll-view {
   overflow-wrap: anywhere;
 }
 
-.portal-context-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 12rpx;
-  margin-bottom: var(--ui-card-gap);
-  padding: 17rpx 19rpx;
-  border: 1rpx solid rgba(147, 197, 253, 0.68);
-  border-radius: 18rpx;
-  color: #2563eb;
-  font-size: var(--ui-type-body);
-  line-height: 1.62;
-  background: linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(224, 242, 254, 0.82));
-  box-shadow: 0 12rpx 26rpx rgba(37, 99, 235, 0.08), inset 0 1rpx 0 rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(20rpx);
-}
-
 .hero-org-context-action {
   display: flex;
   align-items: center;
@@ -1253,10 +1237,4 @@ button, input, textarea, picker, view, text, scroll-view {
     font-size: var(--ui-type-emphasis);
   }
 
-  .portal-context-notice {
-    gap: 10px;
-    margin-bottom: 16px;
-    padding: 13px 15px;
-    border-radius: 13px;
-  }
 }

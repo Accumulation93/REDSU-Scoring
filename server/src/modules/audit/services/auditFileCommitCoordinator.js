@@ -82,8 +82,8 @@ function removeFileIfPresent(filePath) {
 function buildTargetPath(oldPath, operationId, index) {
   const directoryPath = path.dirname(oldPath);
   const extension = path.extname(oldPath);
-  const baseName = path.basename(oldPath, extension);
-  return path.join(directoryPath, baseName + '.commit-' + operationId + '-' + index + extension);
+  // 每步独立版本名长度恒定，禁止把上一版 commit 后缀不断累加到文件名。
+  return path.join(directoryPath, 'file.commit-' + operationId + '-' + index + extension);
 }
 
 function normalizeEntries(entries, rootDir, operationId) {

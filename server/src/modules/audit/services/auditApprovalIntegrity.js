@@ -1,21 +1,12 @@
 const fs = require('fs');
-const forge = require('node-forge');
 const { PDFDocument } = require('pdf-lib');
 const stampAssignmentModel = require('../models/identityStampAssignment');
-const submissionFileModel = require('../models/auditSubmissionFile');
 const {
   SIGNATURE_HASH_VERSION_V2,
   computeMaterialImageHash,
   computeSignatureHashV2
 } = require('../utils/hashChain');
 const { isValidAuditImageData } = require('../utils/auditImageData');
-const {
-  signPdfBuffer,
-  generateSigningKeyPair,
-  createSignerCertificate,
-  getConfiguredSigningIdentity,
-  getConfiguredParentSigningIdentity
-} = require('../utils/pdfSignature');
 
 const MAX_APPROVAL_MATERIALS = 100;
 const AUDIT_APPROVAL_INTEGRITY_CODES = Object.freeze({
@@ -82,6 +73,7 @@ function normalizePlacement(raw, file) {
 async function loadApprovalFileFacts(currentFiles, options, runtimeOverrides) {
   const files = Array.isArray(currentFiles) ? currentFiles : [];
   const config = options || {};
+  if (config.requireAll === true && !files.length) fail(AUDIT_APPROVAL_INTEGRITY_CODES.MATERIAL_FILE_INVALID);
   const materialFileIds = new Set((Array.isArray(config.materials) ? config.materials : [])
     .map((item) => String(item && item.fileId || '').trim()).filter(Boolean));
   const finalStep = config.finalStep === true;
@@ -100,7 +92,7 @@ async function loadApprovalFileFacts(currentFiles, options, runtimeOverrides) {
     const mimeType = String(file.mime_type || '').toLowerCase();
     const requiredForMaterial = materialFileIds.has(fileId);
     const requiredForFinalPdf = finalStep && mimeType === 'application/pdf';
-    if (!requiredForMaterial && !requiredForFinalPdf) {
+    if (!requiredForMaterial && !requiredForFinalPdf && config.requireAll !== true) {
       result.push(file);
       continue;
     }
@@ -109,7 +101,13 @@ async function loadApprovalFileFacts(currentFiles, options, runtimeOverrides) {
     }
     let buffer;
     try {
-      buffer = runtime.readFileSync(file.file_path);
+      if (config.requireAll === true) {
+        const stored = require('../utils/fileSecurity').readStoredAuditFile(file);
+        if (stored.status !== 'success') fail(AUDIT_APPROVAL_INTEGRITY_CODES.MATERIAL_FILE_INVALID);
+        buffer = stored.buffer;
+      } else {
+        buffer = runtime.readFileSync(file.file_path);
+      }
       if (!Buffer.isBuffer(buffer) || !buffer.length) {
         fail(requiredForFinalPdf ? AUDIT_APPROVAL_INTEGRITY_CODES.FINAL_PDF_UNAVAILABLE : AUDIT_APPROVAL_INTEGRITY_CODES.MATERIAL_FILE_INVALID);
       }
@@ -299,98 +297,6 @@ function buildApprovalFileProcessingPlan(currentFiles, materialsByFile, finalSte
   });
 }
 
-function publicKeyFromPrivateKey(privateKey) {
-  return forge.pki.setRsaPublicKey(privateKey.n, privateKey.e);
-}
-
-async function signFinalPdfDocument(options, runtimeOverrides) {
-  const opts = options || {};
-  if (String(opts.mimeType || '') !== 'application/pdf') {
-    return { buffer: opts.buffer, mimeType: opts.mimeType, signed: false };
-  }
-  if (!Buffer.isBuffer(opts.buffer) || !opts.buffer.length) fail('approval_final_pdf_unavailable');
-
-  const runtime = Object.assign({
-    signPdfBuffer,
-    generateSigningKeyPair,
-    createSignerCertificate,
-    getConfiguredSigningIdentity,
-    getConfiguredParentSigningIdentity,
-    saveSigningKey: submissionFileModel.saveSigningKey,
-    async loadOrganizationName(db, orgId) {
-      const [rows] = await db.query('SELECT name FROM organizations WHERE id = ?', [orgId]);
-      return rows[0] ? String(rows[0].name || '') : '';
-    }
-  }, runtimeOverrides || {});
-
-  const file = opts.file || {};
-  const approver = opts.approverAssignment || {};
-  const signerName = String(approver.name || '');
-  const studentId = String(approver.student_id || '');
-  const orgName = await runtime.loadOrganizationName(opts.db, opts.orgId);
-  const configuredIdentity = runtime.getConfiguredSigningIdentity();
-  const parentIdentity = configuredIdentity ? null : runtime.getConfiguredParentSigningIdentity();
-  let keyPair;
-  let certificateChainPem = '';
-  let trustStatus = parentIdentity ? 'parent_configured' : 'self_signed';
-
-  if (configuredIdentity) {
-    keyPair = {
-      privateKey: forge.pki.privateKeyFromPem(configuredIdentity.privateKeyPem),
-      publicKey: forge.pki.publicKeyFromPem(configuredIdentity.publicKeyPem),
-      privateKeyPem: configuredIdentity.privateKeyPem,
-      publicKeyPem: configuredIdentity.publicKeyPem
-    };
-    certificateChainPem = configuredIdentity.certificateChainPem;
-    trustStatus = configuredIdentity.trustStatus;
-  } else if (file.signing_key_private) {
-    const privateKey = forge.pki.privateKeyFromPem(file.signing_key_private);
-    const publicKey = file.signing_key_public
-      ? forge.pki.publicKeyFromPem(file.signing_key_public)
-      : publicKeyFromPrivateKey(privateKey);
-    keyPair = {
-      privateKey,
-      publicKey,
-      privateKeyPem: file.signing_key_private,
-      publicKeyPem: file.signing_key_public || forge.pki.publicKeyToPem(publicKey)
-    };
-  } else {
-    keyPair = runtime.generateSigningKeyPair();
-  }
-
-  if (parentIdentity) {
-    certificateChainPem = [parentIdentity.certificatePem, parentIdentity.chainPem]
-      .filter(Boolean).join('\n');
-  }
-  const certificatePem = configuredIdentity
-    ? configuredIdentity.certificatePem
-    : runtime.createSignerCertificate(
-      keyPair.privateKey,
-      keyPair.publicKey,
-      signerName,
-      studentId,
-      orgName,
-      parentIdentity
-        ? { privateKeyPem: parentIdentity.privateKeyPem, certificatePem: parentIdentity.certificatePem }
-        : null
-    );
-
-  await runtime.saveSigningKey(file.id, {
-    privateKey: configuredIdentity ? null : keyPair.privateKeyPem,
-    publicKey: keyPair.publicKeyPem,
-    cert: certificatePem,
-    certificateChain: certificateChainPem,
-    trustStatus,
-    algorithm: 'RSA-SHA256'
-  }, opts.db);
-
-  const signedBuffer = await runtime.signPdfBuffer(opts.buffer, keyPair.privateKeyPem, certificatePem, {
-    signer: { name: signerName, studentId, orgName },
-    signaturePosition: opts.signaturePosition || undefined,
-    certificateChainPem
-  });
-  return { buffer: signedBuffer, mimeType: 'application/pdf', signed: true };
-}
 
 module.exports = {
   AUDIT_APPROVAL_INTEGRITY_CODES,
@@ -402,6 +308,5 @@ module.exports = {
   groupApprovalMaterialsByFile,
   buildApprovalFileProcessingPlan,
   createDigitalSignatureMaterial,
-  buildSignatureChainRecords,
-  signFinalPdfDocument
+  buildSignatureChainRecords
 };

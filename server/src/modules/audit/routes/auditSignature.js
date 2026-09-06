@@ -7,8 +7,6 @@ const { getCurrentOrgId } = require('../../../utils/orgContext');
 const pool = require('../../../config/db');
 const signatureTemplateModel = require('../models/signatureTemplate');
 const submissionModel = require('../models/auditSubmission');
-const submissionFileModel = require('../models/auditSubmissionFile');
-const submissionSignatureModel = require('../models/auditSubmissionSignature');
 const verificationMatchModel = require('../models/auditVerificationMatch');
 const verificationPermModel = require('../models/verificationPermission');
 const unifiedIdentityModel = require('../../../core/models/unifiedIdentity');
@@ -17,9 +15,10 @@ const {
   resolveActorAssignment,
   resolveActorAssignmentForUpdate
 } = require('../services/auditAssignmentContext');
-const { hashFile, verifySignatureChain } = require('../utils/hashChain');
-const { verifyPdfSignature } = require('../utils/pdfSignature');
-const { MAX_FILE_SIZE, readStoredAuditFile } = require('../utils/fileSecurity');
+const { MAX_FILE_SIZE } = require('../utils/fileSecurity');
+const { verifySubmissionFiles, verifyUnmatchedUpload } = require('../services/signingVerification');
+const signingCopy = require('../../../locales/zh-CN/auditSigningEvidence');
+const { equalHex, decodeBase64 } = require('../utils/signingProtocol');
 const { inspectAuditImageData } = require('../utils/auditImageData');
 
 const MAX_SIGNATURE_NAME_CHARS = 100;
@@ -42,11 +41,8 @@ function validateSignatureTemplateInput(name, imageData) {
 
 function decodeVerificationFile(fileBase64) {
   const encoded = safeString(fileBase64).replace(/[\r\n]/g, '');
-  const encodedLimit = Math.ceil(MAX_FILE_SIZE * 4 / 3) + 8;
-  if (!encoded || encoded.length > encodedLimit || encoded.length % 4 === 1
-    || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) return null;
-  const buffer = Buffer.from(encoded, 'base64');
-  return buffer.length && buffer.length <= MAX_FILE_SIZE ? buffer : null;
+  try { return encoded ? decodeBase64(encoded, MAX_FILE_SIZE) : null; }
+  catch (_) { return null; }
 }
 
 async function resolveVerificationAccess(req) {
@@ -83,70 +79,6 @@ function signatureOwnerForbidden(res) {
   return res.json({ status: 'forbidden', message: localeCopy.copy_162d055e98 });
 }
 
-async function verifySubmissionFiles(submission) {
-  const signatures = await submissionSignatureModel.getChainForVerification(submission.id);
-  const files = await submissionFileModel.getBySubmissionId(submission.id);
-  const currentFileHashes = {};
-  const currentPdfFileIds = [];
-  const currentFiles = new Map();
-  for (const file of files) {
-    if (String(file.mime_type || '').toLowerCase() === 'application/pdf') {
-      currentPdfFileIds.push(String(file.id));
-    }
-    const stored = readStoredAuditFile(file, { requireIntegrity: false });
-    if (stored.status === 'success') {
-      currentFileHashes[file.id] = hashFile(stored.buffer);
-      currentFiles.set(String(file.id), stored);
-    }
-  }
-
-  const result = verifySignatureChain(signatures, currentFileHashes, {
-    requiredFileIds: currentPdfFileIds
-  });
-  for (const file of files) {
-    let fileResult = (result.files || []).find((item) => String(item.fileId) === String(file.id));
-    const isPdf = String(file.mime_type || '').toLowerCase() === 'application/pdf';
-    if (!fileResult && !isPdf) continue;
-    if (!fileResult) {
-      fileResult = {
-        fileId: String(file.id),
-        signatureId: null,
-        signedAt: null,
-        hashVerified: false,
-        missingSignatureRecord: true,
-        documentHashAtLastSigning: null,
-        currentHash: currentFileHashes[file.id] || null
-      };
-      result.files.push(fileResult);
-      result.valid = false;
-    }
-    fileResult.fileName = safeString(file.file_name);
-    const stored = currentFiles.get(String(file.id));
-    if (isPdf && stored) {
-      try {
-        fileResult.pdfSignature = verifyPdfSignature(stored.buffer);
-      } catch (error) {
-        console.error('[audit:signature:pdfVerify] failed:', error);
-        fileResult.pdfSignature = {
-          present: true,
-          valid: false,
-          signatures: [],
-          message: localeCopy.pdfVerificationFailed
-        };
-      }
-      if (!fileResult.pdfSignature.present || !fileResult.pdfSignature.valid) result.valid = false;
-    } else {
-      fileResult.pdfSignature = {
-        present: false,
-        valid: isPdf ? false : null,
-        signatures: [],
-        message: isPdf ? localeCopy.copy_6f376151a2 : localeCopy.copy_c6b6dad622
-      };
-      if (isPdf) result.valid = false;
-    }
-  }
-  return result;
-}
 
 // ═══════════════════════════════════════════════════
 // Signature Template Management
@@ -334,13 +266,21 @@ router.post('/verifySignatureChain', async (req, res) => {
       return res.json({ status: 'invalid_params', message: localeCopy.verificationInputInvalid });
     }
 
+    if (submissionId.length > 64 || submissionNumber.length > 64) {
+      return res.json({ status: 'invalid_params', message: localeCopy.verificationInputInvalid });
+    }
     let resolvedFileHash = fileHash.toLowerCase();
-    if (!resolvedFileHash && fileBase64) {
-      const buffer = decodeVerificationFile(fileBase64);
-      if (!buffer) {
+    let uploadedBytes = null;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'fileBase64')) {
+      uploadedBytes = decodeVerificationFile(fileBase64);
+      if (!uploadedBytes) {
         return res.json({ status: 'invalid_params', message: localeCopy.verificationFileInvalid });
       }
-      resolvedFileHash = crypto.createHash('sha256').update(buffer).digest('hex');
+      const actualHash = crypto.createHash('sha256').update(uploadedBytes).digest('hex');
+      if (resolvedFileHash && !equalHex(resolvedFileHash, actualHash)) {
+        return res.json({ status: 'invalid_params', message: signingCopy.inputMismatch });
+      }
+      resolvedFileHash = actualHash;
     }
 
     let submission;
@@ -349,6 +289,7 @@ router.post('/verifySignatureChain', async (req, res) => {
       const matchRows = await verificationMatchModel.listFileHashMatches(resolvedFileHash);
       matches = verificationMatchModel.groupFileHashMatches(matchRows);
       if (!matches.length) {
+        if (uploadedBytes) return res.json({ status: 'success', ...await verifyUnmatchedUpload(uploadedBytes) });
         return res.json({ status: 'not_found', message: localeCopy.copy_780fb113f1 });
       }
       const selectedMatch = submissionId
@@ -368,7 +309,8 @@ router.post('/verifySignatureChain', async (req, res) => {
       return res.json({ status: 'not_found', message: localeCopy.copy_780fb113f1 });
     }
 
-    const result = await verifySubmissionFiles(submission);
+    const result = await verifySubmissionFiles(submission, { uploadedBytes,
+      source: uploadedBytes ? 'uploaded_file' : resolvedFileHash ? 'record_lookup' : 'stored_file' });
 
     res.json({
       status: 'success',

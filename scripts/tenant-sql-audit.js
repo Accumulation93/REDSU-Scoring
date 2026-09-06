@@ -25,6 +25,7 @@ for (const match of initSql.matchAll(/CREATE TABLE IF NOT EXISTS\s+`?(\w+)`?\s*\
 // These statements intentionally discover an actor or invitation across organizations.
 // Each one is limited by an authenticated openid, a one-time invite, or a global-admin check.
 const CROSS_ORG_ALLOWLIST = [
+  { file: 'server/src/modules/audit/models/signingEvidence.js', sql: /SELECT input_file_path, output_file_path FROM audit_signing_evidence\s+WHERE input_file_path IN/i, reason: '后台全组织附件清理只按绝对候选路径交集检查历史凭证引用，不返回业务或身份信息' },
   { file: 'server/src/core/models/adminInfo.js', sql: /FROM admin_info WHERE openid = \?/i, reason: '跨组织管理员身份发现' },
   { file: 'server/src/core/models/adminInfo.js', sql: /FROM admin_info ai\s+WHERE ai\.openid = \? AND ai\.bind_status = \?[\s\S]*unifiedAuthorizationClause/i, reason: '由微信绑定与统一账号状态共同限定的跨组织管理员上下文发现' },
   { file: 'server/src/core/models/adminInfo.js', sql: /FROM admin_info WHERE id = \? AND admin_level IN/i, reason: '权限管理精确主键锁定' },

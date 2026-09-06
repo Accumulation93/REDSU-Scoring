@@ -22,6 +22,8 @@ const NON_USER_VISIBLE_TABLES = new Set([
 // 这两张内部安全表只会在 UTC 体系切换完成后创建，写入连接也固定为 UTC。
 // 必须逐列显式登记，避免 fresh schema 预检把 CURRENT_TIMESTAMP 误判成历史 +08:00 墙上时间。
 const NATIVE_UTC_INTERNAL_COLUMNS = new Map([
+  ['audit_signing_evidence', new Set(['signed_at'])],
+  ['audit_signing_certificates', new Set(['created_at'])],
   ['security_rate_limit_buckets', new Set([
     'window_started_at',
     'expires_at',

@@ -1,11 +1,6 @@
 <view class="page">
   <workspace-hero class="workspace-hero-host" app-name="{{copy.appName}}" page-name="{{copy.pageName}}" tone="{{isAdminRole ? 'admin' : 'blue'}}"></workspace-hero>
 
-  <view class="portal-context-notice" wx:if="{{contextNotice}}">
-    <ui-icon name="shield" tone="primary" size="27" ariaLabel="{{copy.workContextHint}}" />
-    <text>{{contextNotice}}</text>
-  </view>
-
   <view class="portal-message-partial" wx:if="{{hasUser && messagePartial}}">
     <ui-icon name="bell" tone="primary" size="28" ariaLabel="{{copy.loadingHint}}" />
     <text>{{copy.partialOrganizationLoading}}</text>

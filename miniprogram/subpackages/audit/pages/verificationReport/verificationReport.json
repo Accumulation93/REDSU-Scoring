@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "",
+  "usingComponents": {
+    "audit-verification-result": "/components/audit-verification-result/audit-verification-result"
+  }
+}

@@ -3026,13 +3026,7 @@
             number-label="{{localeCopy.copy_1ddd4c9b39}}"
             bindselect="selectVerificationMatch"
           />
-          <view class="audit-verify-result-badge {{verificationResult.valid ? 'audit-verify-valid' : 'audit-verify-invalid'}}">
-            {{verificationResult.valid ? localeCopy.copy_3e081d0fa1 : localeCopy.copy_73b11affc2}}
-          </view>
-          <view class="list-desc" wx:if="{{verificationResult.totalSignatures > 0}}">{{localeCopy.copy_b4c3e73028}} {{verificationResult.totalSignatures}} {{localeCopy.copy_309860972e}}</view>
-          <view class="verification-file-result" wx:for="{{verificationResult.files}}" wx:key="fileId">
-            <view class="list-desc">{{localeCopy.copy_514b4a69ae}}{{item.hashVerified === null ? localeCopy.copy_93331f8a70 : (item.hashVerified ? localeCopy.copy_6a48578660 : localeCopy.copy_f236827e3f)}}</view>
-          </view>
+          <audit-verification-result result-json="{{verificationResult.componentResultJson}}" />
         </view>
       </view>
     </view>

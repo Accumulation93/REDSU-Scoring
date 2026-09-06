@@ -11,6 +11,8 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       DB_POOL_LIMIT: '20',
+      AUDIT_EVIDENCE_KEYRING_PATH: process.env.AUDIT_EVIDENCE_KEYRING_PATH || '/home/ubuntu/whusu-smart-workspace-shared/signing-evidence/keyring.json',
+      AUDIT_EVIDENCE_BACKUP_KEYRING_PATH: process.env.AUDIT_EVIDENCE_BACKUP_KEYRING_PATH || '/home/ubuntu/whusu-smart-workspace-deploy/key-backups/signing-evidence/keyring.json',
       AUDIT_UPLOAD_DIR: '/home/ubuntu/whusu-smart-workspace-shared/uploads/audit'
     },
     node_args: '',

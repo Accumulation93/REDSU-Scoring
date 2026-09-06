@@ -459,7 +459,6 @@ function persistAuthenticatedStateLater(state) {
     ['activeContextId', state.context.contextId || state.selection.contextId || ''],
     ['activeOrgId', state.context.organizationId || state.selection.organizationId || ''],
     ['activeOrgName', state.context.organizationName || ''],
-    ['authSelectionNotice', state.result.selectionNotice || ''],
     ['lastIdentityId', ''],
     ['activeIdentityId', '']
   ];
@@ -677,6 +676,7 @@ function clearUnifiedAuthentication() {
   wx.removeStorageSync(SELECTION_KEY);
   wx.removeStorageSync(ACCOUNT_KEY);
   wx.removeStorageSync(PROFILE_KEY);
+  wx.removeStorageSync('authSelectionNotice');
   wx.removeStorageSync('availableOrgs');
   wx.removeStorageSync('availableOrgs:user');
   wx.removeStorageSync('availableOrgs:admin');

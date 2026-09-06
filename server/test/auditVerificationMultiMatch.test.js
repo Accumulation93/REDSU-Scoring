@@ -43,6 +43,7 @@ const matchRows = [
 
 let verificationQuery = null;
 let verificationAllowed = true;
+let noMatchingRecord = false;
 const originalLoad = Module._load;
 Module._load = function(request, parent, isMain) {
   if (request === '../../../config/db') {
@@ -51,7 +52,7 @@ Module._load = function(request, parent, isMain) {
         if (sql.includes('FROM user_info')) return [[{ hr_id: 'hr-verifier' }]];
         if (sql.includes('FROM audit_submission_files asf')) {
           verificationQuery = { sql, params };
-          return [matchRows];
+          return [noMatchingRecord ? [] : matchRows];
         }
         throw new Error('Unexpected SQL in audit verification test: ' + sql);
       }
@@ -151,6 +152,59 @@ async function invokeVerificationAccess() {
   return response;
 }
 
+async function verifyUploadsOverHttp() {
+  const express = require('express');
+  const forge = require('node-forge');
+  const { PDFDocument } = require('pdf-lib');
+  const { createSignerCertificate } = require('../src/modules/audit/utils/pdfSignature');
+  const { signPdfBuffer } = require('../src/modules/audit/utils/pdfSignedDocument');
+  const pair = crypto.generateKeyPairSync('rsa', { modulusLength: 3072,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
+  const certificate = createSignerCertificate(forge.pki.privateKeyFromPem(pair.privateKey),
+    forge.pki.publicKeyFromPem(pair.publicKey), 'HTTP TEST', '', 'TEST');
+  const pdf = await PDFDocument.create(); pdf.addPage();
+  const unsigned = Buffer.from(await pdf.save());
+  const signed = await signPdfBuffer(unsigned, pair.privateKey, certificate);
+  const app = express();
+  app.use(express.json({ limit: '14mb' }));
+  app.use('/api', router);
+  const server = await new Promise(resolve => { const listener = app.listen(0, '127.0.0.1', () => resolve(listener)); });
+  noMatchingRecord = true;
+  try {
+    const upload = async bytes => {
+      const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/verifySignatureChain', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileBase64: bytes.toString('base64') })
+      });
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.status, 'success', '上传不能因无平台记录被挡在验签前');
+      assert.equal(result.verificationSource, 'uploaded_file');
+      assert.equal(result.verificationScope, 'file_only');
+      assert.equal(result.valid, false, '文件签名有效不能冒充平台身份全部核实');
+      assert.equal(result.files.length, 1);
+      assert.equal(result.files[0].steps.length, 0);
+      assert.equal(result.files[0].currentHash, crypto.createHash('sha256').update(bytes).digest('hex'));
+      return result;
+    };
+    const normal = await upload(signed);
+    assert.equal(normal.files[0].checks.cmsSignature.status, 'passed');
+    assert.equal(normal.files[0].checks.documentIntegrity.status, 'passed');
+    assert.equal(normal.files[0].checks.identityBinding.status, 'indeterminate');
+    assert.equal(normal.overallStatus, 'indeterminate');
+    const changed = await upload(Buffer.concat([signed, Buffer.from('\n% added')]));
+    assert.equal(changed.overallStatus, 'failed');
+    assert.equal(changed.files[0].checks.documentIntegrity.status, 'failed');
+    const plain = await upload(unsigned);
+    assert.equal(plain.files[0].checks.cmsSignature.reasonCode, 'pdf_unsigned');
+    assert.equal(plain.overallStatus, 'indeterminate');
+    console.log('真实 HTTP 上传验签通过：正常签名、签后篡改、未签名文件均不依赖申请记录');
+  } finally {
+    noMatchingRecord = false;
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
 function loadRetiredAdminRouter() {
   let dependencyCalls = 0;
   const failOnCall = function() {
@@ -239,6 +293,13 @@ async function invokeRetiredAdminRoute(router, routePath) {
   assert.strictEqual(selected.status, 'success');
   assert.strictEqual(selected.submissionId, 'submission-old', '用户必须能切换查看任意匹配记录的签名链');
   assert.strictEqual(selected.matchCount, 2);
+  assert.strictEqual(selected.verificationSource, 'record_lookup');
+  assert.strictEqual(selected.valid, false, '哈希查询不得冒充上传验真');
+  const mismatch = await invokeVerification({ fileBase64: Buffer.from('modified-file').toString('base64'), fileHash: SAME_FILE_HASH });
+  assert.strictEqual(mismatch.status, 'invalid_params', '同时提交字节与摘要必须重算并一致');
+  const emptyBytes = await invokeVerification({ fileBase64: '', fileHash: SAME_FILE_HASH });
+  assert.strictEqual(emptyBytes.status, 'invalid_params', '出现文件字段但空值不得退回摘要查询');
+  await verifyUploadsOverHttp();
 
   const escaped = await invokeVerification({ fileHash: SAME_FILE_HASH, submissionId: 'submission-other' });
   assert.strictEqual(escaped.status, 'not_found', '记录 ID 不属于当前文件哈希匹配集时必须失败关闭');

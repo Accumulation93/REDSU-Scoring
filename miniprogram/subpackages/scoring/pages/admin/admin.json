@@ -1,6 +1,7 @@
 {
   "navigationBarTitleText": "",
   "usingComponents": {
+    "audit-verification-result": "/components/audit-verification-result/audit-verification-result",
     "ui-icon": "/components/ui-icon/ui-icon",
     "personnel-picker": "/components/personnel-picker/personnel-picker",
     "hr-directory-controls": "/subpackages/scoring/pages/admin/components/hrDirectoryControls/hrDirectoryControls",

@@ -85,7 +85,6 @@ Page({
     messageSwitchOrganizationName: '',
     messageSwitchTitle: copy.messages.switchOrganizationAndWorkContext,
     messageSwitchLoading: false,
-    contextNotice: '',
 
     // 应用服务视图与搜索
     appViewMode: 'grid',        // 宫格或列表
@@ -116,11 +115,6 @@ Page({
       authContext.clearUnifiedAuthentication();
       wx.reLaunch({ url: '/subpackages/main/pages/login/login' });
       return;
-    }
-    const contextNotice = wx.getStorageSync('authSelectionNotice') || '';
-    if (contextNotice) {
-      wx.removeStorageSync('authSelectionNotice');
-      this.setData({ contextNotice });
     }
     const organizationState = orgSession.consume(this);
     if (organizationState.changed) {

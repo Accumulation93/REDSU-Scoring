@@ -455,7 +455,7 @@
         <view class="section-title">{{localeCopy.copy_6a200ce590}} ({{signatures.length}}{{localeCopy.copy_7ccfef7ef3}}</view>
         <view class="audit-sig-card" wx:for="{{signatures}}" wx:key="id">
           <view class="list-name">{{item.signerName}} · {{item.signatureType === 'signature' ? localeCopy.copy_0c02992813 : (item.signatureType === 'digital' ? localeCopy.copy_cb9e71339c : localeCopy.copy_ed981b1744)}} · {{localeCopy.copy_ef8b7ffa9b}}{{item.round}}{{localeCopy.copy_29f6c07d3f}}</view>
-          <view class="list-desc"><text wx:if="{{item.signerStudentId}}">{{item.signerStudentId}} · </text>{{item.signedAtText}}</view>
+          <view class="list-desc">{{item.signedAtText}}</view>
         </view>
       </view>
 

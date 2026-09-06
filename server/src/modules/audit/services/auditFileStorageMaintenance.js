@@ -6,6 +6,7 @@ const pool = require('../../../config/db');
 const { logger } = require('../../../utils/logger');
 const { UPLOAD_DIR } = require('../utils/fileSecurity');
 const { recoverPendingAuditFileCommits } = require('./auditFileCommitCoordinator');
+const signingEvidence = require('../models/signingEvidence');
 
 const DEFAULT_ORPHAN_GRACE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -144,7 +145,8 @@ function createAuditFileStorageMaintenance(options) {
     if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs > cutoff) return;
 
     // 删除前再次向数据库逐文件确认，避免扫描期间新增引用造成误删。
-    if (await hasDatabaseReference(database, resolvedPath)) {
+    if (await hasDatabaseReference(database, resolvedPath)
+      || (await signingEvidence.protectedPaths([resolvedPath], database)).length) {
       report.referencedFilesPreserved += 1;
       return;
     }

@@ -252,9 +252,8 @@ async function buildAuthenticatedPayload(account, session) {
     selection: catalog.selection,
     organizations: catalog.organizations,
     identities: catalog.identities,
-    selectionNotice: session.selectionFallback
-      ? localeCopy.selectionUpdated
-      : '',
+    // 保留旧客户端响应字段；偏好回退不代表人事资料发生变更。
+    selectionNotice: '',
     user: profileFromContext(currentContext),
     activeRole: currentContext.role,
     activeOrg: {

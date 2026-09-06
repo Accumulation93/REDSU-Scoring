@@ -1789,16 +1789,23 @@ module.exports = Behavior({
 
     chooseVerifyFile() {
       const that = this;
+      const request = orgSession.beginRequest(this, 'verificationFileRead');
       wx.chooseMessageFile({
         count: 1,
         type: 'all',
         success: function(res) {
+          if (!orgSession.isRequestCurrent(that, request)) return;
           const file = res.tempFiles[0];
-          // Read file as base64 for hash computation
+          if (!file || file.size > 10 * 1024 * 1024) {
+            showShortToast(require('../../../../../locales/zh-CN/signingEvidence').fileTooLarge);
+            return;
+          }
+          // 文件字节直接交给服务端验证，不用哈希查询代替上传验真。
           wx.getFileSystemManager().readFile({
             filePath: file.path,
             encoding: 'base64',
             success: function(readRes) {
+              if (!orgSession.isRequestCurrent(that, request)) return;
               that.setData({
                 verificationFilePath: file.path,
                 verificationFileName: file.name,
@@ -1808,6 +1815,7 @@ module.exports = Behavior({
               });
             },
             fail: function() {
+              if (!orgSession.isRequestCurrent(that, request)) return;
               showShortToast(localeCopy.copy_03d69a9d28);
             }
           });
@@ -1856,7 +1864,7 @@ module.exports = Behavior({
       const submissionId = e.detail && e.detail.submissionId
         ? e.detail.submissionId
         : e.currentTarget.dataset.submissionId;
-      const params = buildMatchVerificationParams(this.data.verificationResult, submissionId);
+      const params = buildMatchVerificationParams(this.data.verificationResult, submissionId, this.data.verificationFileBase64);
       if (!params || params.submissionId === String(this.data.verificationResult && this.data.verificationResult.submissionId || '')) return;
       const request = orgSession.beginRequest(this, 'auditVerificationChain');
       this.setLoading('verifyChain', true);

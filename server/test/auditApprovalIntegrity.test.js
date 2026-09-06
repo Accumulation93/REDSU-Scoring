@@ -14,8 +14,7 @@ const {
   groupApprovalMaterialsByFile,
   buildApprovalFileProcessingPlan,
   createDigitalSignatureMaterial,
-  buildSignatureChainRecords,
-  signFinalPdfDocument
+  buildSignatureChainRecords
 } = require('../src/modules/audit/services/auditApprovalIntegrity');
 const {
   hashFile,
@@ -162,26 +161,9 @@ async function expectCode(promise, code, message) {
   pdf.addPage([595, 842]);
   const originalPdf = Buffer.from(await pdf.save());
   const keyPair = generateSigningKeyPair();
-  const savedKeys = [];
-  const signed = await signFinalPdfDocument({
-    file: { id: 'final-pdf', mime_type: 'application/pdf' },
-    buffer: originalPdf,
-    mimeType: 'application/pdf',
-    orgId: 'org-a',
-    approverAssignment: { name: '安全测试审批人', student_id: 'TEST-001' },
-    signaturePosition: null,
-    db: {}
-  }, {
-    getConfiguredSigningIdentity() { return null; },
-    getConfiguredParentSigningIdentity() { return null; },
-    generateSigningKeyPair() { return keyPair; },
-    createSignerCertificate,
-    signPdfBuffer,
-    async loadOrganizationName() { return '审核安全测试组织'; },
-    async saveSigningKey(fileId, data) { savedKeys.push({ fileId, data }); }
-  });
-  assert.strictEqual(signed.signed, true, '最终纯通过 PDF 必须执行 PKCS#7 签名');
-  assert.strictEqual(savedKeys.length, 1, '最终 PDF 签名身份必须持久化一次');
+  // 此处继续覆盖历史哈希链；新版步骤凭证与事务由 signingEvidence 专项测试覆盖。
+  const certificate = createSignerCertificate(keyPair.privateKey, keyPair.publicKey, '安全测试审批人', '', '审核安全测试组织');
+  const signed = { buffer: await signPdfBuffer(originalPdf, keyPair.privateKeyPem, certificate) };
   const verification = verifyPdfSignature(signed.buffer);
   assert.strictEqual(verification.present, true, '最终 PDF 应包含 PKCS#7 签名');
   assert.strictEqual(
@@ -307,14 +289,6 @@ async function expectCode(promise, code, message) {
     '岗位授权快照被篡改时 v2 链必须失效'
   );
 
-  const untouchedImage = Buffer.from('image-bytes');
-  const nonPdf = await signFinalPdfDocument({
-    file: { id: 'final-image', mime_type: 'image/png' },
-    buffer: untouchedImage,
-    mimeType: 'image/png'
-  });
-  assert.strictEqual(nonPdf.signed, false, '非 PDF 不得被 PKCS#7 路径改写');
-  assert.strictEqual(nonPdf.buffer, untouchedImage, '非 PDF 字节必须保持原对象');
 
   const assignmentQueries = [];
   const lockedAssignment = await resolveActorAssignmentForUpdate({
@@ -361,9 +335,9 @@ async function expectCode(promise, code, message) {
     && approvalRoute.includes('resolveApprovalMaterials({')
     && approvalRoute.indexOf('resolveApprovalMaterials({') < approvalRoute.indexOf('updateStatus(stepId'),
   '审批材料必须在步骤状态写入前完成锁定与校验');
-  assert(approvalRoute.includes('buildApprovalFileProcessingPlan(currentFiles, signaturesByFile, !nextStep)')
-    && approvalRoute.includes('signFinalPdfDocument({'),
-  '最终步骤必须从全部当前 PDF 生成处理计划，而不是依赖本次新增材料');
+  assert(approvalRoute.includes('const filesToProcess = currentFiles;')
+    && approvalRoute.includes('prepareEvidence({') && approvalRoute.includes('requireAll: true'),
+  '每一步必须从全部当前附件生成凭证，不能依赖本次新增图层');
 
   const stampModelSource = fs.readFileSync(
     path.resolve(__dirname, '../src/modules/audit/models/identityStampAssignment.js'),

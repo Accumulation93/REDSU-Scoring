@@ -13,7 +13,9 @@ Module._load = function(request, parent, isMain) {
     return { JWT_SECRET: process.env.JWT_SECRET };
   }
   if (request === '../models/unifiedIdentity') {
-    return { SESSION_MINUTES: 30 };
+    return { SESSION_MINUTES: 30, async listContexts() {
+      return [{ contextId: 'ctx-current', organizationId: 'org-1', role: 'user', assignmentId: 'assignment-1' }];
+    } };
   }
   if (request === '../models/adminInfo') return {};
   if (request === './adminPermissions') return {};
@@ -96,6 +98,16 @@ async function invoke(middleware, token = signed) {
 }
 
 (async () => {
+  for (const selectionFallback of [false, true]) {
+    const payload = await unifiedAuth.buildAuthenticatedPayload(
+      { id: 'account-1', token_version: 3 },
+      { id: 'session-1', context: { contextId: 'ctx-current' }, selectionFallback, expiresInSeconds: 1800 }
+    );
+    assert.strictEqual(payload.selectionNotice, '', '正常登录及偏好回退均不得误报岗位资料更新');
+    assert.strictEqual(payload.context.contextId, 'ctx-current');
+    assert.strictEqual(payload.selection.assignmentId, 'assignment-1');
+    assert.strictEqual(payload.status, 'login_success');
+  }
   const stale = await invoke(await loadMiddleware('ctx-after-switch'));
   assert.strictEqual(stale.statusCode, 401);
   assert.strictEqual(stale.body.status, 'auth_failed');

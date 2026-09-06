@@ -6,6 +6,7 @@ const {
   buildMatchVerificationParams
 } = require('../../../../utils/auditVerification');
 const orgSession = require('../../../../utils/orgSession');
+const signingCopy = require('../../../../locales/zh-CN/signingEvidence');
 
 Page({
   onLoad() {
@@ -30,6 +31,13 @@ Page({
     this.setData({ result: null, submissionNumber: '', fileName: '', filePath: '', fileBase64: '', fileSize: 0, loading: false });
   },
 
+  // 原生选文件会临时隐藏页面；只作废验签请求，保留受组织及卸载保护的文件选择回调。
+  onHide() {
+    orgSession.beginRequest(this, 'auditVerification');
+    if (this.data.loading) this.setData({ loading: false });
+  },
+  onUnload() { orgSession.invalidateRequests(this); },
+
   onVerifyModeChange(e) {
     const modes = ['number', 'file'];
     this.setData({ verifyMode: modes[e.detail.value] || 'number', result: null });
@@ -40,16 +48,20 @@ Page({
   },
 
   chooseVerifyFile() {
-    let that = this;
+    const that = this;
+    const request = orgSession.beginRequest(this, 'verificationFileRead');
     wx.chooseMessageFile({
       count: 1,
       type: 'all',
       success: function(res) {
+        if (!orgSession.isRequestCurrent(that, request)) return;
         let file = res.tempFiles[0];
+        if (!file || file.size > 10 * 1024 * 1024) { showShortToast(signingCopy.fileTooLarge); return; }
         wx.getFileSystemManager().readFile({
           filePath: file.path,
           encoding: 'base64',
           success: function(readRes) {
+            if (!orgSession.isRequestCurrent(that, request)) return;
             that.setData({
               filePath: file.path,
               fileName: file.name,
@@ -59,6 +71,7 @@ Page({
             });
           },
           fail: function() {
+            if (!orgSession.isRequestCurrent(that, request)) return;
             showShortToast(localeCopy.copy_03d69a9d28);
           }
         });
@@ -93,6 +106,7 @@ Page({
         showShortToast(res.message || localeCopy.copy_b791913c7a);
       }
     } catch (e) {
+      if (!orgSession.isRequestCurrent(this, request)) return;
       showShortToast(getErrorText(e, localeCopy.copy_b791913c7a));
     } finally {
       if (orgSession.isRequestCurrent(this, request)) this.setData({ loading: false });
@@ -103,7 +117,7 @@ Page({
     const submissionId = e.detail && e.detail.submissionId
       ? e.detail.submissionId
       : e.currentTarget.dataset.submissionId;
-    const params = buildMatchVerificationParams(this.data.result, submissionId);
+    const params = buildMatchVerificationParams(this.data.result, submissionId, this.data.fileBase64);
     if (!params || params.submissionId === String(this.data.result && this.data.result.submissionId || '')) return;
     const request = orgSession.beginRequest(this, 'auditVerification');
     this.setData({ loading: true });

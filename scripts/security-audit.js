@@ -11,8 +11,10 @@ const RULES = [
     id: 'insecure-http',
     severity: 'high',
     pattern: /["']http:\/\//g,
-    allow: match => {
+    allow: (match, relativeFile) => {
       const candidate = match.input.slice(match.index, match.index + 120);
+      // 仅隔离服务端测试允许回环 HTTP；生产代码及任何外部测试地址仍要求 HTTPS。
+      if (relativeFile.startsWith('server/test/') && /^['"]http:\/\/127\.0\.0\.1(?=[:/])/.test(candidate)) return true;
       return candidate.includes('http://www.w3.org/')
         || candidate.includes('http://schemas.openxmlformats.org/');
     }

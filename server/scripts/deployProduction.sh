@@ -279,6 +279,13 @@ log "执行发布前语法与自动化检查"
 while IFS= read -r -d '' file; do node --check "$file"; done < <(find "$NEW_RELEASE/server" -path '*/node_modules' -prune -o -name '*.js' -type f -print0)
 node "$NEW_RELEASE/server/test/deploymentAutomation.test.js"
 
+# 密钥只在受锁保护的生产服务器首次生成；清单和独立恢复副本必须同时自检通过。
+export AUDIT_EVIDENCE_KEYRING_PATH="$SHARED_DIR/signing-evidence/keyring.json"
+export AUDIT_EVIDENCE_BACKUP_KEYRING_PATH="$DEPLOY_DIR/key-backups/signing-evidence/keyring.json"
+log "初始化或核验平台签署密钥与恢复副本"
+timeout --signal=TERM --kill-after=10s 120s node "$NEW_RELEASE/server/scripts/provisionSigningEvidence.js"
+timeout --signal=TERM --kill-after=10s 60s node "$NEW_RELEASE/server/scripts/preflightSigningEvidence.js"
+
 PLAN_JSON="$(node "$NEW_RELEASE/server/scripts/runDeploymentMigrations.js" plan | tail -n 1)"
 PENDING_COUNT="$(printf '%s' "$PLAN_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(String(JSON.parse(s).pendingCount)))")"
 if [[ "$PLAN_JSON" == *"20260825234500_score_calculation_context_snapshot.sql"* ]]; then

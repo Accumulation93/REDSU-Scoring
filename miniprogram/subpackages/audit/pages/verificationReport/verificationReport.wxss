@@ -1,0 +1,6 @@
+@import '../../../main/styles/home.wxss';
+@import '../../styles/blue-polish.wxss';
+
+.report-intro { margin-bottom: var(--ui-field-gap); color: #64748b; font-size: var(--ui-type-meta); line-height: 1.65; }
+@media (min-width: 520px) { .report-intro { margin-bottom: 16px; } }
+@media (min-width: 900px) { .report-intro { margin-bottom: 14px; } }

@@ -85,6 +85,10 @@ function testDeploymentScriptContract() {
   assert.match(script, /normalizeScoreCalculationSnapshots\.js" --preflight/);
   assert.match(script, /normalizeScoreCalculationSnapshots\.js" --apply/);
   assert.match(script, /normalizeScoreCalculationSnapshots\.js" --verify/);
+  assert.match(script, /provisionSigningEvidence\.js/);
+  assert.match(script, /preflightSigningEvidence\.js/);
+  assert(script.indexOf('provisionSigningEvidence.js') < script.indexOf('PLAN_JSON='), '密钥预检先于迁移和生产切换');
+  assert.match(ecosystem, /AUDIT_EVIDENCE_BACKUP_KEYRING_PATH/);
   assert.match(script, /record-id\+raw-value:v1/);
   assert.match(script, /mappedReviewCount !== unresolvedCount/);
   assert.match(script, /WHUSU_SMART_WORKSPACE_DEPLOY_BRANCH:-main/);

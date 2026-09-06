@@ -5,6 +5,5 @@ module.exports = Object.freeze({
   copy_961dde1e9f: "请完成身份认证",
   copy_b10d64a68c: '请重新登录',
   copy_d6a178f6ce: '账号已冻结，请联系管理员',
-  copy_ffadbecb8f: '微信验证已过期，请重新登录',
-  selectionUpdated: "岗位信息已更新，请确认当前组织和工作角色"
+  copy_ffadbecb8f: '微信验证已过期，请重新登录'
 });

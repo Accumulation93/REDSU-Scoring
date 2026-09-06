@@ -106,3 +106,9 @@
 - `server/src/core` 提供自然人、组织成员、岗位、内部上下文、资料、账号和字典能力。
 - 审核、场地、评分模块只消费规范化上下文和岗位接口，不复制人事目录，也不直接以 `hr_info` 判权。
 - 小程序统一通过 `authContext`/`orgSession` 管理 `activeContextId`；业务页面不自行维护第二套上下文缓存。
+
+## 平台托管密码凭证 v2
+
+审核动作在组织/岗位鉴权和事务行锁内，经 `approvalSigningEvidence` 为当前附件产生凭证，`auditFileCommitCoordinator` 协调文件版本和事务。`audit_signing_evidence` 保存不可变 CMS、加密身份和事件/文件引用；`audit_signing_certificates` 保存组织范围的受控证书登记。清理必须保留凭证引用路径。
+
+`signingEvidenceProtocol` 负责 JCS、HMAC/AES 身份绑定和步骤链，`cmsSignature` 是唯一 CMS 实现，`pdfVerification` 在受限 Worker 内验证实际 PDF 字节及签名对象。`signingVerification` 聚合身份、事件、文件和证书结果，前端复用 `audit-verification-result`。密钥仅在受保护版本化文件及独立副本，不属于数据库配置。协议、OID、API、历史边界及自动配置见 [签署隐私与密码验签](pdf-signing-trust.md)。

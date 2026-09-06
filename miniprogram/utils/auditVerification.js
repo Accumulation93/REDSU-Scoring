@@ -21,17 +21,23 @@ function presentVerificationResponse(response) {
     });
   });
   return Object.assign({}, result, {
+    // 字符串跨原生组件边界，避免开发者工具/旧运行时把嵌套数组转换为普通对象。
+    componentResultJson: JSON.stringify({ verificationVersion: result.verificationVersion,
+      verificationSource: result.verificationSource, verificationScope: result.verificationScope,
+      overallStatus: result.overallStatus, files: result.files }),
     matches,
     matchCount: matches.length,
     matchCountText: verificationCopy.format.matchCount(matches.length)
   });
 }
 
-function buildMatchVerificationParams(result, submissionId) {
+function buildMatchVerificationParams(result, submissionId, fileBase64) {
   const fileHash = String(result && result.verifyByFileHash || '');
   const selectedSubmissionId = String(submissionId || '');
   if (!fileHash || !selectedSubmissionId) return null;
-  return { fileHash, submissionId: selectedSubmissionId };
+  const params = { fileHash, submissionId: selectedSubmissionId };
+  if (fileBase64) params.fileBase64 = fileBase64;
+  return params;
 }
 
 module.exports = { verificationCopy, presentVerificationResponse, buildMatchVerificationParams };

@@ -15,6 +15,10 @@ const submissionStepModel = require('../models/auditSubmissionStep');
 const submissionFileModel = require('../models/auditSubmissionFile');
 const submissionSignatureModel = require('../models/auditSubmissionSignature');
 const auditEventModel = require('../models/auditEvent');
+const signingEvidenceModel = require('../models/signingEvidence');
+const { prepareEvidence } = require('../services/approvalSigningEvidence');
+const { SigningProtocolError } = require('../utils/signingProtocol');
+const signingCopy = require('../../../locales/zh-CN/auditSigningEvidence');
 const stampAssignmentModel = require('../models/identityStampAssignment');
 const { hashFile } = require('../utils/hashChain');
 const { attachUploadedFiles } = require('../utils/fileSecurity');
@@ -24,11 +28,9 @@ const {
   AuditApprovalIntegrityError,
   resolveApprovalMaterials,
   groupApprovalMaterialsByFile,
-  buildApprovalFileProcessingPlan,
   loadApprovalFileFacts,
   createDigitalSignatureMaterial,
-  buildSignatureChainRecords,
-  signFinalPdfDocument
+  buildSignatureChainRecords
 } = require('../services/auditApprovalIntegrity');
 const {
   AuditFileCommitError,
@@ -1057,12 +1059,10 @@ router.post('/getSubmissionDetail', async (req, res) => {
     signatures.forEach((s) => allHrIds.add(s.signer_hr_id));
     events.forEach((e) => { if (e.operator_hr_id) allHrIds.add(e.operator_hr_id); });
     const hrMap = {};
-    const hrStudentIdMap = {};
     if (allHrIds.size) {
       const hrRows = await hrInfoModel.getByIds([...allHrIds]);
       for (const hr of hrRows) {
         hrMap[hr.id] = safeString(hr.name);
-        hrStudentIdMap[hr.id] = safeString(hr.student_id);
       }
     }
 
@@ -1300,7 +1300,6 @@ router.post('/getSubmissionDetail', async (req, res) => {
         page: sig.page || 1,
         signerHrId: safeString(sig.signer_hr_id),
         signerName: hrMap[sig.signer_hr_id] || localeCopy.copy_8d3451355b,
-        signerStudentId: hrStudentIdMap[sig.signer_hr_id] || '',
         round: sig.round,
         signedAt: sig.signed_at
       }))
@@ -1501,7 +1500,8 @@ router.post('/approveStep', async (req, res) => {
     const lockedFiles = await submissionFileModel.getCurrentBySubmissionIdForUpdate(submissionId, conn);
     const currentFiles = await loadApprovalFileFacts(lockedFiles, {
       materials: signatures,
-      finalStep: !nextStep
+      finalStep: !nextStep,
+      requireAll: true
     });
     let normalizedMaterials;
     try {
@@ -1519,7 +1519,8 @@ router.post('/approveStep', async (req, res) => {
       return res.json(approvalIntegrityFailure(error));
     }
     const signaturesByFile = groupApprovalMaterialsByFile(normalizedMaterials);
-    const filesToProcess = buildApprovalFileProcessingPlan(currentFiles, signaturesByFile, !nextStep);
+    const filesToProcess = currentFiles;
+    const approvalEventId = generateId();
 
     const signerContextSnapshot = assignmentSnapshot(approverAssignment, req.authContext);
 
@@ -1534,6 +1535,7 @@ router.post('/approveStep', async (req, res) => {
     }, conn);
 
     const preparedFiles = [];
+    const preparedEvidence = [];
     const pendingSignatureRecords = [];
     for (const file of filesToProcess) {
       const fileId = safeString(file.id);
@@ -1562,25 +1564,20 @@ router.post('/approveStep', async (req, res) => {
 
       // 最后一步必须覆盖所有当前 PDF；即使本步只是“通过”且没有新增可见图层，
       // 也要对最终字节执行 PKCS#7 签名。非 PDF 文件只保留原有图层合成行为。
-      if (!nextStep && finalMimeType === 'application/pdf') {
-        const latestPlacement = fileSignatures[fileSignatures.length - 1] || null;
-        const signaturePosition = latestPlacement ? {
-          x: latestPlacement.positionX,
-          y: latestPlacement.positionY,
-          page: latestPlacement.page || 1
-        } : null;
-        const signedDocument = await signFinalPdfDocument({
-          file,
-          buffer: finalBuffer,
-          mimeType: finalMimeType,
-          orgId,
-          approverAssignment,
-          signaturePosition,
-          db: conn
-        });
-        finalBuffer = signedDocument.buffer;
-        finalMimeType = signedDocument.mimeType;
-      }
+      const latestPlacement = fileSignatures[fileSignatures.length - 1] || null;
+      const evidence = await prepareEvidence({
+        db: conn, organizationId: orgId, organizationName: safeString(req.authContext && req.authContext.organizationName),
+        actor: { ...approverAssignment, contextId: safeString(req.authContext && req.authContext.contextId) },
+        assignmentLabel: signerContextSnapshot.assignmentLabel, submissionId, stepId, eventId: approvalEventId,
+        fileId, round: currentRound, step: step.sort_order, action: step.action_type || 'approve', time: now.toISOString(),
+        inputDigest: hashFile(file.approval_source_buffer), inputPath: file.file_path,
+        buffer: finalBuffer, finalPdf: !nextStep && finalMimeType === 'application/pdf',
+        materials: fileSignatures.map(material => ({ type: material.signatureType, digest: material.materialImageHash,
+          x: material.positionX, y: material.positionY, page: material.page })),
+        signaturePosition: latestPlacement ? { x: latestPlacement.positionX, y: latestPlacement.positionY, page: latestPlacement.page || 1 } : null
+      });
+      finalBuffer = evidence.buffer;
+      preparedEvidence.push(evidence);
 
       const documentHash = hashFile(finalBuffer);
       preparedFiles.push({
@@ -1633,6 +1630,10 @@ router.post('/approveStep', async (req, res) => {
         throw new AuditApprovalIntegrityError(AUDIT_APPROVAL_INTEGRITY_CODES.MATERIAL_FILE_INVALID);
       }
       await submissionFileModel.updateMetadata(preparedFile.fileId, metadata, conn);
+    }
+    for (const evidence of preparedEvidence) {
+      const metadata = fileCommit.metadataFor(evidence.context.fileId);
+      await signingEvidenceModel.create(evidence.receipt, { ...evidence.context, outputPath: metadata.filePath }, conn);
     }
     for (const pending of pendingSignatureRecords) {
       const sigData = pending.record.material;
@@ -1705,8 +1706,8 @@ router.post('/approveStep', async (req, res) => {
       await submissionModel.update(submissionId, { status: 'approved' }, conn);
     }
 
-    // Insert approve event
-    await auditEventModel.create(generateId(), {
+    // 凭证与事件共用预先分配的事件标识，在同一事务内提交。
+    await auditEventModel.create(approvalEventId, {
       ...buildAuditOperatorContext(req, approverAssignment),
       submissionId,
       eventType: 'approve',
@@ -1763,6 +1764,9 @@ router.post('/approveStep', async (req, res) => {
     }
     if (e instanceof AuditApprovalIntegrityError) {
       return res.json(approvalIntegrityFailure(e));
+    }
+    if (e instanceof SigningProtocolError) {
+      return res.json({ status: 'signing_unavailable', message: signingCopy.signingUnavailable });
     }
     if (e instanceof AuditFileCommitError) {
       return res.json(approvalIntegrityFailure(
@@ -1852,6 +1856,20 @@ router.post('/rejectStep', async (req, res) => {
     }
 
     const processedAt = new Date();
+    const rejectionEventId = generateId();
+    const rejectionFiles = await loadApprovalFileFacts(
+      await submissionFileModel.getCurrentBySubmissionIdForUpdate(submissionId, conn), { requireAll: true }
+    );
+    for (const file of rejectionFiles) {
+      const evidence = await prepareEvidence({ db: conn, organizationId: orgId,
+        organizationName: safeString(req.authContext && req.authContext.organizationName),
+        actor: { ...rejecterAssignment, contextId: safeString(req.authContext && req.authContext.contextId) },
+        assignmentLabel: rejecterAssignment.assignment_label, submissionId, stepId, eventId: rejectionEventId,
+        fileId: file.id, round: step.round, step: step.sort_order, action: 'reject', time: processedAt.toISOString(),
+        inputDigest: hashFile(file.approval_source_buffer), inputPath: file.file_path,
+        buffer: file.approval_source_buffer, finalPdf: false, materials: [] });
+      await signingEvidenceModel.create(evidence.receipt, { ...evidence.context, outputPath: file.file_path }, conn);
+    }
 
     // Update step to rejected
     await submissionStepModel.updateStatus(stepId, {
@@ -1869,8 +1887,8 @@ router.post('/rejectStep', async (req, res) => {
       previousRejectStepIndex: step.sort_order
     }, conn);
 
-    // Insert reject event
-    await auditEventModel.create(generateId(), {
+    // 驳回同样保存独立签署凭证，并绑定此事件。
+    await auditEventModel.create(rejectionEventId, {
       ...buildAuditOperatorContext(req, rejecterAssignment),
       submissionId,
       eventType: 'reject',
@@ -1896,6 +1914,7 @@ router.post('/rejectStep', async (req, res) => {
     res.json({ status: 'success', message: localeCopy.copy_cd48632f3f });
   } catch (e) {
     await conn.rollback();
+    if (e instanceof SigningProtocolError) return res.json({ status: 'signing_unavailable', message: signingCopy.signingUnavailable });
     res.json({ status: 'error', message: safeString(e.message) });
   } finally {
     if (conn) conn.release();

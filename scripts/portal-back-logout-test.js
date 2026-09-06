@@ -60,6 +60,12 @@ assert.match(
   /wx\.reLaunch\(\{[\s\S]*?url: PORTAL_ROUTE/,
   '登录成功必须重建页面栈，避免真机依赖旧页面渲染回调'
 );
+assert.doesNotMatch(portalSource, /contextNotice|authSelectionNotice/, '门户不得读取或展示遗留岗位提示');
+assert.doesNotMatch(
+  fs.readFileSync(path.resolve(__dirname, '..', 'miniprogram/subpackages/main/pages/portal/portal.wxml'), 'utf8'),
+  /contextNotice|portal-context-notice/,
+  '门户不得保留岗位更新通知容器'
+);
 assert.doesNotMatch(loginSource, /leavingPortal/, '登录跳转不得先隐藏根节点再等待渲染回调');
 assert.match(
   fs.readFileSync(path.resolve(__dirname, '..', 'miniprogram', 'subpackages', 'main', 'pages', 'login', 'login.wxss'), 'utf8'),

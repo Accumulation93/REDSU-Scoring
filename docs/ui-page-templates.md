@@ -125,3 +125,9 @@
 | 控件高度 | 完整字段/主按钮 82rpx，紧凑 52rpx，同行 56rpx | 完整字段/主按钮 44px，紧凑/同行 32px | 完整字段/主按钮 44px，紧凑/同行 32px；页签使用横屏令牌 |
 | 字体 | 紧凑但可读 | 明显大于手机 | 大于手机但不随宽度无限放大 |
 | 弹窗 | 居中或底部 sheet | 居中、宽度受限 | 居中、相对完整视口 |
+
+## 验签页模板
+
+编号/文件输入置于控制卡，文件模式传完整 Base64，选取匹配记录后保留上传字节，禁止改成哈希查询冒充上传验签。失败可原地重试，组织/岗位变化及卸载后丢弃旧响应。
+
+注册共享 `audit-verification-result`，先用 `presentVerificationResponse` 预计算，再以 `<audit-verification-result result-json="{{result.componentResultJson}}" />` 接入；管理端绑定 `verificationResult.componentResultJson`。不要直接跨组件传递嵌套数组对象。不另写成功徽章、身份字段或信任结论。默认只显示用户语言的文件检查和逐步经办人，技术内容进入独立 `verificationReport` 页面（组件 `report=true`），而不是在默认界面展开。历史/未知/失败不得套成功色。全局禁止在人事专用边界外增加学号列，包括管理员视图。

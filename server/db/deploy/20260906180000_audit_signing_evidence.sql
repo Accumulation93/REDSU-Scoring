@@ -1,0 +1,48 @@
+-- 新版密码凭证只从真实新操作写入，不为历史动作补造身份声明。
+CREATE TABLE IF NOT EXISTS audit_signing_certificates (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  org_id VARCHAR(64) NOT NULL,
+  key_version VARCHAR(32) NOT NULL,
+  certificate_fingerprint VARCHAR(64) NOT NULL,
+  certificate_pem TEXT NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'active',
+  created_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uq_evidence_certificate (org_id, key_version),
+  INDEX idx_evidence_certificate_scope (org_id, certificate_fingerprint)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS audit_signing_evidence (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  org_id VARCHAR(64) NOT NULL,
+  submission_id VARCHAR(64) NOT NULL,
+  step_id VARCHAR(64) NOT NULL,
+  step_index INT NOT NULL,
+  round INT NOT NULL,
+  event_id VARCHAR(64) NOT NULL,
+  file_id VARCHAR(64) NOT NULL,
+  person_id VARCHAR(64) NOT NULL,
+  assignment_id VARCHAR(64) NOT NULL,
+  action_type VARCHAR(16) NOT NULL,
+  key_version VARCHAR(32) NOT NULL,
+  certificate_fingerprint VARCHAR(64) NOT NULL,
+  identity_ciphertext TEXT NOT NULL,
+  payload_json JSON NOT NULL,
+  cms_base64 MEDIUMTEXT NOT NULL,
+  receipt_digest VARCHAR(64) NOT NULL,
+  previous_digest VARCHAR(64) NOT NULL DEFAULT '',
+  input_digest VARCHAR(64) NOT NULL,
+  output_digest VARCHAR(64) NOT NULL,
+  output_digest_type VARCHAR(32) NOT NULL,
+  final_file_digest VARCHAR(64) NOT NULL,
+  input_file_path VARCHAR(1000) NOT NULL,
+  output_file_path VARCHAR(1000) NOT NULL,
+  legacy_prefix TINYINT(1) NOT NULL DEFAULT 0,
+  signed_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uq_evidence_step_file (org_id, step_id, file_id),
+  INDEX idx_evidence_file_round (org_id, file_id, round, step_index),
+  INDEX idx_evidence_submission (org_id, submission_id),
+  INDEX idx_evidence_person (org_id, person_id),
+  CONSTRAINT fk_evidence_submission FOREIGN KEY (submission_id) REFERENCES audit_submissions(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_evidence_file FOREIGN KEY (file_id) REFERENCES audit_submission_files(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_evidence_step FOREIGN KEY (step_id) REFERENCES audit_submission_steps(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

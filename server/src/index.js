@@ -321,6 +321,7 @@ app.use((err, req, res, next) => {
 let server = null;
 async function startServer() {
   try {
+    require('./modules/audit/services/signingEvidenceKeys').assertSigningReadiness();
     const t0 = Date.now();
     await pool.query('SELECT 1');
     const bindingUpgrade = await unifiedIdentityModel.upgradeLegacyWechatBindings();

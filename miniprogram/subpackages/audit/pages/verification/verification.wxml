@@ -41,63 +41,7 @@
         bindselect="selectVerificationMatch"
       />
 
-      <!-- Overall result -->
-      <view class="audit-verify-result verify-overall">
-        <view class="audit-verify-icon"><ui-icon name="{{result.valid ? 'check' : 'x'}}" tone="{{result.valid ? 'primary' : 'danger'}}" size="56" ariaLabel="{{result.valid ? localeCopy.copy_3e081d0fa1 : localeCopy.copy_73b11affc2}}" /></view>
-        <view class="audit-verify-text {{result.valid ? 'audit-verify-valid' : 'audit-verify-invalid'}}">
-          {{result.valid ? localeCopy.copy_3e081d0fa1 : localeCopy.copy_73b11affc2}}
-        </view>
-      </view>
-
-      <view class="info-grid">
-        <view class="info-block">
-          <view class="info-label">{{localeCopy.copy_6db0cdad11}}</view>
-          <view class="info-value">{{result.totalSignatures}}</view>
-        </view>
-        <view class="info-block" wx:if="{{result.submissionNumber}}">
-          <view class="info-label">{{localeCopy.copy_1ddd4c9b39}}</view>
-          <view class="info-value">{{result.submissionNumber}}</view>
-        </view>
-      </view>
-
-      <!-- Rounds -->
-      <view class="section-title verify-subsection-title" wx:if="{{result.totalSignatures > 0}}">{{localeCopy.copy_07c93eae72}}</view>
-      <view wx:for="{{result.rounds}}" wx:key="*this" wx:for-index="round" wx:for-item="roundData">
-        <view class="audit-step-card">
-          <view class="audit-step-indicator {{roundData.valid ? 'audit-step-dot-done' : 'audit-step-dot-rejected'}}">
-            <ui-icon name="{{roundData.valid ? 'check' : 'x'}}" tone="{{roundData.valid ? 'primary' : 'danger'}}" size="22" ariaLabel="{{roundData.valid ? localeCopy.copy_61390dea0a : localeCopy.copy_b0ecda76b1}}" />
-          </view>
-          <view class="audit-step-body">
-            <view class="audit-step-title {{roundData.valid ? 'verify-status-valid' : 'verify-status-invalid'}}">
-              {{localeCopy.copy_ef8b7ffa9b}}{{round + 1}}{{localeCopy.copy_1a50073a0e}}{{roundData.valid ? localeCopy.copy_61390dea0a : localeCopy.copy_b0ecda76b1}}（{{roundData.signatures}}{{localeCopy.copy_df548b0f40}}
-            </view>
-          </view>
-        </view>
-      </view>
-
-      <!-- File hash check -->
-      <view class="section-title verify-subsection-title" wx:if="{{result.files.length}}">{{localeCopy.copy_accba28cad}}</view>
-      <view wx:for="{{result.files}}" wx:key="fileId">
-        <view class="file-attach-item">
-          <view class="file-attach-icon verify-file-status-icon">
-            <ui-icon name="{{item.hashVerified === true ? 'check' : (item.hashVerified === false ? 'x' : 'file')}}" tone="{{item.hashVerified === true ? 'primary' : (item.hashVerified === false ? 'danger' : 'muted')}}" size="24" ariaLabel="{{item.hashVerified === true ? localeCopy.copy_fbf2871317 : (item.hashVerified === false ? localeCopy.copy_3f3f603e7b : localeCopy.copy_794d97df79)}}" />
-          </view>
-          <view class="verify-file-copy">
-            <view class="file-attach-name {{item.hashVerified === true ? 'verify-status-valid' : (item.hashVerified === false ? 'verify-status-invalid' : 'verify-status-unknown')}}">
-              {{item.hashVerified === true ? localeCopy.copy_fbf2871317 : (item.hashVerified === false ? localeCopy.copy_3f3f603e7b : localeCopy.copy_7bb4b58022)}}
-            </view>
-            <view wx:if="{{item.pdfSignature && item.pdfSignature.present}}" class="file-attach-name {{item.pdfSignature.valid ? 'verify-status-valid' : 'verify-status-invalid'}}">
-              {{localeCopy.copy_4e1ba9317f}}{{item.pdfSignature.valid ? localeCopy.copy_5494a3274f : localeCopy.copy_3196e9e72b}}
-            </view>
-            <view wx:if="{{item.pdfSignature && item.pdfSignature.signatures.length}}" class="list-desc" wx:for="{{item.pdfSignature.signatures}}" wx:for-item="ps" wx:key="index">
-              <text>{{localeCopy.copy_c25d1b8a38}} {{ps.signerName}}</text><text wx:if="{{ps.signerStudentId}}">（{{ps.signerStudentId}}）</text><text> {{localeCopy.copy_71234ac12a}} · {{ps.ok ? localeCopy.copy_5494a3274f : localeCopy.copy_3196e9e72b}}</text>
-              <text wx:if="{{ps.ok && ps.trustStatus === 'self_signed'}}" class="verify-status-unknown"> · {{localeCopy.copy_0ad36ee44c}}</text>
-              <text wx:if="{{ps.ok && ps.trustStatus === 'chain_present'}}" class="verify-status-valid"> · {{localeCopy.copy_fde988de1e}}</text>
-            </view>
-            <view wx:if="{{item.pdfSignature && !item.pdfSignature.present}}" class="file-attach-name verify-status-unknown">{{localeCopy.copy_c9448bb954}}</view>
-          </view>
-        </view>
-      </view>
+      <audit-verification-result result-json="{{result.componentResultJson}}" />
     </view>
   </view>
 

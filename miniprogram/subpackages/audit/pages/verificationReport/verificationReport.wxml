@@ -1,0 +1,8 @@
+<view class="page page-narrow subapp-audit-page">
+  <workspace-hero class="workspace-hero-host" app-name="{{copy.appName}}" page-name="{{copy.reportTitle}}" />
+  <view class="card">
+    <view class="section-title">{{copy.reportTitle}}</view>
+    <view class="report-intro">{{resultJson ? copy.reportIntro : copy.reportExpired}}</view>
+    <audit-verification-result wx:if="{{resultJson}}" result-json="{{resultJson}}" report="{{true}}" />
+  </view>
+</view>

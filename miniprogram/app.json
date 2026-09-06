@@ -36,7 +36,8 @@
         "pages/pendingApprovals/pendingApprovals",
         "pages/myApprovalHistory/myApprovalHistory",
         "pages/signatureManager/signatureManager",
-        "pages/verification/verification"
+        "pages/verification/verification",
+        "pages/verificationReport/verificationReport"
       ]
     },
     {

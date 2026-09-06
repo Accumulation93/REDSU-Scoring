@@ -64,6 +64,7 @@ test('切换到新组织超级管理员后原子替换运行时权限并阻止�
   authContext.applyAuthenticatedResult({
     status: 'login_success',
     token: 'token-user',
+    selectionNotice: '旧服务端岗位提示',
     account: { id: 'account-1', personId: 'person-1', name: '测试管理员', studentId: '20260001' },
     context: userContext,
     contexts: [userContext, adminContext],
@@ -119,6 +120,7 @@ test('切换到新组织超级管理员后原子替换运行时权限并阻止�
   assert.equal(storage.roleProfiles.admin.adminLevel, 'super_admin');
   assert.equal(storage.roleProfiles.admin.permissions['*'], true);
   assert.equal(storage.authSession.authState.context.contextId, 'ctx-admin-test');
+  assert.equal(storage.authSelectionNotice, undefined, '旧服务端提示不得写入兼容缓存');
   assert(events.some(function(item) { return item.name === 'auth:contextChanged'; }));
   assert(events.some(function(item) { return item.name === 'org:changed'; }));
 });
@@ -212,4 +214,16 @@ test('旧岗位目录响应不得覆盖当前组织目录', async () => {
   await assert.rejects(oldCatalogRequest, function(error) { return error.status === 'stale_context'; });
   assert.equal(authContext.getContexts()[0].contextId, 'ctx-admin-final');
   assert.equal(orgSession.getSnapshot().orgId, 'org-final');
+});
+
+test('登录兼容旧服务端时忽略岗位提示，退出时清理历史缓存', async () => {
+  storage.authSelectionNotice = '历史缓存提示';
+  authContext.applyAuthenticatedResult(Object.assign({}, activationResult, {
+    status: 'login_success', selectionNotice: '旧服务端岗位提示'
+  }));
+  await new Promise(function(resolve) { setTimeout(resolve, 900); });
+  assert.equal(storage.authSelectionNotice, '历史缓存提示', '登录不再写入通知键');
+  assert.equal(orgSession.getSnapshot().orgId, 'org-final', '移除提示不改变有效组织');
+  authContext.clearUnifiedAuthentication();
+  assert.equal(storage.authSelectionNotice, undefined, '正常退出一并清理旧通知键');
 });

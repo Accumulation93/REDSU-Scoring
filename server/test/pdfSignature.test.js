@@ -49,7 +49,7 @@ function buildTestParentCertificate() {
   );
   const nodeCert = new (require('crypto').X509Certificate)(certPem);
   assert(nodeCert.subject.includes('张三'), '证书 DN 应包含真实姓名（严格 X.509 解析）');
-  assert(nodeCert.subject.includes('20210001'), '证书 DN 应包含学号（严格 X.509 解析）');
+  assert(!nodeCert.subject.includes('20210001'), '证书 DN 严禁包含学号（严格 X.509 解析）');
 
   const signed = await signPdfBuffer(pdf, pair.privateKeyPem, certPem, {
     signer: { name: '张三', studentId: '20210001', orgName: '武汉大学第四十四届学生会' },
@@ -65,10 +65,10 @@ function buildTestParentCertificate() {
   assert.strictEqual(verify.valid, true, '数字签名应有效');
   assert.strictEqual(verify.signatures.length, 1, '应解析出 1 个签名');
   assert.strictEqual(verify.signatures[0].ok, true, '签名校验应通过');
-  assert.strictEqual(verify.signatures[0].trustStatus, 'self_signed', '测试证书应明确标记为自签名未受信');
+  assert.strictEqual(verify.signatures[0].trustStatus, 'not_evaluated', '未完成信任链验证不得标为可信');
   assert.strictEqual(verify.trusted, false, '自签名证书不应被报告为受信');
   assert.strictEqual(verify.signatures[0].signerName, '张三', '签名人姓名应为真实姓名');
-  assert.strictEqual(verify.signatures[0].studentId, '20210001', '签名人学号应正确');
+  assert.strictEqual(verify.signatures[0].studentId, undefined, '验签响应不得返回学号');
 
   const parent = buildTestParentCertificate();
   const childPair = generateSigningKeyPair();
@@ -87,8 +87,8 @@ function buildTestParentCertificate() {
   });
   const parentVerify = verifyPdfSignature(parentSigned);
   assert.strictEqual(parentVerify.valid, true, '父证书签发的数字签名应有效');
-  assert.strictEqual(parentVerify.trusted, true, '签名容器应携带父证书链');
-  assert.strictEqual(parentVerify.signatures[0].trustStatus, 'chain_present', '应识别出已嵌入证书链');
+  assert.strictEqual(parentVerify.trusted, false, '携带父证书链不能视为信任链通过');
+  assert.strictEqual(parentVerify.signatures[0].trustStatus, 'not_evaluated', '外部信任需独立验证');
 
   // 篡改签名覆盖区内的内容 → 验签必须失败
   const tampered = Buffer.from(signed);
@@ -98,7 +98,7 @@ function buildTestParentCertificate() {
   const verifyTampered = verifyPdfSignature(tampered);
   assert.strictEqual(verifyTampered.valid, false, '篡改后验签必须失败');
 
-  console.log('PDF 数字签名/验签测试通过：签名、身份（姓名+学号）、篡改检测均正常');
+  console.log('PDF 数字签名测试通过：姓名、学号隐私、篡改检测与外部信任边界');
 })().catch((e) => {
   console.error(e);
   process.exit(1);
