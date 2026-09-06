@@ -103,7 +103,7 @@ async function testRealTemporaryDirectory() {
     if (request === '../../../config/db') {
       return {
         async query(sql) {
-          if (sql.includes('FROM account_wechat_bindings')) return [[{ account_id: 'account-1' }]];
+          assert(!/account_wechat_bindings|openid/.test(sql), '附件不得按微信重新查找账号');
           return [[]];
         }
       };
@@ -148,7 +148,7 @@ async function testRealTemporaryDirectory() {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00, 0x00, 0x00]);
     await assert.rejects(
       () => fileSecurity.attachUploadedFiles({
-        uploadedFiles: [], submissionId: 'submission-without-transaction', openid: 'openid'
+        uploadedFiles: [], submissionId: 'submission-without-transaction', accountId: 'account-1'
       }),
       (error) => error.status === 'error'
     );
@@ -156,19 +156,33 @@ async function testRealTemporaryDirectory() {
       buffer: png,
       fileName: 'signature.png',
       mimeType: 'image/png',
+      accountId: 'account-1',
       openid: 'plain-openid-must-not-be-stored'
     });
     const tempPath = path.join(temporaryRoot, '_tmp', uploaded.fileId + '.png');
     assert.strictEqual(fs.existsSync(tempPath), true, '必须在真实临时目录写入随机文件名');
     const tokenPayload = JSON.parse(Buffer.from(uploaded.fileToken.split('.')[0], 'base64url').toString('utf8'));
     assert.strictEqual(Object.prototype.hasOwnProperty.call(tokenPayload, 'openid'), false);
+    assert.strictEqual(tokenPayload.ownerHash, fileSecurity.uploadOwnerHash('account-1'));
+    assert.notStrictEqual(tokenPayload.ownerHash, fileSecurity.uploadOwnerHash('account-2'));
     assert.notStrictEqual(tokenPayload.ownerHash, 'plain-openid-must-not-be-stored');
     assert.strictEqual(JSON.stringify(Array.from(quotaRows.values())).includes('plain-openid-must-not-be-stored'), false);
+
+    await assert.rejects(() => fileSecurity.createTempUpload({
+      buffer: png, fileName: 'missing-account.png', mimeType: 'image/png', openid: 'bound-wechat'
+    }), (error) => error.status === 'upload_quota_unavailable', '只有微信标识不能上传');
+    await assert.rejects(() => fileSecurity.attachUploadedFiles({
+      uploadedFiles: [{ fileToken: uploaded.fileToken }],
+      submissionId: 'submission-wrong-account', accountId: 'account-2',
+      openid: 'plain-openid-must-not-be-stored', conn: { async query() {} }
+    }), (error) => error.status === 'forbidden', '同一微信不能读取另一口令账号的附件');
+    assert.strictEqual(fs.existsSync(tempPath), true, '越权挂接不能移走附件');
 
     await fileSecurity.attachUploadedFiles({
       uploadedFiles: [{ fileToken: uploaded.fileToken }],
       submissionId: 'submission-1',
-      openid: 'plain-openid-must-not-be-stored',
+      accountId: 'account-1',
+      openid: 'a-different-wechat-or-password-session',
       conn: { async query() {} }
     });
     assert.strictEqual(fs.existsSync(tempPath), false);
@@ -181,7 +195,7 @@ async function testRealTemporaryDirectory() {
       buffer: png,
       fileName: validUnicodeName,
       mimeType: 'image/png',
-      openid: 'plain-openid-must-not-be-stored'
+      accountId: 'account-1'
     });
     assert.strictEqual(unicodeUpload.fileName, validUnicodeName, '文件名上限必须按 Unicode 字符而不是 UTF-16 单元计算');
     await assert.rejects(
@@ -189,7 +203,7 @@ async function testRealTemporaryDirectory() {
         buffer: png,
         fileName: '😀'.repeat(501),
         mimeType: 'image/png',
-        openid: 'plain-openid-must-not-be-stored'
+        accountId: 'account-1'
       }),
       (error) => error.status === 'invalid_params'
     );
@@ -199,7 +213,7 @@ async function testRealTemporaryDirectory() {
       buffer: png,
       fileName: '第二个文件.png',
       mimeType: 'image/png',
-      openid: 'plain-openid-must-not-be-stored'
+      accountId: 'account-1'
     });
     failCreateForFileId = rollbackUploadB.fileId;
     await assert.rejects(() => fileSecurity.attachUploadedFiles({
@@ -208,7 +222,7 @@ async function testRealTemporaryDirectory() {
         { fileToken: rollbackUploadB.fileToken }
       ],
       submissionId: 'submission-rollback',
-      openid: 'plain-openid-must-not-be-stored',
+      accountId: 'account-1',
       conn: { async query() {} }
     }), /simulated database failure/);
     [rollbackUploadA, rollbackUploadB].forEach((item) => {

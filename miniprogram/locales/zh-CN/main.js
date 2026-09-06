@@ -56,7 +56,7 @@ const login = Object.freeze({
     passphrasePlaceholder: '请输入口令',
     loginAction: '登录',
     titlePasswordBinding: '绑定当前微信',
-    passwordBindingNote: '当前微信尚未绑定账号，是否绑定给刚登录的账号？',
+    passwordBindingNote: '已通过口令登录。是否为该账号绑定当前微信，方便下次登录？也可以跳过。',
     passwordBindingBlockedNote: '当前微信已绑定其他账号，本次为临时登录，无法绑定当前微信。',
     bindPasswordWechat: '绑定当前微信',
     skipPasswordBinding: '暂不绑定',

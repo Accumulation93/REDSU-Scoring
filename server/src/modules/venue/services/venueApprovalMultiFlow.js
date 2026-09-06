@@ -578,11 +578,14 @@ async function countStepCandidates(flow, st, applicantHrInfo, orgId, conn) {
   if (mode === 'admin_any') {
     const db = conn || pool;
     const [rows] = await db.query(
-      `SELECT
-         (SELECT COUNT(*) FROM admin_info WHERE org_id = ? AND bind_status = 'active')
-         + (SELECT COUNT(*) FROM admin_grants WHERE (org_id = ? OR org_id = '') AND status = 'active')
-         AS total`,
-      [orgId, orgId]
+      `SELECT COUNT(DISTINCT g.person_id) AS total
+         FROM admin_grants g
+         JOIN persons p ON p.id = g.person_id AND p.status = 'active'
+         JOIN accounts a ON a.person_id = p.id AND a.status = 'verified'
+        WHERE g.status = 'active'
+          AND ((g.admin_level = 'admin' AND g.org_id = ?)
+            OR (g.admin_level = 'super_admin' AND g.org_id = ''))`,
+      [orgId]
     );
     return Number(rows[0] && rows[0].total) || 0;
   }

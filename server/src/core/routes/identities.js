@@ -5,20 +5,16 @@ const { safeString, generateId } = require('../../utils/helpers');
 const { nowMysqlUtc } = require('../../utils/dateTime');
 const { getCurrentOrgId } = require('../../utils/orgContext');
 const identityModel = require('../models/identity');
-const adminInfoModel = require('../models/adminInfo');
+const { resolveRequestAdmin: ensureAdmin } = require('../services/adminRequestContext');
+const { getAuthenticatedContext } = require('../services/authenticatedContext');
 const pool = require('../../config/db');
 const personnelCopy = require('../../locales/zh-CN/core/personnel');
 const dictionaryUsage = require('../services/dictionaryUsage');
 
-async function ensureAdmin(openid) {
-  return adminInfoModel.getByOpenid(openid);
-}
-
 // listIdentities
 router.post('/listIdentities', async (req, res) => {
   try {
-    const openid = req.openid;
-    if (!openid) return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
+    if (!getAuthenticatedContext(req)) return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
 
     const rows = await identityModel.getAll();
     const identities = rows.map((item) => ({
@@ -36,8 +32,7 @@ router.post('/listIdentities', async (req, res) => {
 // saveIdentity
 router.post('/saveIdentity', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const id = safeString(req.body.id);
@@ -71,8 +66,7 @@ router.post('/saveIdentity', async (req, res) => {
 // deleteIdentity
 router.post('/deleteIdentity', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const id = safeString(req.body.id);

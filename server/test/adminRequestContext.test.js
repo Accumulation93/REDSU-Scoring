@@ -25,7 +25,7 @@ Module._load = originalLoad;
 (async () => {
   const superAdmin = await resolveCurrentAdmin({
     openid: 'openid-super',
-    authAccount: { id: 'account-super' },
+    authAccount: { id: 'account-super', personId: 'person-super' },
     authContext: {
       role: 'admin',
       contextId: 'ctx-super-org-43',
@@ -46,7 +46,7 @@ Module._load = originalLoad;
 
   const regularAdmin = await resolveCurrentAdmin({
     openid: 'openid-admin',
-    authAccount: { id: 'account-admin' },
+    authAccount: { id: 'account-admin', personId: 'person-admin' },
     authContext: {
       role: 'admin',
       contextId: 'ctx-admin-org-44',
@@ -58,12 +58,30 @@ Module._load = originalLoad;
       name: '当前姓名'
     }
   });
-  assert.strictEqual(requestedLegacyId, 'legacy-admin');
+  assert.strictEqual(requestedLegacyId, '', '当前管理资料只投影认证角色，不读取旧绑定资料');
   assert.strictEqual(regularAdmin.id, 'legacy-admin');
   assert.strictEqual(regularAdmin.org_id, 'org-44', '当前组织必须覆盖 legacy 资料中的旧组织');
   assert.strictEqual(regularAdmin.name, '当前姓名');
 
   assert.strictEqual(await resolveCurrentAdmin({ authAccount: {}, authContext: { role: 'user' } }), null);
+  const request = {
+    authAccount: { id: 'account-admin', personId: 'person-admin' },
+    authContext: {
+      role: 'admin', contextId: 'ctx-admin', organizationId: 'org-44',
+      personId: 'person-admin', adminGrantId: 'grant-admin', adminLevel: 'admin', name: '本人'
+    }
+  };
+  const expected = await resolveCurrentAdmin(request);
+  for (const openid of ['', 'own-wechat', 'another-super-admin-wechat']) {
+    assert.deepStrictEqual(await resolveCurrentAdmin(Object.assign({}, request, { openid })), expected);
+  }
+  assert.strictEqual(await resolveCurrentAdmin({ openid: 'another-super-admin-wechat' }), null);
+  assert.strictEqual(await resolveCurrentAdmin(Object.assign({}, request, {
+    authAccount: { id: 'account-other', personId: 'person-other' }
+  })), null, '账号与角色的自然人不一致必须拒绝');
+  const { resolveRequestAdmin } = require('../src/core/services/adminRequestContext');
+  assert.strictEqual(await resolveRequestAdmin(Object.assign({}, request, { admin: null })), null);
+  assert.deepStrictEqual(await resolveRequestAdmin(Object.assign({}, request, { admin: expected })), expected);
   console.log('统一会话管理员解析测试通过');
 })().catch((error) => {
   console.error(error);

@@ -74,7 +74,7 @@ async function invoke(routePath, body) {
   let payload = null;
   await findRoute(routePath)({
     body: body || {},
-    openid: 'openid-current'
+    admin: { id: 'admin-current' }
   }, {
     json(value) {
       payload = value;

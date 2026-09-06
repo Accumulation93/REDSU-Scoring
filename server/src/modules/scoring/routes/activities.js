@@ -4,17 +4,12 @@ const express = require('express');
 const router = express.Router();
 const { safeString, generateId } = require('../../../utils/helpers');
 const { nowMysqlUtc, formatDateOnly } = require('../../../utils/dateTime');
-const adminInfoModel = require('../../../core/models/adminInfo');
+const { resolveRequestAdmin: ensureAdmin } = require('../../../core/services/adminRequestContext');
 const activityModel = require('../models/scoreActivity');
 const pool = require('../../../config/db');
 const { getCurrentOrgId } = require('../../../utils/orgContext');
 const pubCache = require('../utils/pubCache');
 const sharedCache = require('../utils/sharedCache');
-
-async function ensureAdmin(req) {
-  if (req && Object.prototype.hasOwnProperty.call(req, 'admin')) return req.admin || null;
-  return req && req.openid ? adminInfoModel.getByOpenid(req.openid) : null;
-}
 
 // listScoreActivities
 router.post('/listScoreActivities', async (req, res) => {

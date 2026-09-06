@@ -113,7 +113,7 @@ async function run() {
     await seed(fixture, legacyHash);
     const governance = require('../src/core/models/personGovernance');
     const unifiedIdentity = require('../src/core/models/unifiedIdentity');
-    const adminInfo = require('../src/core/models/adminInfo');
+    const identityModel = require('../src/core/models/unifiedIdentity');
     appPool = require('../src/config/db');
 
     await fixture.query(`
@@ -205,8 +205,8 @@ async function run() {
       { id: 'admin-source', openid: 'openid-target', bind_status: 'active' },
       { id: 'admin-target', openid: 'openid-target', bind_status: 'active' }
     ]);
-    assert.deepStrictEqual(await adminInfo.getByOpenidAcrossOrgs('openid-source'), []);
-    assert.strictEqual((await adminInfo.getByOpenidAcrossOrgs('openid-target')).length, 2);
+    assert.deepStrictEqual(await identityModel.listContexts('account-source'), []);
+    assert.strictEqual((await identityModel.listContexts('account-target')).filter((item) => item.role === 'admin').length, 2);
 
     const [orgAccess] = await fixture.query(`
       SELECT 1
@@ -242,8 +242,8 @@ async function run() {
       organizationId: 'org-source'
     }, { personId: 'person-target', contextId: 'context-target' });
     assert.strictEqual(retryResult.idempotent, true);
-    assert.deepStrictEqual(await adminInfo.getByOpenidAcrossOrgs('openid-source'), []);
-    assert.strictEqual((await adminInfo.getByOpenidAcrossOrgs('openid-target')).length, 2);
+    assert.deepStrictEqual(await identityModel.listContexts('account-source'), []);
+    assert.strictEqual((await identityModel.listContexts('account-target')).filter((item) => item.role === 'admin').length, 2);
     console.log('双账号自然人合并、兼容绑定重建与旧管理员登录阻断集成测试通过');
   } finally {
     if (appPool) await appPool.end();

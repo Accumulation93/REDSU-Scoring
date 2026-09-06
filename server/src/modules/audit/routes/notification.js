@@ -6,7 +6,7 @@ const { getCurrentOrgId, orgStorage } = require('../../../utils/orgContext');
 const { listAccessibleActorContexts } = require('../../../core/services/accessibleOrganizations');
 const notificationModel = require('../models/notification');
 const todoService = require('../services/todoService');
-const unifiedIdentityModel = require('../../../core/models/unifiedIdentity');
+const { getAuthenticatedContext } = require('../../../core/services/authenticatedContext');
 
 const AGGREGATION_CONCURRENCY = 4;
 
@@ -195,55 +195,12 @@ function scopeMetadata(scope, failures) {
 }
 
 async function resolveScope(req, body, defaultToCurrent) {
-  const openid = safeString(req.openid);
-  if (!openid) {
+  if (!getAuthenticatedContext(req)) {
     return { ok: false, status: 'auth_failed', message: localeCopy.copy_c22a252e97 };
   }
   const currentOrgId = await getCurrentOrgId();
-  let role = safeString(req.headers['x-role']).toLowerCase();
-  let allContexts;
-  if (req.authAccount && req.authContext) {
-    role = 'unified';
-    const identityContexts = await unifiedIdentityModel.listContexts(req.authAccount.id);
-    allContexts = identityContexts.map((context) => {
-      const isAdmin = context.role === 'admin';
-      return Object.assign({}, context, {
-        isCurrentOrganization: context.organizationId === currentOrgId,
-        isCurrentContext: context.contextId === req.authContext.contextId,
-        actor: isAdmin ? {
-          type: 'admin',
-          id: context.legacyAdminId,
-          personId: context.personId,
-          adminLevel: context.adminLevel,
-          name: context.name,
-          profile: {
-            id: context.legacyAdminId,
-            admin_level: context.adminLevel,
-            name: context.name
-          }
-        } : {
-          type: 'user',
-          id: context.legacyHrId,
-          personId: context.personId,
-          assignmentId: context.assignmentId,
-          name: context.name,
-          profile: {
-            id: context.legacyHrId,
-            name: context.name,
-            student_id: context.studentId,
-            department_id: context.departmentId,
-            identity_id: context.identityId,
-            work_group_id: context.workGroupId
-          }
-        }
-      });
-    }).filter((context) => context.actor.id);
-  } else {
-    if (role !== 'user' && role !== 'admin') {
-      return { ok: false, status: 'invalid_role', message: localeCopy.copy_10d3269bb4 };
-    }
-    allContexts = await listAccessibleActorContexts({ openid, role, currentOrgId });
-  }
+  const role = 'unified';
+  const allContexts = await listAccessibleActorContexts(req);
   const requestedOrganizationId = safeString(body && body.organizationId)
     || (defaultToCurrent ? currentOrgId : '');
   const contexts = requestedOrganizationId

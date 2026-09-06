@@ -31,7 +31,9 @@ function findHandler(router, routePath) {
 function invoke(handler, body) {
   return new Promise((resolve, reject) => {
     const req = {
-      openid: 'super-openid',
+      authAccount: { id: 'account-super', personId: 'person-super' },
+      authContext: { role: 'admin', contextId: 'context-super', personId: 'person-super',
+        organizationId: 'org-a', adminGrantId: 'grant-super', legacyAdminId: 'super', adminLevel: 'super_admin' },
       body,
       get() { return ''; }
     };

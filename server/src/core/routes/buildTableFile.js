@@ -10,7 +10,7 @@ const { LIMITS, buildWorkbookBuffer } = require('../../utils/excelFile');
  */
 router.post('/buildTableFile', async (req, res) => {
   try {
-    if (!req.openid || !req.admin) {
+    if (!req.admin) {
       return res.status(403).json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
     }
 

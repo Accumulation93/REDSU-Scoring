@@ -93,89 +93,53 @@ async function testNotificationKeysetBoundary() {
   assert.ok(calls[1].params[calls[1].params.length - 4] instanceof Date);
 }
 
+function authenticatedRequest(role, organizationId) {
+  return {
+    openid: 'wechat-of-another-person',
+    authAccount: { id: 'account-one', personId: 'person-one' },
+    authContext: { contextId: 'context-current', personId: 'person-one', role, organizationId }
+  };
+}
+
 async function testCrossOrganizationActorResolution() {
   calls.length = 0;
   responses.length = 0;
-  responses.push([[
-    { id: 'org-a', name: '甲组织' },
-    { id: 'org-b', name: '乙组织' }
-  ], []]);
-  responses.push([[
-    {
-      user_info_id: 'binding-a',
-      id: 'hr-a',
-      name: '张三',
-      student_id: '20260001',
-      department_id: 'dept-a',
-      identity_id: 'identity-a',
-      work_group_id: '',
-      org_id: 'org-a'
-    }
-  ], []]);
-  responses.push([[
-    {
-      id: 'hr-a',
-      name: '张三',
-      student_id: '20260001',
-      department_id: 'dept-a',
-      identity_id: 'identity-a',
-      work_group_id: '',
-      org_id: 'org-a'
-    },
-    {
-      id: 'hr-b',
-      name: '张三',
-      student_id: '20260001',
-      department_id: 'dept-b',
-      identity_id: 'identity-b',
-      work_group_id: '',
-      org_id: 'org-b'
-    }
-  ], []]);
-  delete require.cache[organizationModelPath];
+  responses.push([['a', 'b'].map((suffix) => ({
+    assignment_id: 'assignment-' + suffix, membership_id: 'membership-' + suffix,
+    legacy_hr_id: 'hr-' + suffix, person_id: 'person-one', person_name: '张三',
+    organization_id: 'org-' + suffix, organization_name: suffix,
+    department_id: 'dept-' + suffix, identity_id: 'identity-' + suffix,
+    work_group_id: '', assignment_kind: 'staff'
+  })), []]);
+  responses.push([[], []], [[], []]);
   delete require.cache[accessibleOrganizationsPath];
   const accessibleOrganizations = require(accessibleOrganizationsPath);
-  const contexts = await accessibleOrganizations.listAccessibleActorContexts({
-    openid: 'openid-1',
-    role: 'user',
-    currentOrgId: 'org-a'
-  });
+  const contexts = await accessibleOrganizations.listAccessibleActorContexts(authenticatedRequest('user', 'org-a'), 'user');
   assert.deepStrictEqual(contexts.map((item) => item.organizationId), ['org-a', 'org-b']);
   assert.deepStrictEqual(contexts.map((item) => item.actor.id), ['hr-a', 'hr-b']);
   assert.strictEqual(contexts[0].isCurrentOrganization, true);
-  assert.strictEqual(contexts[1].actor.userInfoId, '', '未激活组织不得伪造绑定记录');
-  assert.ok(calls.some((call) => /FROM hr_info/.test(call.sql)), '应通过人事身份只读匹配跨组织用户');
-  assert.ok(!calls.some((call) => /^\s*(INSERT|UPDATE)/i.test(call.sql)), '聚合查询不得创建或更新用户绑定');
+  assert.strictEqual(contexts[1].actor.userInfoId, undefined, '组织目录不得伪造微信绑定');
+  assert(calls.every((call) => call.params[0] === 'account-one'));
+  assert(calls.every((call) => !/openid|user_info|admin_info/.test(call.sql)), '只能按统一账号查询自然人的组织与岗位');
+  assert(!calls.some((call) => /^\s*(INSERT|UPDATE)/i.test(call.sql)), '聚合查询不得创建或更新绑定');
 }
 
 async function testAdminActorResolution() {
   calls.length = 0;
   responses.length = 0;
-  responses.push([[
-    { id: 'org-a', name: '甲组织' },
-    { id: 'org-b', name: '乙组织' }
-  ], []]);
-  responses.push([[
-    {
-      id: 'super-1',
-      name: '超级管理员',
-      openid: 'openid-admin',
-      admin_level: 'super_admin',
-      bind_status: 'active',
-      org_id: ''
-    }
-  ], []]);
+  responses.push([[], []], [[], []]);
+  responses.push([['a', 'b'].map((suffix) => ({
+    admin_grant_id: 'grant-super', legacy_admin_id: 'super-1', grant_org_id: '',
+    admin_level: 'super_admin', person_id: 'person-one', person_name: '超级管理员',
+    organization_id: 'org-' + suffix, organization_name: suffix
+  })), []]);
   const accessibleOrganizations = require(accessibleOrganizationsPath);
-  const contexts = await accessibleOrganizations.listAccessibleActorContexts({
-    openid: 'openid-admin',
-    role: 'admin',
-    currentOrgId: 'org-b'
-  });
+  const contexts = await accessibleOrganizations.listAccessibleActorContexts(authenticatedRequest('admin', 'org-b'), 'admin');
   assert.deepStrictEqual(contexts.map((item) => item.organizationId), ['org-a', 'org-b']);
-  assert.ok(contexts.every((item) => item.actor.type === 'admin'));
-  assert.ok(contexts.every((item) => item.actor.id === 'super-1'));
+  assert(contexts.every((item) => item.actor.type === 'admin' && item.actor.id === 'super-1'));
   assert.strictEqual(contexts[1].isCurrentOrganization, true);
-  assert.ok(calls.every((call) => !/user_info/.test(call.sql)), '管理员身份不得读取普通用户绑定范围');
+  assert(calls.every((call) => call.params[0] === 'account-one'));
+  assert(calls.every((call) => !/openid|user_info|admin_info/.test(call.sql)));
 }
 
 function testMigrationAndFrontendContract() {

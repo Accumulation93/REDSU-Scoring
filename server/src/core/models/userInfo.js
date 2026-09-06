@@ -1,15 +1,6 @@
 const pool = require('../../config/db');
 const { getCurrentOrgId } = require('../../utils/orgContext');
 
-async function getByOpenid(openid) {
-  const orgId = await getCurrentOrgId();
-  const [rows] = await pool.query(
-    'SELECT * FROM user_info WHERE openid = ? AND org_id = ?',
-    [openid, orgId]
-  );
-  return rows[0] || null;
-}
-
 async function getById(id) {
   const orgId = await getCurrentOrgId();
   const [rows] = await pool.query('SELECT * FROM user_info WHERE id = ? AND org_id = ?', [id, orgId]);
@@ -47,24 +38,6 @@ async function getByHrId(hrId, excludeOpenid) {
 async function remove(id) {
   const orgId = await getCurrentOrgId();
   await pool.query('DELETE FROM user_info WHERE id = ? AND org_id = ?', [id, orgId]);
-}
-
-// 跨组织全局查询 — 返回所有组织中该 openid 的绑定记录
-async function getByOpenidGlobal(openid) {
-  const [rows] = await pool.query(
-    'SELECT * FROM user_info WHERE openid = ? ORDER BY created_at DESC',
-    [openid]
-  );
-  return rows;
-}
-
-// 指定组织查询 — 不依赖 getCurrentOrgId()，直接按参数 orgId 过滤
-async function getByOpenidInOrg(openid, orgId) {
-  const [rows] = await pool.query(
-    'SELECT * FROM user_info WHERE openid = ? AND org_id = ?',
-    [openid, orgId]
-  );
-  return rows[0] || null;
 }
 
 async function getByHrIdInOrg(hrId, excludeOpenid, orgId) {
@@ -157,7 +130,7 @@ async function updateInOrg(id, hrId, updatedAt, orgId) {
 }
 
 module.exports = {
-  getByOpenid, getByOpenidGlobal, getByOpenidInOrg, getById, getByHrId, getByHrIdInOrg, getAll,
+  getById, getByHrId, getByHrIdInOrg, getAll,
   listByHrIdsInOrg, listBoundIdentitiesOutsideOrg,
   lockByHrIdInOrg, lockByOpenidsGlobal, removeByOpenidsGlobal,
   create, createInOrg, update, updateInOrg, remove

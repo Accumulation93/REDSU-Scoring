@@ -5,7 +5,7 @@ const express = require('express');
 const router = express.Router();
 const { safeString, generateId, buildNameMap } = require('../../../utils/helpers');
 const { nowMysqlUtc } = require('../../../utils/dateTime');
-const adminInfoModel = require('../../../core/models/adminInfo');
+const { resolveRequestAdmin: ensureAdmin } = require('../../../core/services/adminRequestContext');
 const rateRuleModel = require('../models/rateRule');
 const rateRuleClauseModel = require('../models/rateRuleClause');
 const clauseTemplateConfigModel = require('../models/clauseTemplateConfig');
@@ -344,11 +344,6 @@ function getRateRuleBatch(body) {
     rejectRateRule('batch_limit_exceeded', localeFormat(scoringCopy.batchLimitExceeded, [MAX_BATCH_RULES]));
   }
   return rules;
-}
-
-async function ensureAdmin(req) {
-  if (req && Object.prototype.hasOwnProperty.call(req, 'admin')) return req.admin || null;
-  return req && req.openid ? adminInfoModel.getByOpenid(req.openid) : null;
 }
 
 async function fetchOrgLookups(orgId) {

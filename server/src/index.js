@@ -312,8 +312,7 @@ app.use((err, req, res, next) => {
     method: req.method,
     path: req.path,
     ip: req.ip,
-    requestId: req.requestId,
-    openid: (req.openid || '').slice(0, 12) || undefined
+    requestId: req.requestId
   });
   res.status(500).json({ status: 'error', message: localeCopy.copy_73f0b7a29a });
 });

@@ -8,7 +8,8 @@ const notificationOutboxModel = require('../../audit/models/notificationOutbox')
 const { safeString, toNumber, roundScore, generateId, buildNameMap } = require('../../../utils/helpers');
 const { nowMysqlUtc } = require('../../../utils/dateTime');
 const { logger } = require('../../../utils/logger');
-const adminInfoModel = require('../../../core/models/adminInfo');
+const { resolveRequestAdmin: resolveAdmin } = require('../../../core/services/adminRequestContext');
+const { getAuthenticatedContext } = require('../../../core/services/authenticatedContext');
 const publicationModel = require('../models/resultPublication');
 const designationModel = require('../models/meritListDesignation');
 const departmentModel = require('../../../core/models/department');
@@ -32,13 +33,6 @@ const VIEW_RULE_SCOPES = ['own_results', 'same_department_identity', 'same_depar
 const VIEW_IDENTITY_REQUIRED_SCOPES = ['same_department_identity', 'same_work_group_identity'];
 const MERIT_RULE_SCOPES = ['same_department_identity', 'same_department_all', 'same_work_group_identity', 'same_work_group_all', 'all_people', 'identity_only'];
 const MAX_BATCH_RULES = 200;
-
-async function resolveAdmin(req) {
-  // 生产请求由统一权限中间件注入当前管理角色；legacy 查询只供无中间件的
-  // 独立测试夹具兼容，不能覆盖已经验证的当前角色。
-  if (req && Object.prototype.hasOwnProperty.call(req, 'admin')) return req.admin || null;
-  return req && req.openid ? adminInfoModel.getByOpenid(req.openid) : null;
-}
 
 class PublicationRuleRequestError extends Error {
   constructor(status, message) {
@@ -1008,9 +1002,8 @@ router.post('/removeMeritListDesignation', (req, res) => {
 // ─── getPublicResults (user-facing) ───
 router.post('/getPublicResults', async (req, res) => {
   try {
-    const openid = req.openid;
     const activityId = safeString(req.body.activityId);
-    if (!openid) return res.json({ status: 'auth_failed', message: localeCopy.copy_c22a252e97 });
+    if (!getAuthenticatedContext(req)) return res.json({ status: 'auth_failed', message: localeCopy.copy_c22a252e97 });
     if (!activityId) return res.json({ status: 'invalid_params', message: localeCopy.copy_21368b3e76 });
 
     const publication = await publicationModel.getByActivity(activityId);
@@ -1260,9 +1253,8 @@ router.post('/getPublicResults', async (req, res) => {
 // ─── getPublicMeritList (user-facing) ───
 router.post('/getPublicMeritList', async (req, res) => {
   try {
-    const openid = req.openid;
     const activityId = safeString(req.body.activityId);
-    if (!openid) return res.json({ status: 'auth_failed', message: localeCopy.copy_c22a252e97 });
+    if (!getAuthenticatedContext(req)) return res.json({ status: 'auth_failed', message: localeCopy.copy_c22a252e97 });
     if (!activityId) return res.json({ status: 'invalid_params', message: localeCopy.copy_21368b3e76 });
 
     const publication = await publicationModel.getByActivity(activityId);
@@ -1393,7 +1385,6 @@ router.post('/getPublicMeritList', async (req, res) => {
 // ─── submitMeritListDesignations (user-facing, grantee-verified) ───
 router.post('/submitMeritListDesignations', async (req, res) => {
   try {
-    const openid = req.openid;
     const publicationId = safeString(req.body.publicationId);
     const clauseIds = Array.isArray(req.body.clauseIds) && req.body.clauseIds.length
       ? req.body.clauseIds.map(id => safeString(id)).filter(Boolean)
@@ -1401,7 +1392,7 @@ router.post('/submitMeritListDesignations', async (req, res) => {
     const primaryClauseId = clauseIds[0];
     const designationTargetIds = getDesignationTargetIds(req.body);
 
-    if (!openid) return res.json({ status: 'auth_failed', message: localeCopy.copy_c22a252e97 });
+    if (!getAuthenticatedContext(req)) return res.json({ status: 'auth_failed', message: localeCopy.copy_c22a252e97 });
     if (!primaryClauseId || !publicationId) return res.json({ status: 'invalid_params', message: localeCopy.copy_157f5cd8f8 });
 
     // Look up clause + parent merit rule (include publication_id for reliable lookup)
@@ -1516,7 +1507,7 @@ router.post('/submitMeritListDesignations', async (req, res) => {
             generateId(), pubId, matchedClause.id,
             publicationAssignments.legacyHrIdOf(targetAssignment),
             publicationAssignments.assignmentIdOf(targetAssignment),
-            JSON.stringify(targetSnapshot), openid,
+            JSON.stringify(targetSnapshot), '',
             safeString(actorResult.actor.personId) || null,
             safeString(actorResult.actor.assignmentId) || null,
             JSON.stringify(designatorSnapshot), orgId

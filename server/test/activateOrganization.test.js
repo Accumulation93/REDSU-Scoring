@@ -1,171 +1,74 @@
 const assert = require('assert');
 const Module = require('module');
 
-process.env.WECHAT_APPID = process.env.WECHAT_APPID || 'test-appid';
-process.env.WECHAT_SECRET = process.env.WECHAT_SECRET || 'test-secret';
-
-let scenario = {};
-let cacheClears = [];
-
-const pool = {
-  async query(sql) {
-    throw new Error('activateOrganization 不应直接执行 SQL：' + sql);
+let catalogCalls = [];
+const mocks = {
+  '../models/systemConfig': { async get() { return { current_organization: 'org-b' }; } },
+  '../services/accessibleOrganizations': {
+    async listAvailableOrganizations(req, role) {
+      catalogCalls.push({ accountId: req.authAccount.id, role });
+      return ['org-a', 'org-b'].map((id) => ({ id, name: id, role }));
+    }
   }
 };
-
-const mocks = {
-  '../../middleware/auth': { JWT_SECRET: 'test-jwt-secret' },
-  '../../middleware/orgContext': {
-    clearOrgAccessCache(openid, orgId, role) {
-      cacheClears.push({ openid, orgId, role });
-    }
-  },
-  '../../utils/orgContext': {
-    async getCurrentOrgId() {
-      return 'org-42';
-    }
-  },
-  '../models/userInfo': {},
-  '../models/adminInfo': {
-    async getAuthorizedByOpenidAcrossOrgs() {
-      return scenario.adminRecords || [];
-    }
-  },
-  '../models/hrInfo': {},
-  '../models/organization': {
-    async getById(id) {
-      return (scenario.organizations || []).find((item) => item.id === id) || null;
-    },
-    async getAll() {
-      return scenario.organizations || [];
-    }
-  },
-  '../services/adminPermissions': {
-    async loadEffectivePermissions(admin) {
-      return {
-        permissions: {},
-        keys: [],
-        isSuper: admin.admin_level === 'super_admin',
-        canAccessPermissionSystem: admin.admin_level === 'super_admin'
-      };
-    }
-  },
-  '../../config/db': pool
-};
-
 const originalLoad = Module._load;
-Module._load = function(request, parent, isMain) {
-  if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
-  return originalLoad.call(this, request, parent, isMain);
-};
-
-const router = require('../src/core/routes/auth');
-Module._load = originalLoad;
-
-const routeLayer = router.stack.find((layer) => {
-  return layer.route && layer.route.path === '/activateOrganization';
-});
-assert(routeLayer, '缺少 activateOrganization 路由');
-const handler = routeLayer.route.stack[0].handle;
-
-async function invoke({ openid = '', organizationId = '', role = 'admin' } = {}) {
-  let payload;
-  const req = {
-    openid,
-    body: { organizationId, role },
-    headers: { 'x-role': role },
-    requestId: 'test-request-id',
-    logger: { error() {} }
-  };
-  const res = {
-    json(value) {
-      payload = value;
-      return value;
+let router;
+try {
+  Module._load = function(request, parent, isMain) {
+    if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
+    if (/models\/(userInfo|adminInfo)|config\/db/.test(request)) {
+      throw new Error('旧协议不得查询微信绑定或写入数据库');
     }
+    return originalLoad.call(this, request, parent, isMain);
   };
-  await handler(req, res);
-  return payload;
+  router = require('../src/core/routes/auth');
+} finally {
+  Module._load = originalLoad;
+}
+
+async function invoke(path, req) {
+  const layer = router.stack.find((item) => item.route && item.route.path === path);
+  assert(layer, path);
+  let statusCode = 200;
+  let body;
+  await layer.route.stack[0].handle(req, {
+    status(code) { statusCode = code; return this; },
+    json(value) { body = value; return this; }
+  });
+  return { statusCode, body };
 }
 
 async function run() {
-  scenario = {
-    organizations: [
-      { id: 'org-42', name: '武汉大学第四十二届学生会' },
-      { id: 'org-43', name: '武汉大学第四十三届学生会' }
-    ],
-    adminRecords: [
-      {
-        id: 'super-chen',
-        openid: 'openid-chen',
-        name: '陈逸凡',
-        student_id: '2023302181034',
-        admin_level: 'super_admin',
-        bind_status: 'active',
-        org_id: ''
-      }
-    ]
+  const authenticated = {
+    authAccount: { id: 'account-one', personId: 'person-one' },
+    authContext: { contextId: 'context-one', personId: 'person-one', organizationId: 'org-a', role: 'user' }
   };
-  cacheClears = [];
+  // 旧组织激活不能更新统一会话，任何旧微信、伪造角色或有效会话均不得走旁路。
+  for (const req of [
+    { openid: 'other-super-wechat', body: { organizationId: 'org-b', role: 'admin' }, headers: { 'x-role': 'admin' } },
+    { body: { organizationId: 'missing', role: 'invalid' }, headers: {} },
+    authenticated
+  ]) {
+    for (const route of ['/activateOrganization', '/userLogin', '/adminLogin', '/bindUserInfo', '/bindAdminInfo']) {
+      const result = await invoke(route, req);
+      assert.strictEqual(result.statusCode, 426);
+      assert.strictEqual(result.body.status, 'client_upgrade_required');
+    }
+  }
+  assert.strictEqual(catalogCalls.length, 0, '退役入口不能查询、激活或写入任何身份');
 
-  const superResult = await invoke({
-    openid: 'openid-chen',
-    organizationId: 'org-43',
-    role: 'admin'
-  });
-  assert.strictEqual(superResult.status, 'success', JSON.stringify(superResult));
-  assert.deepStrictEqual(superResult.activeOrg, {
-    id: 'org-43',
-    name: '武汉大学第四十三届学生会'
-  });
-  assert.strictEqual(superResult.user.adminLevel, 'super_admin');
-  assert.deepStrictEqual(cacheClears, [
-    { openid: 'openid-chen', orgId: 'org-43', role: 'admin' }
-  ]);
-
-  scenario.adminRecords = [{
-    id: 'admin-42',
-    openid: 'openid-admin',
-    name: '第四十二届管理员',
-    student_id: 'admin-42',
-    admin_level: 'admin',
-    bind_status: 'active',
-    org_id: 'org-42'
-  }];
-  const deniedResult = await invoke({
-    openid: 'openid-admin',
-    organizationId: 'org-43',
-    role: 'admin'
-  });
-  assert.strictEqual(deniedResult.status, 'org_access_denied');
-
-  const allowedResult = await invoke({
-    openid: 'openid-admin',
-    organizationId: 'org-42',
-    role: 'admin'
-  });
-  assert.strictEqual(allowedResult.status, 'success');
-
-  const missingAuthResult = await invoke({ organizationId: 'org-43', role: 'admin' });
-  assert.strictEqual(missingAuthResult.status, 'auth_failed');
-
-  const missingOrgResult = await invoke({
-    openid: 'openid-chen',
-    organizationId: 'missing-org',
-    role: 'admin'
-  });
-  assert.strictEqual(missingOrgResult.status, 'not_found');
-
-  const invalidRoleResult = await invoke({
-    openid: 'openid-chen',
-    organizationId: 'org-43',
-    role: 'invalid-role'
-  });
-  assert.strictEqual(invalidRoleResult.status, 'invalid_params');
-
-  console.log('activateOrganization 路由集成测试通过');
+  for (const openid of ['', 'other-super-wechat']) {
+    const user = await invoke('/listMyOrganizations', Object.assign({}, authenticated, { openid }));
+    assert.strictEqual(user.body.status, 'success');
+    assert.deepStrictEqual(user.body.organizations.map((item) => item.id), ['org-a', 'org-b']);
+    const admin = await invoke('/admin/listMyOrganizations', Object.assign({}, authenticated, { openid }));
+    assert.deepStrictEqual(admin.body.organizations.map((item) => item.id), ['org-b', 'org-a']);
+  }
+  assert(catalogCalls.every((item) => item.accountId === 'account-one'));
+  catalogCalls = [];
+  const denied = await invoke('/listMyOrganizations', { openid: 'other-super-wechat', headers: {} });
+  assert.strictEqual(denied.body.status, 'auth_failed');
+  assert.strictEqual(catalogCalls.length, 0);
+  console.log('旧组织激活退役与统一账号组织目录测试通过');
 }
-
-run().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+run().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -2,6 +2,8 @@ const localeCopy = require('../../locales/zh-CN/generated/core/models/unifiedIde
 const personnelCopy = require('../../locales/zh-CN/core/personnel');
 const securityCopy = require('../../locales/zh-CN/core/security');
 const pool = require('../../config/db');
+const crypto = require('crypto');
+const { usableLoginCredentialSql } = require('./accountLoginState');
 const { generateId, safeString } = require('../../utils/helpers');
 const { normalizeAssignmentNature } = require('../services/hrDomainPolicy');
 const {
@@ -1139,7 +1141,7 @@ async function listLegacyAdminAuthenticationStates(legacyAdminIds, connection) {
     let status = 'pending_verification';
     if (accountStatus === 'frozen') status = 'frozen';
     else if (accountStatus === 'recovery_required') status = 'recovery_required';
-    else if (accountStatus === 'verified' && Boolean(row.has_active_binding)) status = 'verified';
+    else if (accountStatus === 'verified') status = 'verified';
     result[safeString(row.legacy_admin_id)] = status;
     return result;
   }, {});
@@ -1147,11 +1149,7 @@ async function listLegacyAdminAuthenticationStates(legacyAdminIds, connection) {
 
 async function revokeLegacyAdminGrant(connection, legacyAdminId) {
   const [rows] = await connection.query(
-    `SELECT ag.*, a.id AS account_id,
-            EXISTS (
-              SELECT 1 FROM account_wechat_bindings b
-               WHERE b.account_id = a.id AND b.status = 'active'
-            ) AS has_binding
+    `SELECT ag.*, a.id AS account_id, a.status AS account_status
        FROM admin_grants ag
        LEFT JOIN accounts a ON a.person_id = ag.person_id
       WHERE ag.legacy_admin_id = ?
@@ -1160,13 +1158,15 @@ async function revokeLegacyAdminGrant(connection, legacyAdminId) {
   );
   const grant = rows[0];
   if (!grant) return { revoked: false };
-  if (grant.admin_level === 'super_admin' && grant.has_binding) {
+  if (grant.admin_level === 'super_admin' && !safeString(grant.org_id)
+    && grant.status === 'active' && grant.account_status === 'verified') {
     const [boundRows] = await connection.query(
       `SELECT DISTINCT other.person_id
          FROM admin_grants other
          JOIN accounts a ON a.person_id = other.person_id AND a.status = 'verified'
-         JOIN account_wechat_bindings b ON b.account_id = a.id AND b.status = 'active'
-        WHERE other.admin_level = 'super_admin' AND other.status = 'active'
+         JOIN persons p ON p.id = a.person_id AND p.status = 'active'
+        WHERE other.admin_level = 'super_admin' AND other.org_id = '' AND other.status = 'active'
+          AND ${usableLoginCredentialSql('a')}
         FOR UPDATE`
     );
     if (boundRows.length <= 1) {
@@ -1217,12 +1217,10 @@ async function getBootstrapSession(id, lock, connection) {
   return rows[0] || null;
 }
 
-async function listContexts(accountId, connection, options) {
+async function listContexts(accountId, connection) {
   const executor = connection || pool;
-  const allowUnverified = Boolean(options && options.allowUnverified);
-  const accountStatusCondition = allowUnverified
-    ? "a.status IN ('verified', 'recovery_required', 'frozen')"
-    : "a.status = 'verified'";
+  // 所有认证方式共用账号状态限制，口令会话不能绕过冻结或恢复要求。
+  const accountStatusCondition = "a.status = 'verified'";
   const [assignmentRows] = await executor.query(
     `SELECT ma.id AS assignment_id, ma.title AS assignment_title, ma.assignment_kind,
             ma.department_id, ma.identity_id, ma.work_group_id,
@@ -1308,8 +1306,8 @@ function chooseFallbackContext(contexts, preferredOrganizationId) {
   return candidates.slice().sort((left, right) => contextRank(left) - contextRank(right))[0] || null;
 }
 
-async function resolveContextSelection(accountId, requestedSelection, connection, options) {
-  const contexts = await listContexts(accountId, connection, options);
+async function resolveContextSelection(accountId, requestedSelection, connection) {
+  const contexts = await listContexts(accountId, connection);
   if (!contexts.length) return { context: null, fallback: false, reason: 'no_context' };
   const selection = requestedSelection && typeof requestedSelection === 'object'
     ? requestedSelection
@@ -1337,8 +1335,8 @@ async function resolveContextSelection(accountId, requestedSelection, connection
   };
 }
 
-async function resolveContext(accountId, requestedSelection, connection, options) {
-  const resolved = await resolveContextSelection(accountId, requestedSelection, connection, options);
+async function resolveContext(accountId, requestedSelection, connection) {
+  const resolved = await resolveContextSelection(accountId, requestedSelection, connection);
   return resolved.context;
 }
 
@@ -1351,9 +1349,7 @@ async function createSession(account, requestedSelection, metadata, options) {
          FROM accounts a
          LEFT JOIN account_wechat_bindings b ON b.account_id = a.id
            AND b.app_id = ? AND b.status = 'active'
-        WHERE a.id = ? ${temporary
-          ? "AND a.status IN ('verified', 'recovery_required', 'frozen')"
-          : "AND a.status = 'verified'"}
+        WHERE a.id = ? AND a.status = 'verified'
         LIMIT 1 FOR UPDATE`,
       [APP_ID, safeString(account.id)]
     );
@@ -1365,26 +1361,16 @@ async function createSession(account, requestedSelection, metadata, options) {
     if (!temporary && !bindingOpenidHash) {
       throw new IdentityError('binding_missing', localeCopy.copy_518fa5022c, 401);
     }
-    if (temporary && !temporaryOpenidHash) {
-      throw new IdentityError('invalid_wechat_code', localeCopy.copy_ffadbecb8f, 401);
-    }
-    if (!temporary) {
-      await syncLegacyBindings(
-        connection,
-        activeAccount.id,
-        decryptBindingOpenid.bind(null, connection, activeAccount.id)
-      );
-    }
     const resolvedSelection = await resolveContextSelection(
       activeAccount.id,
       requestedSelection,
-      connection,
-      { allowUnverified: temporary }
+      connection
     );
     const activeContext = resolvedSelection.context;
     if (!activeContext) throw new IdentityError('no_context', localeCopy.copy_13f29f572b, 403);
     const id = generateId();
-    const openidHash = temporary ? temporaryOpenidHash : bindingOpenidHash;
+    // 口令会话的旧字段仅保存随机占位摘要；不能用于定位人员或扩大权限。
+    const openidHash = temporary ? temporaryOpenidHash || crypto.randomBytes(32).toString('hex') : bindingOpenidHash;
     const bindingMode = temporary ? 'temporary' : 'bound';
     const openidCiphertext = temporary ? temporaryOpenidCiphertext : null;
     await connection.query(
@@ -1454,26 +1440,20 @@ async function loadSession(id) {
   const session = rows[0] || null;
   if (!session || Number(session.token_version) !== Number(session.account_token_version)) return null;
   const temporary = safeString(session.binding_mode) === 'temporary';
-  if (!temporary && (!session.binding_id || session.account_status !== 'verified')) return null;
-  if (temporary && !['verified', 'recovery_required', 'frozen'].includes(safeString(session.account_status))) return null;
+  if (!['bound', 'temporary'].includes(safeString(session.binding_mode))) return null;
+  if (session.account_status !== 'verified' || (!temporary && !session.binding_id)) return null;
   const activeContext = await resolveContext(
     session.account_id,
     session.context_id,
-    null,
-    { allowUnverified: temporary }
+    null
   );
   if (!activeContext || activeContext.contextId !== session.context_id) return null;
   await pool.query(
     'UPDATE auth_sessions SET last_seen_at = NOW() WHERE id = ? AND last_seen_at < DATE_SUB(NOW(), INTERVAL 1 MINUTE)',
     [session.id]
   );
-  const openid = session.openid_ciphertext
-    ? decryptOpenid(session.openid_ciphertext)
-    : (session.binding_openid_ciphertext
-      ? decryptOpenid(session.binding_openid_ciphertext)
-      : safeString(session.binding_legacy_openid));
-  if (!openid) return null;
-  return { session, context: activeContext, openid };
+  // 会话身份由账号与工作角色确定。可选绑定材料只在用户明确绑定时解密。
+  return { session, context: activeContext, openid: '' };
 }
 
 async function activateSelection(sessionId, accountId, requestedSelection) {
@@ -1502,7 +1482,6 @@ async function activateSelection(sessionId, accountId, requestedSelection) {
     if (!activeContext) {
       throw new IdentityError('context_forbidden', localeCopy.copy_8d32be8b00, 403);
     }
-    await syncLegacyBindings(connection, accountId, decryptBindingOpenid.bind(null, connection, accountId));
     await connection.query(
       `UPDATE auth_sessions
           SET context_id = ?, context_type = ?, context_subject_id = ?,
@@ -1523,20 +1502,6 @@ async function activateSelection(sessionId, accountId, requestedSelection) {
 
 async function activateContext(sessionId, accountId, requestedContextId) {
   return activateSelection(sessionId, accountId, { contextId: requestedContextId });
-}
-
-async function decryptBindingOpenid(connection, accountId) {
-  const [rows] = await connection.query(
-    `SELECT openid_ciphertext, legacy_openid
-       FROM account_wechat_bindings
-      WHERE account_id = ? AND app_id = ? AND status = 'active'
-      LIMIT 1 FOR UPDATE`,
-    [accountId, APP_ID]
-  );
-  if (!rows.length) throw new IdentityError('binding_missing', localeCopy.copy_518fa5022c, 401);
-  return rows[0].openid_ciphertext
-    ? decryptOpenid(rows[0].openid_ciphertext)
-    : safeString(rows[0].legacy_openid);
 }
 
 async function syncLegacyBindings(connection, accountId, openidOrLoader) {
@@ -2434,8 +2399,9 @@ async function setAccountFrozen(personId, frozen, actor, metadata) {
         `SELECT DISTINCT ag.person_id
            FROM admin_grants ag
            JOIN accounts a ON a.person_id = ag.person_id AND a.status = 'verified'
-           JOIN account_wechat_bindings b ON b.account_id = a.id AND b.status = 'active'
-          WHERE ag.admin_level = 'super_admin' AND ag.status = 'active'
+           JOIN persons p ON p.id = a.person_id AND p.status = 'active'
+          WHERE ag.admin_level = 'super_admin' AND ag.org_id = '' AND ag.status = 'active'
+            AND ${usableLoginCredentialSql('a')}
           FOR UPDATE`
       );
       if (boundRows.length <= 1) {
@@ -2649,8 +2615,9 @@ async function resetAccountByLegacyHr(connection, legacyHrId, organizationId, ac
       `SELECT DISTINCT ag.person_id
          FROM admin_grants ag
          JOIN accounts a ON a.person_id = ag.person_id AND a.status = 'verified'
-         JOIN account_wechat_bindings b ON b.account_id = a.id AND b.status = 'active'
-        WHERE ag.admin_level = 'super_admin' AND ag.status = 'active'
+         JOIN persons p ON p.id = a.person_id AND p.status = 'active'
+        WHERE ag.admin_level = 'super_admin' AND ag.org_id = '' AND ag.status = 'active'
+          AND ${usableLoginCredentialSql('a')}
         FOR UPDATE`
     );
     if (boundSuperRows.length <= 1) {
@@ -2987,7 +2954,7 @@ async function authenticateWithPassphrase(studentId, passphrase) {
       LEFT JOIN account_recovery_credentials c ON c.account_id = a.id AND c.method = 'passphrase' AND c.status = 'active'
       WHERE p.normalized_student_id = ? AND p.status = 'active' LIMIT 1 FOR UPDATE`, [APP_ID, normalized]);
     const account = rows[0];
-    const valid = account && account.credential_id
+    const valid = account && account.status === 'verified' && account.credential_id
       && (!account.locked_until || new Date(account.locked_until).getTime() <= Date.now())
       && verifyPassphrase(value, account.salt, account.credential_hash);
     if (!valid) {
@@ -3047,11 +3014,10 @@ async function bindWechatAfterPassphraseLogin(accountId, openid, metadata) {
 
 function temporaryPasswordSessionOptions(openid) {
   const normalizedOpenid = safeString(openid);
-  if (!normalizedOpenid) return null;
   return {
     temporary: true,
-    openidHash: hmac(normalizedOpenid),
-    openidCiphertext: encryptOpenid(normalizedOpenid)
+    openidHash: crypto.randomBytes(32).toString('hex'),
+    openidCiphertext: normalizedOpenid ? encryptOpenid(normalizedOpenid) : null
   };
 }
 
@@ -3062,51 +3028,12 @@ async function bindTemporaryPasswordSessionOpenid(accountId, session) {
     throw new IdentityError('invalid_params', localeCopy.copy_ffadbecb8f, 400);
   }
   const openid = decryptOpenid(ciphertext);
-  return pool.withTransaction(async (connection) => {
-    const [accountRows] = await connection.query(
-      `SELECT a.id, a.person_id, a.status, p.status AS person_status
-         FROM accounts a
-         JOIN persons p ON p.id = a.person_id
-        WHERE a.id = ?
-        LIMIT 1 FOR UPDATE`,
-      [normalizedAccountId]
-    );
-    const account = accountRows[0];
-    if (!account || account.person_status !== 'active') {
-      throw new IdentityError('account_unavailable', localeCopy.copy_0995192dbd, 401);
-    }
-    const currentBound = await findAccountByOpenid(openid, connection);
-    if (currentBound && safeString(currentBound.id) !== normalizedAccountId) {
-      throw new IdentityError('wechat_conflict', localeCopy.copy_6d67001148, 409);
-    }
-    const [existingBindings] = await connection.query(
-      `SELECT id
-         FROM account_wechat_bindings
-        WHERE account_id = ? AND status = 'active'
-        LIMIT 1 FOR UPDATE`,
-      [normalizedAccountId]
-    );
-    if (!existingBindings.length) {
-      await insertActiveWechatBinding(connection, normalizedAccountId, openid);
-    }
-    await syncLegacyBindings(connection, normalizedAccountId, openid);
-    await connection.query(
-      `UPDATE auth_sessions
-          SET binding_mode = 'bound', openid_hash = ?, openid_ciphertext = NULL
-        WHERE id = ?`,
-      [hmac(openid), safeString(session.id)]
-    );
-    await appendAuditEvent({
-      connection,
-      eventType: 'temporary_password_binding_created',
-      actorPersonId: account.person_id,
-      targetPersonId: account.person_id,
-      accountId: normalizedAccountId,
-      requestId: session.requestId,
-      ip: session.ip
-    });
-    return { accountId: normalizedAccountId, personId: account.person_id };
+  // 旧客户端仅从当前会话取已加密的绑定邀请；与新版显式绑定共用冲突校验。
+  // 绑定只增加登录凭据，不把既有口令会话改造成依赖微信的会话。
+  const account = await bindWechatAfterPassphraseLogin(normalizedAccountId, openid, {
+    requestId: session.requestId, ip: session.ip
   });
+  return { accountId: normalizedAccountId, personId: account.person_id };
 }
 
 module.exports = {

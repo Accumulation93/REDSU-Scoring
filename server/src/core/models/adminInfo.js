@@ -1,73 +1,5 @@
 const pool = require('../../config/db');
 const { getCurrentOrgId } = require('../../utils/orgContext');
-const { hmacCandidates, legacyHash } = require('../services/identityCrypto');
-
-const APP_ID = 'whusu-smart-workspace';
-
-function unifiedAuthorizationClause(alias) {
-  return `AND (
-    NOT EXISTS (
-      SELECT 1 FROM admin_grants legacy_grant
-       WHERE legacy_grant.legacy_admin_id = ${alias}.id
-         AND legacy_grant.org_id = ${alias}.org_id
-    )
-    OR EXISTS (
-      SELECT 1
-        FROM admin_grants active_grant
-        JOIN persons person
-          ON person.id = active_grant.person_id AND person.status = 'active'
-        JOIN accounts account
-          ON account.person_id = person.id AND account.status = 'verified'
-        JOIN account_wechat_bindings binding
-          ON binding.account_id = account.id
-         AND binding.app_id = ?
-         AND binding.status = 'active'
-       WHERE active_grant.legacy_admin_id = ${alias}.id
-         AND active_grant.org_id = ${alias}.org_id
-         AND active_grant.status = 'active'
-         AND (binding.openid_hash IN (?, ?, ?) OR binding.legacy_openid = ?)
-    )
-  )`;
-}
-
-function unifiedAuthorizationParams(openid) {
-  const candidates = hmacCandidates(openid);
-  const primaryHash = candidates[0];
-  const legacyHmacHash = candidates[1] || primaryHash;
-  return [APP_ID, primaryHash, legacyHmacHash, legacyHash(openid), openid];
-}
-
-async function getByOpenid(openid) {
-  const orgId = await getCurrentOrgId();
-  const [rows] = await pool.query(
-    `SELECT ai.* FROM admin_info ai
-     WHERE ai.openid = ? AND ai.bind_status = ?
-       AND (ai.org_id = ? OR (ai.admin_level = 'super_admin' AND ai.org_id = ''))
-       ${unifiedAuthorizationClause('ai')}
-     ORDER BY ai.admin_level = 'super_admin' DESC
-     LIMIT 1`,
-    [openid, 'active', orgId].concat(unifiedAuthorizationParams(openid))
-  );
-  return rows[0] || null;
-}
-
-async function getByOpenidAny(openid) {
-  const [rows] = await pool.query('SELECT * FROM admin_info WHERE openid = ?', [openid]);
-  return rows[0] || null;
-}
-
-// 跨组织全局管理员查询 — 场地等全局模块使用，不限制 org_id
-async function getByOpenidGlobal(openid) {
-  const [rows] = await pool.query(
-    `SELECT ai.* FROM admin_info ai
-      WHERE ai.openid = ? AND ai.bind_status = ?
-        ${unifiedAuthorizationClause('ai')}
-      LIMIT 1`,
-    [openid, 'active'].concat(unifiedAuthorizationParams(openid))
-  );
-  return rows[0] || null;
-}
-
 async function getById(id) {
   const orgId = await getCurrentOrgId();
   const [rows] = await pool.query(
@@ -108,21 +40,6 @@ async function listVisible(operator, orgId, connection) {
 async function getAll(operator) {
   const orgId = await getCurrentOrgId();
   return listVisible(operator, orgId);
-}
-
-async function getByOpenidForOrganization(openid, orgId, connection, lock) {
-  const db = connection || pool;
-  const [rows] = await db.query(
-    `SELECT ai.* FROM admin_info ai
-      WHERE ai.openid = ? AND ai.bind_status = 'active'
-        AND ((ai.admin_level = 'super_admin' AND ai.org_id = '')
-          OR (ai.admin_level = 'admin' AND ai.org_id = ?))
-        ${unifiedAuthorizationClause('ai')}
-      ORDER BY ai.admin_level = 'super_admin' DESC
-      LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
-    [openid, orgId].concat(unifiedAuthorizationParams(openid))
-  );
-  return rows[0] || null;
 }
 
 async function listByIdsInOrg(ids, orgId) {
@@ -261,24 +178,30 @@ async function getByAdminLevel(level) {
   return rows;
 }
 
-// 跨组织全局管理员查询 — 返回所有组织中该 openid 的活跃管理员记录（用于智能登录）
-async function getByOpenidAcrossOrgs(openid) {
-  const [rows] = await pool.query(
-    `SELECT ai.* FROM admin_info ai
-      WHERE ai.openid = ? AND ai.bind_status = ?
-        ${unifiedAuthorizationClause('ai')}`,
-    [openid, 'active'].concat(unifiedAuthorizationParams(openid))
+// 跨组织写入必须在目标事务内复核本人账号与有效管理授权，不依赖微信绑定。
+async function getActiveGrantForAccountInOrganization(accountId, personId, orgId, connection, lock) {
+  if (!accountId || !personId || !orgId) return null;
+  const db = connection || pool;
+  const [rows] = await db.query(
+    `SELECT COALESCE(NULLIF(g.legacy_admin_id, ''), g.id) AS id,
+            g.id AS admin_grant_id, g.person_id, g.org_id, g.admin_level,
+            p.name, p.student_id
+       FROM accounts a
+       JOIN persons p ON p.id = a.person_id AND p.status = 'active'
+       JOIN admin_grants g ON g.person_id = p.id AND g.status = 'active'
+      WHERE a.id = ? AND a.person_id = ? AND a.status = 'verified'
+        AND ((g.admin_level = 'super_admin' AND g.org_id = '')
+          OR (g.admin_level = 'admin' AND g.org_id = ?))
+      ORDER BY g.admin_level = 'super_admin' DESC, g.id
+      LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
+    [accountId, personId, orgId]
   );
-  return rows;
-}
-
-async function getAuthorizedByOpenidAcrossOrgs(openid) {
-  return getByOpenidAcrossOrgs(openid);
+  return rows[0] || null;
 }
 
 module.exports = {
-  getByOpenid, getByOpenidAny, getByOpenidGlobal, getByOpenidForOrganization,
-  getByOpenidAcrossOrgs, getAuthorizedByOpenidAcrossOrgs, getById, getByIdGlobal,
+  getActiveGrantForAccountInOrganization,
+  getById, getByIdGlobal,
   listVisible, getAll, listByIdsInOrg, create, update, remove, studentExists, updateProfile, updateInvite, removeExact,
   lockSuperAdmins, getByInviteCode, getSuperAdmin, getByAdminLevel
 };

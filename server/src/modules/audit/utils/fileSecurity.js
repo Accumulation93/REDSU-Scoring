@@ -18,7 +18,6 @@ const {
   submissionMatchesSubmitterAssignment
 } = require('../services/auditHistoryScope');
 const { JWT_SECRET } = require('../../../middleware/auth');
-const { hmac: identityHash } = require('../../../core/services/identityCrypto');
 const { hashFile } = require('./hashChain');
 
 const UPLOAD_DIR = path.resolve(
@@ -176,20 +175,13 @@ function uploadOwnerHash(accountId) {
     .digest('hex');
 }
 
-async function resolveUploadOwnerHash(openid) {
-  const normalizedOpenid = safeString(openid);
-  if (!normalizedOpenid) throw uploadQuotaError({ code: securityCopy.codes.uploadQuotaUnavailable });
-  const [rows] = await pool.query(
-    `SELECT account_id
-       FROM account_wechat_bindings
-      WHERE openid_hash = ? AND status = 'active'
-      LIMIT 1`,
-    [identityHash(normalizedOpenid)]
-  );
-  if (!rows[0] || !safeString(rows[0].account_id)) {
+function resolveUploadOwnerHash(accountId) {
+  // 账号只能由路由从认证中间件取得；微信绑定不是附件所有权或配额来源。
+  const normalizedAccountId = safeString(accountId);
+  if (!normalizedAccountId) {
     throw uploadQuotaError({ code: securityCopy.codes.uploadQuotaUnavailable });
   }
-  return uploadOwnerHash(rows[0].account_id);
+  return uploadOwnerHash(normalizedAccountId);
 }
 
 async function removeExpiredTempFiles(rows) {
@@ -226,9 +218,9 @@ function uploadQuotaError(error) {
   return mapped;
 }
 
-async function createTempUpload({ buffer, fileName, mimeType, openid }) {
+async function createTempUpload({ buffer, fileName, mimeType, accountId }) {
   const orgId = await getCurrentOrgId();
-  const ownerHash = await resolveUploadOwnerHash(openid);
+  const ownerHash = resolveUploadOwnerHash(accountId);
   ensurePrivateDirectory(UPLOAD_DIR);
   ensurePrivateDirectory(TMP_DIR);
 
@@ -278,9 +270,9 @@ async function createTempUpload({ buffer, fileName, mimeType, openid }) {
   return { fileId, fileName: cleanName, mimeType: actualMime, fileSize: buffer.length, fileHash, fileToken: token };
 }
 
-async function resolveUploadedFile(uploadedFile, openid) {
+async function resolveUploadedFile(uploadedFile, accountId) {
   const orgId = await getCurrentOrgId();
-  const ownerHash = await resolveUploadOwnerHash(openid);
+  const ownerHash = resolveUploadOwnerHash(accountId);
   const tokenPayload = verifyUploadToken(uploadedFile.fileToken);
   const meta = tokenPayload;
   if (!meta) {
@@ -341,7 +333,7 @@ async function resolveUploadedFile(uploadedFile, openid) {
   };
 }
 
-async function attachUploadedFiles({ uploadedFiles, submissionId, openid, conn, sortOrderOffset }) {
+async function attachUploadedFiles({ uploadedFiles, submissionId, accountId, conn, sortOrderOffset }) {
   if (!Array.isArray(uploadedFiles) || uploadedFiles.length > MAX_FILES_PER_SUBMISSION) {
     const err = new Error(localeCopy.copy_a0736fb41c);
     err.status = 'invalid_params';
@@ -365,7 +357,7 @@ async function attachUploadedFiles({ uploadedFiles, submissionId, openid, conn, 
 
   try {
     for (let i = 0; i < uploadedFiles.length; i++) {
-      const meta = await resolveUploadedFile(uploadedFiles[i], openid);
+      const meta = await resolveUploadedFile(uploadedFiles[i], accountId);
       const ext = extForMime(meta.mimeType);
       const destPath = path.join(submissionDir, meta.fileId + ext);
       if (fs.existsSync(destPath)) {

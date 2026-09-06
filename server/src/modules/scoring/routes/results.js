@@ -4,7 +4,7 @@ const { format: localeFormat } = require('../../../locales/runtime');
 const express = require('express');
 const router = express.Router();
 const { safeString, toNumber, roundScore, buildOrgMap, makeOrgRuleKey } = require('../../../utils/helpers');
-const adminInfoModel = require('../../../core/models/adminInfo');
+const { resolveRequestAdmin: ensureAdmin } = require('../../../core/services/adminRequestContext');
 const activityModel = require('../models/scoreActivity');
 const departmentModel = require('../../../core/models/department');
 const identityModel = require('../../../core/models/identity');
@@ -45,11 +45,6 @@ async function buildXlsxBase64(sheetName, headers, rows) {
   const sheetData = [headerLabels, ...dataRows];
   const buffer = await buildWorkbookBuffer(sheetName, sheetData);
   return buffer.toString('base64');
-}
-
-async function ensureAdmin(req) {
-  if (req && Object.prototype.hasOwnProperty.call(req, 'admin')) return req.admin || null;
-  return req && req.openid ? adminInfoModel.getByOpenid(req.openid) : null;
 }
 
 function getLookupName(map, id) {

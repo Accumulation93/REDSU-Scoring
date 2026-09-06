@@ -2,78 +2,22 @@ const { safeString } = require('../../utils/helpers');
 
 const QUERY_CHUNK_SIZE = 500;
 
-function splitIntoChunks(items, size) {
-  const chunks = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-}
-
-function normalizeHrRows(rows) {
-  return (rows || []).map((item) => ({
-    id: safeString(item.id),
-    name: safeString(item.name),
-    studentId: safeString(item.student_id || item.studentId)
-  })).filter((item) => item.id);
-}
-
 async function resolveHrBindingStates(rows, orgId, model) {
-  const bindingModel = model || require('../models/userInfo');
-  const normalizedRows = normalizeHrRows(rows);
+  const bindingModel = model || require('../models/personIdentityOverview');
+  const ids = [...new Set((rows || []).map((row) => safeString(row.id)).filter(Boolean))];
   const states = new Map();
-  if (!normalizedRows.length || !orgId) return states;
-
-  normalizedRows.forEach((item) => {
-    states.set(item.id, {
-      status: 'unbound',
-      userInfoId: '',
-      boundOpenid: ''
-    });
-  });
-
-  const hrIds = normalizedRows.map((item) => item.id);
-  for (const idChunk of splitIntoChunks(hrIds, QUERY_CHUNK_SIZE)) {
-    const bindings = await bindingModel.listByHrIdsInOrg(idChunk, orgId);
+  if (!ids.length || !orgId) return states;
+  ids.forEach((id) => states.set(id, { status: 'unbound', userInfoId: '', boundOpenid: '' }));
+  for (let index = 0; index < ids.length; index += QUERY_CHUNK_SIZE) {
+    const bindings = await bindingModel.listWechatBindingStatesByHrIds(ids.slice(index, index + QUERY_CHUNK_SIZE), orgId);
     bindings.forEach((binding) => {
-      const hrId = safeString(binding.hr_id);
-      if (!states.has(hrId)) return;
-      states.set(hrId, {
-        status: 'bound',
-        userInfoId: safeString(binding.id),
-        boundOpenid: safeString(binding.openid)
-      });
+      const id = safeString(binding.hr_id);
+      if (!states.has(id)) return;
+      // 兼容响应保留空旧字段；学号纠错、跨组织同名或旧微信映射都不参与判定。
+      states.set(id, { status: Number(binding.has_active_binding) ? 'bound' : 'unbound', userInfoId: '', boundOpenid: '' });
     });
   }
-
-  const unboundRows = normalizedRows.filter((item) => {
-    const state = states.get(item.id);
-    return state && state.status === 'unbound' && item.studentId && item.name;
-  });
-  const studentIds = [...new Set(unboundRows.map((item) => item.studentId))];
-  const externallyBoundIdentityKeys = new Set();
-
-  for (const studentIdChunk of splitIntoChunks(studentIds, QUERY_CHUNK_SIZE)) {
-    const externalBindings = await bindingModel.listBoundIdentitiesOutsideOrg(studentIdChunk, orgId);
-    externalBindings.forEach((binding) => {
-      const studentId = safeString(binding.student_id);
-      const name = safeString(binding.name);
-      if (studentId && name) externallyBoundIdentityKeys.add(`${studentId}\u0000${name}`);
-    });
-  }
-
-  unboundRows.forEach((item) => {
-    if (!externallyBoundIdentityKeys.has(`${item.studentId}\u0000${item.name}`)) return;
-    states.set(item.id, {
-      status: 'pending_activation',
-      userInfoId: '',
-      boundOpenid: ''
-    });
-  });
-
   return states;
 }
 
-module.exports = {
-  resolveHrBindingStates
-};
+module.exports = { resolveHrBindingStates };

@@ -9,6 +9,7 @@ const { formatListTime, parseSystemDateTime, systemDateTimeToMysqlUtc, nowMysqlU
 const { resolveCurrentActor } = require('../../../core/services/currentActor');
 const unifiedIdentityModel = require('../../../core/models/unifiedIdentity');
 const { resolveVenueViewerScope, canViewBookingDetails, resolveVenueOrgNames } = require('../services/venueViewerScope');
+const { getAuthenticatedContext } = require('../../../core/services/authenticatedContext');
 const venueModel = require('../models/venue');
 const venueOpenRuleModel = require('../models/venueOpenRule');
 const venueActivityRuleModel = require('../models/venueActivityRule');
@@ -331,7 +332,7 @@ function splitByDate(startDate, endDate) {
 
 router.post('/listVenuesForBooking', async (req, res) => {
   try {
-    if (!req.openid) return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
+    if (!getAuthenticatedContext(req)) return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
     const venues = await venueModel.getAll();
     const venueList = [];
     for (const v of venues) {
@@ -358,7 +359,7 @@ router.post('/listVenuesForBooking', async (req, res) => {
 
 router.post('/getVenueSchedule', async (req, res) => {
   try {
-    if (!req.openid) return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
+    if (!getAuthenticatedContext(req)) return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
     const venueId = safeString(req.body.venueId);
     const dateFrom = safeString(req.body.dateFrom);
     const dateTo = safeString(req.body.dateTo);
@@ -388,10 +389,7 @@ router.post('/getVenueSchedule', async (req, res) => {
       timeTo: weekEnd
     });
     const activeBookings = allBookings;
-    const viewerScope = await resolveVenueViewerScope(
-      req.openid,
-      req.authContext && req.authContext.personId
-    );
+    const viewerScope = await resolveVenueViewerScope(req);
     const canViewDetails = (booking) => canViewBookingDetails(booking, viewerScope);
     const detailBookings = activeBookings.filter(canViewDetails);
     const applicantAssignments = await resolveBookingApplicantAssignments(detailBookings);

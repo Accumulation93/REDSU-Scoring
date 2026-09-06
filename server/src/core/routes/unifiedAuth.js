@@ -172,20 +172,18 @@ router.post('/auth/password/session', async (req, res) => {
       req.body && req.body.passphrase
     );
     const hasWechatCode = Boolean(req.body && (req.body.code || req.body.openid));
-    const openid = hasWechatCode
-      ? await unifiedAuth.exchangeWechatCode(
-        req.body && req.body.code,
-        req.body && req.body.openid
-      )
-      : '';
-    const currentBound = openid ? await identityModel.findAccountByOpenid(openid) : null;
-    const temporary = !account.openid_hash;
-    if (temporary && !openid) {
-      throw new identityModel.IdentityError('invalid_wechat_code', localeCopy.copy_ffadbecb8f, 401);
+    let openid = '';
+    let currentBound = null;
+    // 微信只提供登录后可选的绑定邀请；交换失败不能否定已经验证的口令。
+    if (hasWechatCode && !account.openid_hash) {
+      try {
+        openid = await unifiedAuth.exchangeWechatCode(req.body.code, req.body.openid);
+        currentBound = await identityModel.findAccountByOpenid(openid);
+      } catch (_) {
+        openid = '';
+      }
     }
-    const temporaryOptions = temporary
-      ? identityModel.temporaryPasswordSessionOptions(openid)
-      : null;
+    const temporaryOptions = identityModel.temporaryPasswordSessionOptions(openid);
     await identityModel.appendAuditEvent({ eventType: 'password_session_created', targetPersonId: account.person_id,
       accountId: account.id, requestId: req.requestId, ip: req.ip });
     const payload = await unifiedAuth.createAuthenticatedSession(account, {
@@ -193,10 +191,11 @@ router.post('/auth/password/session', async (req, res) => {
       organizationId: req.body && req.body.preferredOrganizationId,
       identityId: req.body && req.body.preferredIdentityId
     }, metadata(req), temporaryOptions);
-    if (temporary) {
+    if (!account.openid_hash && (openid || req.body && req.body.requestBindingOffer === true)) {
       payload.bindingOffer = {
         available: !currentBound,
         currentWechatBound: Boolean(currentBound),
+        requiresWechatCode: !openid,
         accountId: safeString(account.id),
         personId: safeString(account.person_id),
         name: safeString(account.name)
@@ -211,10 +210,15 @@ router.post('/auth/password/session', async (req, res) => {
 router.post('/auth/security/bind-current-wechat', async (req, res) => {
   try {
     requireUnifiedSession(req);
-    await identityModel.bindTemporaryPasswordSessionOpenid(
-      req.authAccount.id,
-      req.authSession
-    );
+    if (req.authSession.binding_mode !== 'temporary') {
+      throw new identityModel.IdentityError('invalid_params', localeCopy.copy_cffa8244af, 400);
+    }
+    if (req.body && req.body.code) {
+      const openid = await unifiedAuth.exchangeWechatCode(req.body.code);
+      await identityModel.bindWechatAfterPassphraseLogin(req.authAccount.id, openid, metadata(req));
+    } else {
+      await identityModel.bindTemporaryPasswordSessionOpenid(req.authAccount.id, req.authSession);
+    }
     return res.json({ status: 'success' });
   } catch (error) {
     return sendError(req, res, error);

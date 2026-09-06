@@ -37,7 +37,7 @@ const identityModel = {
   },
   temporaryPasswordSessionOptions(openid) {
     scenario.temporaryOptionsCalls += 1;
-    assert.strictEqual(openid, 'wechat-openid');
+    assert(['', 'wechat-openid'].includes(openid));
     return { temporary: true, openidHash: 'temp-hash', openidCiphertext: 'temp-cipher' };
   },
   async appendAuditEvent() {
@@ -48,6 +48,7 @@ const identityModel = {
 const unifiedAuth = {
   async exchangeWechatCode(code) {
     scenario.exchangeCalls += 1;
+    if (scenario.exchangeFailed) throw new IdentityError('wechat_unavailable', 'fixture failure', 503);
     if (code !== undefined) assert.strictEqual(code, 'fresh-code');
     return 'wechat-openid';
   },
@@ -83,21 +84,22 @@ function handlerFor(routePath) {
   return layer.route.stack[0].handle;
 }
 
-async function invoke(body) {
+async function invoke(body, authenticated, routePath = '/auth/password/session') {
   let payload;
   let statusCode = 200;
   const req = {
     body,
     requestId: 'request-1',
     ip: '127.0.0.1',
-    path: '/auth/password/session',
+    path: routePath,
     logger: { error() {} }
   };
+  Object.assign(req, authenticated || {});
   const res = {
     status(value) { statusCode = value; return this; },
     json(value) { payload = value; return value; }
   };
-  await handlerFor('/auth/password/session')(req, res);
+  await handlerFor(routePath)(req, res);
   return { payload, statusCode };
 }
 
@@ -118,7 +120,7 @@ async function run() {
   assert.strictEqual(legacyClient.payload.status, 'login_success');
   assert.deepStrictEqual(
     [scenario.exchangeCalls, scenario.bindCalls, scenario.auditCalls, scenario.sessionCalls, scenario.temporaryOptionsCalls],
-    [0, 0, 1, 1, 0],
+    [0, 0, 1, 1, 1],
     '已有绑定的账号必须兼容未提交 code 的旧客户端'
   );
 
@@ -130,6 +132,37 @@ async function run() {
   assert.strictEqual(blockedBinding.payload.bindingOffer.currentWechatBound, true);
   assert.strictEqual(scenario.sessionCalls, 1, '临时口令登录不因当前微信已绑定其他账号而阻止登录');
 
+  for (const exchangeFailed of [false, true]) {
+    scenario = { bound: false, exchangeFailed, exchangeCalls: 0, bindCalls: 0, auditCalls: 0, sessionCalls: 0, temporaryOptionsCalls: 0 };
+    const result = await invoke({
+      studentId: '20260001', passphrase: 'Strong-Passphrase-2026',
+      ...(exchangeFailed ? { code: 'fresh-code' } : {})
+    });
+    assert.strictEqual(result.payload.status, 'login_success', '缺少或无效微信 code 不得阻断正确口令');
+    assert.strictEqual(result.payload.bindingOffer, undefined, '没有验证过的微信不得展示可绑定邀请');
+    assert.strictEqual(scenario.bindCalls, 0);
+    assert.strictEqual(scenario.lastSessionOptions.temporary, true);
+  }
+
+  scenario = { bound: false, exchangeCalls: 0, bindCalls: 0, auditCalls: 0, sessionCalls: 0, temporaryOptionsCalls: 0 };
+  const deferred = await invoke({ studentId: 'fixture-user', passphrase: 'fixture-passphrase', requestBindingOffer: true });
+  assert.strictEqual(deferred.payload.status, 'login_success');
+  assert.strictEqual(deferred.payload.bindingOffer.requiresWechatCode, true);
+  assert.strictEqual(scenario.exchangeCalls, 0, '新版口令入口不交换微信凭据');
+  const authenticated = {
+    authAccount: { id: 'account-1', personId: 'person-1' },
+    authContext: { contextId: 'context-1', personId: 'person-1' },
+    authSession: { id: 'session-1', binding_mode: 'temporary' }
+  };
+  const bound = await invoke({ code: 'fresh-code', accountId: 'forged' }, authenticated, '/auth/security/bind-current-wechat');
+  assert.strictEqual(bound.payload.status, 'success');
+  assert.strictEqual(scenario.bindCalls, 1);
+  scenario.conflict = true;
+  const conflict = await invoke({ code: 'fresh-code' }, authenticated, '/auth/security/bind-current-wechat');
+  assert.strictEqual(conflict.statusCode, 409);
+  authenticated.authSession.binding_mode = 'bound';
+  const wrongMode = await invoke({ code: 'fresh-code' }, authenticated, '/auth/security/bind-current-wechat');
+  assert.strictEqual(wrongMode.statusCode, 400);
   const modelSource = fs.readFileSync(
     path.resolve(__dirname, '../src/core/models/unifiedIdentity.js'),
     'utf8'

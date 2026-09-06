@@ -5,7 +5,7 @@ const router = express.Router();
 const { safeString, generateId } = require('../../../utils/helpers');
 const { getCurrentOrgId } = require('../../../utils/orgContext');
 const pool = require('../../../config/db');
-const adminInfoModel = require('../../../core/models/adminInfo');
+const { resolveRequestAdmin: ensureAdmin } = require('../../../core/services/adminRequestContext');
 const hrInfoModel = require('../../../core/models/hrInfo');
 const flowTemplateModel = require('../models/auditFlowTemplate');
 const flowTemplateStepModel = require('../models/auditFlowTemplateStep');
@@ -38,10 +38,6 @@ function collectDictionaryReferences(condition) {
   };
 }
 
-async function ensureAdmin(openid) {
-  return adminInfoModel.getByOpenid(openid);
-}
-
 // ═══════════════════════════════════════════════════
 // Audit Flow Templates
 // ═══════════════════════════════════════════════════
@@ -49,8 +45,7 @@ async function ensureAdmin(openid) {
 // listAuditFlowTemplates
 router.post('/listAuditFlowTemplates', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const templates = await flowTemplateModel.getAll();
@@ -125,8 +120,7 @@ router.post('/listAuditFlowTemplates', async (req, res) => {
 // saveAuditFlowTemplate
 router.post('/saveAuditFlowTemplate', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const id = safeString(req.body.id);
@@ -392,8 +386,7 @@ router.post('/saveAuditFlowTemplate', async (req, res) => {
 // deleteAuditFlowTemplate
 router.post('/deleteAuditFlowTemplate', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const id = safeString(req.body.id);
@@ -424,8 +417,7 @@ router.post('/deleteAuditFlowTemplate', async (req, res) => {
 // listStamps
 router.post('/listStamps', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const stamps = await stampModel.getAll();
@@ -460,8 +452,7 @@ router.post('/listStamps', async (req, res) => {
 // saveStamp
 router.post('/saveStamp', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const id = safeString(req.body.id);
@@ -507,8 +498,7 @@ router.post('/saveStamp', async (req, res) => {
 // deleteStamp
 router.post('/deleteStamp', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const id = safeString(req.body.id);
@@ -528,8 +518,7 @@ router.post('/deleteStamp', async (req, res) => {
 // saveStampAssignments — Bulk set stamp assignments for an identity
 router.post('/saveStampAssignments', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const identityId = safeString(req.body.identityId);
@@ -568,8 +557,7 @@ router.post('/listIdentityStamps', (req, res) => {
 // listVerificationPermissions
 router.post('/listVerificationPermissions', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const perms = await verificationPermModel.getAll();
@@ -590,8 +578,7 @@ router.post('/listVerificationPermissions', async (req, res) => {
 // saveVerificationPermission
 router.post('/saveVerificationPermission', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const granteeHrId = safeString(req.body.granteeHrId);
@@ -630,8 +617,7 @@ router.post('/saveVerificationPermission', async (req, res) => {
 // listAllAuditSubmissions — Admin view of all submissions
 router.post('/listAllAuditSubmissions', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const filters = {
@@ -737,8 +723,7 @@ function buildStepConditionsDisplay(conditionsJson, maps) {
 // getAuditProgress — View flow progress for a submission
 router.post('/getAuditProgress', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const orgId = await getCurrentOrgId();

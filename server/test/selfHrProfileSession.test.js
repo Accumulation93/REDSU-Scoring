@@ -169,7 +169,7 @@ async function run() {
   assert.strictEqual((await request('submitUserHrProfile')).status, 'missing_template');
   assert.strictEqual((await request('getHrPersonDetail')).status, 'forbidden');
   // 当前管理员无旧 admin_info 也能通过认证，随后仍执行成员参数与范围校验。
-  const adminReq = { authContext: { role: 'admin', personId: 'person-a', organizationId: 'org-a', adminLevel: 'admin', adminGrantId: 'grant-a' }, body: {} };
+  const adminReq = { authContext: { role: 'admin', contextId: 'context-admin', personId: 'person-a', organizationId: 'org-a', adminLevel: 'admin', adminGrantId: 'grant-a' }, body: {} };
   assert.strictEqual((await request('getHrPersonDetail', adminReq)).status, 'invalid_params');
   console.log('本人资料统一会话读取、保存、未绑定与跨账号隔离回归通过');
 }

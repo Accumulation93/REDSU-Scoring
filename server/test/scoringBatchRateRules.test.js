@@ -208,7 +208,7 @@ function routeHandler(routePath) {
 
 async function invoke(routePath, body) {
   let payload;
-  await routeHandler(routePath)({ openid: 'admin-openid', body }, {
+  await routeHandler(routePath)({ admin: { id: 'admin-1' }, body }, {
     json(value) { payload = value; return value; }
   });
   return payload;

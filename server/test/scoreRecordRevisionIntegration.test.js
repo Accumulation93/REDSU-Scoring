@@ -140,7 +140,8 @@ assert(layer, '缺少 submitScoreRecord 路由');
 (async function run() {
   let payload;
   await layer.route.stack[0].handle({
-    openid: 'openid-1',
+    authAccount: { id: 'account-scorer', personId: 'person-scorer' },
+    authContext: { role: 'user', personId: 'person-scorer', contextId: 'context-scorer', organizationId: 'org-1' },
     body: {
       targetId: target.id,
       activityId: 'activity-1',
@@ -165,7 +166,8 @@ assert(layer, '缺少 submitScoreRecord 路由');
 
   payload = null;
   await layer.route.stack[0].handle({
-    openid: 'openid-1',
+    authAccount: { id: 'account-scorer', personId: 'person-scorer' },
+    authContext: { role: 'user', personId: 'person-scorer', contextId: 'context-scorer', organizationId: 'org-1' },
     body: {
       targetId: target.id,
       activityId: 'activity-1',

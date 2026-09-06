@@ -332,13 +332,12 @@ Page({
     }
     this.setData({ loading: true });
     try {
-      const code = await requestWechatLoginCode();
       const result = await callFunction({
         name: 'auth/password/session',
         data: {
           studentId: this.data.passwordStudentId,
           passphrase: this.data.password,
-          code,
+          requestBindingOffer: true
         }
       });
       if (!result || result.status !== 'login_success') throw new Error(copy.messages.loginInvalid);
@@ -674,9 +673,12 @@ Page({
     if (this.data.loading) return;
     this.setData({ loading: true });
     try {
+      // 仅在用户明确选择绑定之后获取微信凭据，口令登录本身完全不依赖微信。
+      const code = this.data.bindingOffer && this.data.bindingOffer.requiresWechatCode
+        ? await requestWechatLoginCode() : '';
       const result = await callFunction({
         name: 'auth/security/bind-current-wechat',
-        data: {}
+        data: code ? { code } : {}
       });
       if (!result || result.status !== 'success') {
         throw new Error(copy.messages.pageOpenFailed);

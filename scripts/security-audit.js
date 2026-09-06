@@ -67,6 +67,12 @@ for (const target of TARGETS) {
     }
 
     if (relativeFile.startsWith('server/src/')) {
+      const legacyIdentityLookup = source.search(/\bget(?:Authorized)?ByOpenid\w*\s*\(/);
+      if (legacyIdentityLookup >= 0) addFinding('high', 'legacy-wechat-business-identity', relativeFile, source, legacyIdentityLookup);
+      if (relativeFile.includes('/routes/') && !relativeFile.endsWith('/routes/unifiedAuth.js')) {
+        const rawWechatActor = source.search(/req\s*\.\s*openid\b/);
+        if (rawWechatActor >= 0) addFinding('high', 'business-route-wechat-actor', relativeFile, source, rawWechatActor);
+      }
       const consoleLog = source.search(/console\.log\s*\(/);
       if (consoleLog >= 0) addFinding('high', 'server-console-log', relativeFile, source, consoleLog);
       const runtimeDdl = source.search(/\b(?:CREATE|ALTER|DROP|TRUNCATE)\s+(?:TABLE|INDEX|DATABASE)\b/i);
@@ -160,10 +166,11 @@ requireSourceContract('server/src/core/routes/auth.js', [
       && !source.includes('WHERE invite_code = ?')
   },
   {
-    rule: 'auth-role-from-body',
-    test: source => source.includes("const role = safeString(req.headers['x-role']).toLowerCase()")
-      && !source.includes("req.headers['x-role'] || req.body.role")
-      && !source.includes("safeString(req.body.role || 'user')")
+    rule: 'auth-role-from-account-context',
+    test: source => source.includes('getAuthenticatedContext(req)')
+      && source.includes('listAvailableOrganizations(req, role)')
+      && source.includes("router.post('/activateOrganization', requireUnifiedClient)")
+      && !/req\.openid|req\.headers\[['"]x-role|req\.body\.role/.test(source)
   }
 ]);
 requireSourceContract('server/src/core/services/adminPermissions.js', [
@@ -261,6 +268,25 @@ requireSourceContract('miniprogram/utils/trustedNavigation.js', [
     rule: 'trusted-navigation-allowlist',
     test: source => source.includes('const TRUSTED_ROUTES = {')
       && source.includes('TRUSTED_ROUTES[pathname] === true')
+  }
+]);
+requireSourceContract('miniprogram/utils/api.js', [
+  {
+    rule: 'no-implicit-wechat-account-switch',
+    test: source => !/wx\.login\s*\(|getFreshWechatCode|requestWechatSession/.test(source)
+      && source.includes('redirectToLogin(responseError)')
+  }
+]);
+requireSourceContract('miniprogram/subpackages/main/pages/login/login.js', [
+  {
+    rule: 'password-independent-of-wechat',
+    test: source => {
+      const start = source.indexOf('async onPasswordLogin()');
+      const end = source.indexOf('\n  onShow()', start);
+      const body = source.slice(start, end);
+      return start >= 0 && end > start && body.includes("name: 'auth/password/session'")
+        && !/requestWechatLoginCode|wx\.login/.test(body);
+    }
   }
 ]);
 requireSourceContract('server/src/core/services/hrProfileTemplateLibrary.js', [

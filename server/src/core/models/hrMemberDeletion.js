@@ -1,6 +1,7 @@
 const { generateId, safeString } = require('../../utils/helpers');
 const { decryptOpenid } = require('../services/identityCrypto');
 const { createHash } = require('crypto');
+const { usableLoginCredentialSql } = require('./accountLoginState');
 
 function uniqueStrings(values) {
   return [...new Set((Array.isArray(values) ? values : []).map(safeString).filter(Boolean))];
@@ -1411,10 +1412,9 @@ async function lockSuperAdminState(connection, personId, lock) {
        FROM admin_grants grant_row
        JOIN persons person_row ON person_row.id = grant_row.person_id AND person_row.status = 'active'
        JOIN accounts account_row ON account_row.person_id = person_row.id AND account_row.status = 'verified'
-       JOIN account_wechat_bindings binding_row
-         ON binding_row.account_id = account_row.id AND binding_row.status = 'active'
       WHERE grant_row.person_id = ?
-        AND grant_row.admin_level = 'super_admin' AND grant_row.status = 'active'${lockSql}`,
+        AND grant_row.admin_level = 'super_admin' AND grant_row.org_id = '' AND grant_row.status = 'active'
+        AND ${usableLoginCredentialSql('account_row')}${lockSql}`,
     [safeString(personId)]
   );
   if (!targetRows.length) return { targetIsSuperAdmin: false, activeCount: 0 };
@@ -1423,9 +1423,8 @@ async function lockSuperAdminState(connection, personId, lock) {
        FROM admin_grants grant_row
        JOIN persons person_row ON person_row.id = grant_row.person_id AND person_row.status = 'active'
        JOIN accounts account_row ON account_row.person_id = person_row.id AND account_row.status = 'verified'
-       JOIN account_wechat_bindings binding_row
-         ON binding_row.account_id = account_row.id AND binding_row.status = 'active'
-       WHERE grant_row.admin_level = 'super_admin' AND grant_row.status = 'active'${lockSql}`
+       WHERE grant_row.admin_level = 'super_admin' AND grant_row.org_id = '' AND grant_row.status = 'active'
+         AND ${usableLoginCredentialSql('account_row')}${lockSql}`
   );
   return {
     targetIsSuperAdmin: true,

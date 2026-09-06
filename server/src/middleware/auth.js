@@ -13,7 +13,7 @@ if (process.env.NODE_ENV === 'production' && Buffer.byteLength(JWT_SECRET, 'utf8
 }
 if (process.env.NODE_ENV === 'production') validateIdentityCryptoConfig();
 
-// Paths that do not require authentication
+// 无需认证的入口；认领/恢复入口独立验证受限引导令牌。
 const PUBLIC_PATHS = new Set([
   '/api/ping',
   '/api/health',
@@ -29,31 +29,14 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/recovery/complete'
 ]);
 
-/**
- * Extract openid from JWT token and attach to req.
- * Public paths (login, health) are always allowed through.
- * For all other paths, missing or invalid token returns 401.
- */
+// 业务请求只接收服务端会话确认的账号、自然人和工作角色；微信仅属于登录凭据。
 async function authMiddleware(req, res, next) {
-  // Allow public paths without authentication
+  req.openid = ''; // 保留空兼容字段，禁止把任何微信标识当作业务调用者。
   if (PUBLIC_PATHS.has(req.path)) {
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
-        req.openid = decoded.openid || '';
-        req.bootstrapId = decoded.kind === 'unified_bootstrap' ? decoded.bid || '' : '';
-      } catch (e) {
-        req.openid = '';
-      }
-    } else {
-      req.openid = '';
-    }
     return next();
   }
 
-  // Protected paths require valid JWT
+  // 受保护入口必须同时通过令牌、服务端会话和工作角色验证。
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
@@ -83,7 +66,6 @@ async function authMiddleware(req, res, next) {
         });
         return res.status(401).json({ status: 'auth_failed', message: localeCopy.copy_b10d64a68c });
       }
-      req.openid = loaded.openid;
       req.authSession = loaded.session;
       req.authAccount = {
         id: loaded.session.account_id,

@@ -6,15 +6,10 @@ const router = express.Router();
 const { safeString, toNumber, generateId } = require('../../../utils/helpers');
 const { nowMysqlUtc } = require('../../../utils/dateTime');
 const { getCurrentOrgId } = require('../../../utils/orgContext');
-const adminInfoModel = require('../../../core/models/adminInfo');
+const { resolveRequestAdmin: ensureAdmin } = require('../../../core/services/adminRequestContext');
 const templateModel = require('../models/scoreTemplate');
 const questionModel = require('../models/scoreQuestion');
 const pool = require('../../../config/db');
-
-async function ensureAdmin(req) {
-  if (req && Object.prototype.hasOwnProperty.call(req, 'admin')) return req.admin || null;
-  return req && req.openid ? adminInfoModel.getByOpenid(req.openid) : null;
-}
 
 function normalizeQuestion(item) {
   const source = item || {};

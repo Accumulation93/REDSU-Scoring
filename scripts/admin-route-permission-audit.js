@@ -29,7 +29,7 @@ for (const file of walk(ROOT)) {
   matches.forEach((match, index) => {
     const end = index + 1 < matches.length ? matches[index + 1].index : source.length;
     const routeBlock = source.slice(match.index, end);
-    const performsAdminLookup = /ensureAdmin\s*\(|requireAdmin\s*\(|adminInfoModel\.getByOpenid/.test(routeBlock);
+    const performsAdminLookup = /ensureAdmin\s*\(|requireAdmin\s*\(|resolveRequestAdmin\s*\(|requireAdminOrganizationPermission\s*\(/.test(routeBlock);
     if (!performsAdminLookup || EXPLICIT_SHARED_ROUTES.has(match[1]) || ROUTE_RULES.has(match[1])) return;
     missing.push({
       route: match[1],

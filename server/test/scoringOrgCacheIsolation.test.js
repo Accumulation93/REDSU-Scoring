@@ -58,7 +58,7 @@ const handler = routeLayer.route.stack[0].handle;
 async function invoke(activityId) {
   let payload;
   await handler({
-    openid: 'openid-super',
+    admin: { id: 'admin-super', admin_level: 'super_admin', org_id: '' },
     body: { activityId, dataType: 'overview', filters: {} }
   }, {
     json(value) {

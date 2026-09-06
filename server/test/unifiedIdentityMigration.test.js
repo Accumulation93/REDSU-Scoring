@@ -242,6 +242,65 @@ async function run() {
     );
     const targetGlobalContext = globalAdminContexts.find((item) => item.organizationId === 'org-b');
     assert(targetGlobalContext);
+    // 口令会话与微信会话使用同一自然人目录，解绑材料缺失不得让口令会话换人。
+    const passwordOptions = identityModel.temporaryPasswordSessionOptions('');
+    const passwordSession = await identityModel.createSession(account, {
+      contextId: session.context.contextId
+    }, { requestId: 'password-parity', ip: '127.0.0.1' }, passwordOptions);
+    assert.strictEqual(passwordSession.context.contextId, session.context.contextId);
+    assert.strictEqual(passwordSession.bindingMode, 'temporary');
+    const [activeBindings] = await pool.query("SELECT id FROM account_wechat_bindings WHERE account_id = ? AND status = 'active'", [account.id]);
+    assert.strictEqual(activeBindings.length, 1);
+    await pool.query("UPDATE account_wechat_bindings SET status = 'revoked', active_account_id = NULL WHERE id = ?", [activeBindings[0].id]);
+    const { usableLoginCredentialSql } = require('../src/core/models/accountLoginState');
+    const readLoginAbility = async () => {
+      const [[row]] = await pool.query(`SELECT ${usableLoginCredentialSql('a')} AS available FROM accounts a WHERE a.id = ?`, [account.id]);
+      return Number(row.available);
+    };
+    assert.strictEqual(await readLoginAbility(), 0);
+    const [[previousPolicy]] = await pool.query("SELECT allow_passphrase FROM auth_policy WHERE id = 'default'");
+    await pool.query("UPDATE auth_policy SET allow_passphrase = 1 WHERE id = 'default'");
+    const { hashPassphrase } = require('../src/core/services/identityCrypto');
+    const fixturePassphrase = 'Unified-parity-fixture-2026';
+    const fixtureCredential = hashPassphrase(fixturePassphrase);
+    await pool.query("INSERT INTO account_recovery_credentials (id, account_id, method, credential_hash, salt, status) VALUES (?, ?, 'passphrase', ?, ?, 'active')", [
+      'parity-login-credential', account.id, fixtureCredential.hash, fixtureCredential.salt
+    ]);
+    assert.strictEqual(await readLoginAbility(), 1, '未绑定微信但启用口令的管理员必须计入可登录人数');
+    await pool.query("UPDATE auth_policy SET allow_passphrase = 0 WHERE id = 'default'");
+    assert.strictEqual(await readLoginAbility(), 0, '全局关闭口令时不能错误计算为可登录');
+    await pool.query("UPDATE auth_policy SET allow_passphrase = 1 WHERE id = 'default'");
+    await pool.query("UPDATE account_recovery_credentials SET locked_until = DATE_ADD(NOW(), INTERVAL 30 MINUTE) WHERE id = 'parity-login-credential'");
+    assert.strictEqual(await readLoginAbility(), 0, '锁定中的口令不能冒充可用登录凭据');
+    await pool.query("DELETE FROM account_recovery_credentials WHERE id = 'parity-login-credential'");
+    await pool.query("UPDATE auth_policy SET allow_passphrase = ? WHERE id = 'default'", [previousPolicy.allow_passphrase]);
+    assert.strictEqual(await identityModel.loadSession(session.id), null, '微信凭据失效后微信会话必须拒绝');
+    const loadedPassword = await identityModel.loadSession(passwordSession.id);
+    assert.strictEqual(loadedPassword.context.personId, account.person_id);
+    assert.strictEqual(loadedPassword.openid, '');
+    const switchedPassword = await identityModel.activateSelection(passwordSession.id, account.id, {
+      contextId: targetGlobalContext.contextId
+    });
+    assert.strictEqual(switchedPassword.contextId, targetGlobalContext.contextId);
+    const unboundPasswordSession = await identityModel.createSession(account, {
+      contextId: targetGlobalContext.contextId
+    }, {}, identityModel.temporaryPasswordSessionOptions('unrelated-wechat'));
+    assert.strictEqual(unboundPasswordSession.context.personId, account.person_id);
+    await assert.rejects(identityModel.createSession(account, '', {}), (error) => error.code === 'binding_missing');
+    await pool.query("UPDATE account_wechat_bindings SET status = 'active', active_account_id = account_id WHERE id = ?", [activeBindings[0].id]);
+    for (const status of ['frozen', 'recovery_required']) {
+      await pool.query('UPDATE accounts SET status = ? WHERE id = ?', [status, account.id]);
+      assert.deepStrictEqual(await identityModel.listContexts(account.id), []);
+      assert.strictEqual(await identityModel.loadSession(session.id), null);
+      assert.strictEqual(await identityModel.loadSession(passwordSession.id), null);
+      for (const options of [undefined, identityModel.temporaryPasswordSessionOptions('')]) {
+        await assert.rejects(identityModel.createSession(account, '', {}, options), (error) => error.code === 'account_unavailable');
+      }
+      await assert.rejects(identityModel.activateSelection(passwordSession.id, account.id, {
+        contextId: targetGlobalContext.contextId
+      }), (error) => error.code === 'context_forbidden');
+    }
+    await pool.query("UPDATE accounts SET status = 'verified' WHERE id = ?", [account.id]);
     const activatedGlobalContext = await identityModel.activateSelection(
       session.id,
       account.id,
@@ -342,7 +401,7 @@ async function run() {
          FROM user_info
         WHERE openid = 'openid-one' AND org_id = 'org-c' AND hr_id = 'hr-c1'`
     );
-    assert.strictEqual(Number(syncedLegacyBinding.count), 1);
+    assert.strictEqual(Number(syncedLegacyBinding.count), 0, '登录和角色切换不得自动创建旧微信映射');
     const [[securityState]] = await pool.query(`
       SELECT
         SUM(legacy_openid IS NOT NULL) AS plaintext_count,

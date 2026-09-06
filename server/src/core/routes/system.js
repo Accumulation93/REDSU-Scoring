@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const { safeString } = require('../../utils/helpers');
 const systemConfigModel = require('../models/systemConfig');
-const adminInfoModel = require('../models/adminInfo');
+const { resolveRequestAdmin } = require('../services/adminRequestContext');
 const { nowMysqlUtc, toIsoUtc, MIN_TIMEZONE_OFFSET, MAX_TIMEZONE_OFFSET } = require('../../utils/dateTime');
 
 function publicTimeReviewState(state) {
@@ -75,8 +75,7 @@ router.post('/getSystemConfig', async (req, res) => {
 // saveSystemConfig
 router.post('/saveSystemConfig', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await adminInfoModel.getByOpenid(openid);
+    const admin = await resolveRequestAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
     if (req.body.currentOrganization !== undefined
       && (admin.admin_level !== 'super_admin' || admin.org_id !== '')) {

@@ -22,21 +22,14 @@ for (const match of initSql.matchAll(/CREATE TABLE IF NOT EXISTS\s+`?(\w+)`?\s*\
   if (/\borg_id\b/i.test(match[2])) scopedTables.push(match[1]);
 }
 
-// These statements intentionally discover an actor or invitation across organizations.
-// Each one is limited by an authenticated openid, a one-time invite, or a global-admin check.
+// 跨组织例外必须由已认证账号自然人、已授权主键、一次性邀请或后台维护范围限定。
+// 微信不得用于业务操作者发现；旧绑定仅允许显式恢复、迁移与清理路径。
 const CROSS_ORG_ALLOWLIST = [
   { file: 'server/src/modules/audit/models/signingEvidence.js', sql: /SELECT input_file_path, output_file_path FROM audit_signing_evidence\s+WHERE input_file_path IN/i, reason: '后台全组织附件清理只按绝对候选路径交集检查历史凭证引用，不返回业务或身份信息' },
-  { file: 'server/src/core/models/adminInfo.js', sql: /FROM admin_info WHERE openid = \?/i, reason: '跨组织管理员身份发现' },
-  { file: 'server/src/core/models/adminInfo.js', sql: /FROM admin_info ai\s+WHERE ai\.openid = \? AND ai\.bind_status = \?[\s\S]*unifiedAuthorizationClause/i, reason: '由微信绑定与统一账号状态共同限定的跨组织管理员上下文发现' },
   { file: 'server/src/core/models/adminInfo.js', sql: /FROM admin_info WHERE id = \? AND admin_level IN/i, reason: '权限管理精确主键锁定' },
   { file: 'server/src/core/models/adminInfo.js', sql: /FROM admin_info\s+WHERE invite_code = \?/i, reason: '一次性邀请码查找' },
   { file: 'server/src/core/models/hrInfo.js', sql: /FROM hr_info WHERE student_id = \?/i, reason: '登录时跨组织身份匹配' },
-  { file: 'server/src/core/models/userInfo.js', sql: /FROM user_info WHERE openid = \?/i, reason: '登录时跨组织绑定发现' },
   { file: 'server/src/core/models/userInfo.js', sql: /DELETE FROM user_info WHERE openid IN/i, reason: '管理员按已锁定 OpenID 从所有组织解绑普通用户微信' },
-  { file: 'server/src/core/routes/auth.js', sql: /SELECT DISTINCT student_id, name FROM hr_info WHERE id IN/i, reason: '登录时从已绑定主键推导身份' },
-  { file: 'server/src/core/routes/auth.js', sql: /FROM admin_info\s+WHERE invite_code = \?/i, reason: '管理员一次性邀请码绑定' },
-  { file: 'server/src/core/routes/auth.js', sql: /UPDATE admin_info[\s\S]*invite_consumed_at/i, reason: '同一事务消费已锁定邀请码' },
-  { file: 'server/src/core/routes/org.js', sql: /FROM admin_info WHERE openid = \? AND bind_status = 'active'/i, reason: '全局组织管理鉴权' },
   { file: 'server/src/modules/venue/routes/venueUser.js', sql: /SELECT id, name FROM admin_info WHERE id IN/i, reason: '全局场地记录展示创建管理员名称' },
   { file: 'server/src/modules/venue/routes/venueUser.js', sql: /SELECT \* FROM hr_info WHERE id IN/i, reason: '跨组织可见借用记录按人事主键解析借用人' },
   { file: 'server/src/modules/venue/routes/venueUser.js', sql: /SELECT id, name FROM hr_info WHERE id IN/i, reason: '跨组织可见借用记录解析审批快照审批人姓名' },
@@ -75,7 +68,7 @@ const CROSS_ORG_ALLOWLIST = [
   { file: 'server/src/core/models/unifiedIdentity.js', sql: /FROM admin_grants WHERE legacy_admin_id = \?/i, reason: '由已授权旧管理员主键解析统一授权' },
   { file: 'server/src/core/models/unifiedIdentity.js', sql: /SELECT ag\.legacy_admin_id, a\.status AS account_status/i, reason: '管理员列表批量解析统一账号认证状态' },
   { file: 'server/src/core/models/unifiedIdentity.js', sql: /UPDATE admin_info(?:\s+ai)?[\s\S]*(?:JOIN admin_grants|WHERE id = \?)/i, reason: '统一账号换绑事务同步旧管理员只读映射' },
-  { file: 'server/src/core/models/unifiedIdentity.js', sql: /SELECT ag\.\*,[\s\S]*has_binding[\s\S]*FROM admin_grants\s+ag/i, reason: '全局超级管理员存续保护' },
+  { file: 'server/src/core/models/unifiedIdentity.js', sql: /SELECT ag\.\*, a\.id AS account_id, a\.status AS account_status\s+FROM admin_grants ag[\s\S]*WHERE ag\.legacy_admin_id = \?\s+LIMIT 1 FOR UPDATE/i, reason: '目标组织权限已在事务内验证，再按管理员精确主键锁定统一授权以保护最后有效超级管理员；不按微信发现操作者' },
   { file: 'server/src/core/models/unifiedIdentity.js', sql: /SELECT DISTINCT other\.person_id\s+FROM admin_grants/i, reason: '全局超级管理员存续保护' },
   { file: 'server/src/core/models/unifiedIdentity.js', sql: /UPDATE admin_grants SET status = 'revoked'[\s\S]*WHERE id = \?/i, reason: '按已授权管理员授权主键撤销' },
   { file: 'server/src/core/models/unifiedIdentity.js', sql: /SELECT a\.id AS account_id[\s\S]*FROM accounts a/i, reason: '获授权账号治理列表跨组织汇总' },

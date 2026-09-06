@@ -142,6 +142,8 @@ async function invoke(path, body, role) {
     {
       body: body || {},
       openid: 'openid-1',
+      authAccount: { id: 'account-1', personId: 'person-1' },
+      authContext: { role: role || 'user', contextId: 'context-1', personId: 'person-1', organizationId: 'org-a' },
       headers: { 'x-role': role || 'user' }
     },
     {

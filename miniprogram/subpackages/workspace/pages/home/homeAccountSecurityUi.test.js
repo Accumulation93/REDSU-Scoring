@@ -20,10 +20,13 @@ test('普通用户保存口令与保存人事信息复用同一标准主按钮�
   assert.match(wxss, /\.profile-passphrase-submit\s*\{[\s\S]*flex:\s*none;[\s\S]*min-width:\s*100%;[\s\S]*max-width:\s*100%/);
 });
 
-test('口令登录获取微信 code 并随验证请求提交', () => {
+test('口令登录独立认证，只有确认绑定时才获取微信 code', () => {
   assert.match(loginJs, /function requestWechatLoginCode\(\)/);
-  assert.match(loginJs, /const code = await requestWechatLoginCode\(\);/);
-  const loginStart = loginJs.indexOf("name: 'auth/password/session'");
-  const loginEnd = loginJs.indexOf('});', loginStart);
-  assert.match(loginJs.slice(loginStart, loginEnd), /passphrase:\s*this\.data\.password,[\s\S]*code,/);
+  const loginStart = loginJs.indexOf('async onPasswordLogin()');
+  const loginEnd = loginJs.indexOf('async bindPasswordWechat()', loginStart);
+  assert(loginStart >= 0 && loginEnd > loginStart);
+  const passwordLogin = loginJs.slice(loginStart, loginEnd);
+  assert.doesNotMatch(passwordLogin, /requestWechatLoginCode\(|wx\.login\(/);
+  assert.match(passwordLogin, /passphrase:\s*this\.data\.password,[\s\S]*requestBindingOffer:\s*true/);
+  assert.match(loginJs.slice(loginEnd), /requiresWechatCode\s*\?\s*await requestWechatLoginCode\(\)/);
 });

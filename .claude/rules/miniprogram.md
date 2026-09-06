@@ -202,7 +202,10 @@ callFunction({ name: 'userLogin', data: { code }, success: res => { ... }, fail:
 
 ### 认证流程
 
-1. `wx.login()` → 2. POST `/api/userLogin` 或 `/api/adminLogin` → 3. 服务端优先 JWT，其次微信 code2session → 4. 前端处理 `login_success` / `need_bind` / error
+微信入口通过 `wx.login()` 调用 `/api/auth/wechat/session`；口令入口直接调用 `/api/auth/password/session`，不得先调用或等待 `wx.login()`。两者均使用统一认证响应建立内存会话，再进入门户。旧 `userLogin/adminLogin/activateOrganization` 已退役；工作角色切换只调用 `/api/auth/contexts/activate`。
+
+- 登录后绑定微信是独立、可跳过的用户选择；绑定失败保留口令会话。业务层不读取微信标识定位人员。
+- 会话失效时返回登录页，由用户明确选择认证方式；禁止自动改用当前微信账号，禁止在其他账号或角色下重放旧请求。已由用户完成同一工作角色切换而仅令牌变化的并发请求最多重试一次。
 
 ---
 

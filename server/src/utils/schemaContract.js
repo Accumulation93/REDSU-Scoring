@@ -1,4 +1,5 @@
 const localeCopy = require('../locales/zh-CN/generated/utils/schemaContract');
+const { usableLoginCredentialSql } = require('../core/models/accountLoginState');
 const REQUIRED_COLUMNS = [
   ['admin_info', 'invite_code'],
   ['admin_info', 'invite_expires_at'],
@@ -278,20 +279,21 @@ async function verifySchemaContract(pool) {
     error.missing = ['data:audit_signing_key_encryption'];
     throw error;
   }
-  const [boundSuperAdmins] = await pool.query(
+  const [availableSuperAdmins] = await pool.query(
     `SELECT
        COUNT(DISTINCT ag.id) AS total,
-       COUNT(DISTINCT CASE WHEN a.status = 'verified' AND b.status = 'active' THEN ag.id END) AS bound_count
+       COUNT(DISTINCT CASE WHEN a.status = 'verified' AND p.status = 'active'
+         AND ${usableLoginCredentialSql('a')} THEN ag.person_id END) AS available_count
        FROM admin_grants ag
        LEFT JOIN accounts a ON a.person_id = ag.person_id
-       LEFT JOIN account_wechat_bindings b ON b.account_id = a.id AND b.status = 'active'
-      WHERE ag.admin_level = 'super_admin' AND ag.status = 'active'`
+       LEFT JOIN persons p ON p.id = ag.person_id
+      WHERE ag.admin_level = 'super_admin' AND ag.org_id = '' AND ag.status = 'active'`
   );
-  const superAdminState = boundSuperAdmins[0] || {};
-  if (Number(superAdminState.total) > 0 && Number(superAdminState.bound_count) < 1) {
+  const superAdminState = availableSuperAdmins[0] || {};
+  if (Number(superAdminState.total) > 0 && Number(superAdminState.available_count) < 1) {
     const error = new Error(localeCopy.copy_c2f32234c0);
     error.code = 'schema_contract_failed';
-    error.missing = ['data:unified_identity_bound_super_admin'];
+    error.missing = ['data:unified_identity_available_super_admin'];
     throw error;
   }
   return { status: 'ok', revision: '2026-07-unified-identity-v1' };

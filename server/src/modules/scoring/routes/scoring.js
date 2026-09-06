@@ -21,7 +21,8 @@ const rateRuleClauseModel = require('../models/rateRuleClause');
 const clauseTemplateConfigModel = require('../models/clauseTemplateConfig');
 const scoreRecordModel = require('../models/scoreRecord');
 const scoreAnswerModel = require('../models/scoreAnswer');
-const adminInfoModel = require('../../../core/models/adminInfo');
+const { resolveRequestAdmin: ensureAdmin } = require('../../../core/services/adminRequestContext');
+const { getAuthenticatedContext } = require('../../../core/services/authenticatedContext');
 const { resolveCurrentActor } = require('../../../core/services/currentActor');
 const unifiedIdentityModel = require('../../../core/models/unifiedIdentity');
 const participantService = require('../services/participants');
@@ -45,11 +46,6 @@ async function getActivityWindowState(activity, now = Date.now()) {
   if (startDate && today < startDate) return 'activity_not_started';
   if (endDate && today > endDate) return 'activity_ended';
   return 'open';
-}
-
-async function ensureAdmin(req) {
-  if (req && Object.prototype.hasOwnProperty.call(req, 'admin')) return req.admin || null;
-  return req && req.openid ? adminInfoModel.getByOpenid(req.openid) : null;
 }
 
 async function invalidateScoreResultCaches(activityId, orgId) {
@@ -892,7 +888,7 @@ router.post('/submitScoreRecord', async (req, res) => {
     const templateConfigSignature = safeString(req.body.templateConfigSignature);
     const answers = Array.isArray(req.body.answers) ? req.body.answers : [];
 
-    if (!req.openid) {
+    if (!getAuthenticatedContext(req)) {
       return res.json({ status: 'auth_failed', message: localeCopy.copy_0ee2356002 });
     }
     if (!targetId || !activityId || !templateConfigSignature || !answers.length) {

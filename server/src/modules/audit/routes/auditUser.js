@@ -441,7 +441,6 @@ router.post('/listPendingApprovals', async (req, res) => {
 router.post('/startAuditSubmission', async (req, res) => {
   const conn = await pool.getConnection();
   try {
-    const openid = req.openid;
     const actorContext = await resolveAuditAssignmentActor(req, conn);
     if (!actorContext.ok) {
       const actorResult = actorContext.actorResult;
@@ -571,7 +570,7 @@ router.post('/startAuditSubmission', async (req, res) => {
       resubmitMode: template.resubmit_mode
     }, conn);
 
-    await attachUploadedFiles({ uploadedFiles, submissionId, openid, conn });
+    await attachUploadedFiles({ uploadedFiles, submissionId, accountId: req.authAccount && req.authAccount.id, conn });
 
     // Load conditions for all template steps from the same locked template snapshot.
     const allConditions = await flowTemplateStepConditionModel.getByTemplateId(templateId, conn);
@@ -708,7 +707,6 @@ router.post('/startAuditSubmission', async (req, res) => {
 router.post('/startAdHocAudit', async (req, res) => {
   const conn = await pool.getConnection();
   try {
-    const openid = req.openid;
     const actorContext = await resolveAuditAssignmentActor(req, conn);
     if (!actorContext.ok) {
       const actorResult = actorContext.actorResult;
@@ -775,7 +773,7 @@ router.post('/startAdHocAudit', async (req, res) => {
       resubmitMode
     }, conn);
 
-    await attachUploadedFiles({ uploadedFiles, submissionId, openid, conn });
+    await attachUploadedFiles({ uploadedFiles, submissionId, accountId: req.authAccount && req.authAccount.id, conn });
 
     // Create user-specified steps
     for (let i = 0; i < steps.length; i++) {
@@ -1925,7 +1923,6 @@ router.post('/rejectStep', async (req, res) => {
 router.post('/updateAuditSubmission', async (req, res) => {
   const conn = await pool.getConnection();
   try {
-    const openid = req.openid;
     const actorContext = await resolveAuditAssignmentActor(req, conn);
     if (!actorContext.ok) {
       const actorResult = actorContext.actorResult;
@@ -2252,7 +2249,7 @@ router.post('/updateAuditSubmission', async (req, res) => {
           await attachUploadedFiles({
             uploadedFiles,
             submissionId,
-            openid,
+            accountId: req.authAccount && req.authAccount.id,
             conn,
             sortOrderOffset: (retainedFileIds || []).length
           });
@@ -2291,7 +2288,6 @@ router.post('/updateAuditSubmission', async (req, res) => {
 router.post('/resubmitAudit', async (req, res) => {
   const conn = await pool.getConnection();
   try {
-    const openid = req.openid;
     const actorContext = await resolveAuditAssignmentActor(req, conn);
     if (!actorContext.ok) {
       const actorResult = actorContext.actorResult;

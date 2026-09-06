@@ -60,6 +60,8 @@ async function testDistinctEffectiveSuperAdmins() {
   }, 'person-target', true);
   assert.deepStrictEqual(result, { targetIsSuperAdmin: true, activeCount: 2 });
   assert(calls[1].includes('SELECT grant_row.person_id'));
+  assert(calls.every((sql) => sql.includes("login_credential.method = 'passphrase'")));
+  assert(calls.every((sql) => sql.includes('OR EXISTS') && sql.includes('login_policy.allow_passphrase = 1')));
 }
 
 async function testGlobalSuperAdminGovernanceLock() {

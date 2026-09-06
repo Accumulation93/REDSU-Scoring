@@ -10,9 +10,27 @@ const navigations = [];
 const relaunches = [];
 const synchronousWrites = [];
 const asynchronousWrites = [];
+let wechatCalls = 0;
+let wechatUnavailable = false;
 
 async function callFunction(options) {
   calls.push({ name: options.name, data: Object.assign({}, options.data || {}) });
+  if (options.name === 'auth/password/session') {
+    assert.strictEqual(options.data.code, undefined, '口令登录不得提前获取微信凭据');
+    assert.strictEqual(options.data.requestBindingOffer, true);
+    return {
+      status: 'login_success', token: 'password-access-token',
+      account: { id: 'password-account', personId: 'password-person' },
+      context: { contextId: 'password-context', personId: 'password-person', role: 'user', organizationId: 'org-44' },
+      contexts: [{ contextId: 'password-context', personId: 'password-person', role: 'user', organizationId: 'org-44' }],
+      user: { id: 'password-hr', name: '口令测试用户' },
+      bindingOffer: { available: true, requiresWechatCode: true }
+    };
+  }
+  if (options.name === 'auth/security/bind-current-wechat') {
+    assert.strictEqual(options.data.code, 'fresh-wx-code');
+    return { status: 'success' };
+  }
   if (options.name === 'auth/wechat/session') {
     return {
       status: 'need_claim',
@@ -70,7 +88,11 @@ global.wx = {
     delete storage[options.key];
     if (typeof options.success === 'function') options.success();
   },
-  login(options) { options.success({ code: 'fresh-wx-code' }); },
+  login(options) {
+    wechatCalls += 1;
+    if (wechatUnavailable) options.fail({ errMsg: 'fixture-unavailable' });
+    else options.success({ code: 'fresh-wx-code' });
+  },
   request(options) {
     if (!options.url.endsWith('/auth/wechat/session')) {
       throw new Error('未预期的原生请求：' + options.url);
@@ -230,7 +252,24 @@ async function run() {
   assert(asynchronousWrites.includes('authSession'), '紧凑会话必须异步投递');
   assert.strictEqual(relaunches[relaunches.length - 1], '/subpackages/main/pages/portal/portal');
 
-  console.log('统一登录、认领与默认人工恢复流程测试通过');
+  wechatUnavailable = true;
+  const beforePasswordWechat = wechatCalls;
+  const passwordPage = createPage({ passwordStudentId: 'fixture-user', password: 'fixture-passphrase' });
+  await passwordPage.onPasswordLogin();
+  assert.strictEqual(wechatCalls, beforePasswordWechat, '微信完全不可用时口令也必须成功');
+  assert.strictEqual(orgSession.getSnapshot().token, 'password-access-token');
+  assert.strictEqual(passwordPage.data.stage, 'passwordBinding');
+  assert.strictEqual(passwordPage.data.loading, false);
+  const beforeBindingRequests = calls.filter((item) => item.name === 'auth/security/bind-current-wechat').length;
+  await passwordPage.bindPasswordWechat();
+  assert.strictEqual(orgSession.getSnapshot().token, 'password-access-token', '绑定失败不得清理成功口令会话');
+  assert.strictEqual(calls.filter((item) => item.name === 'auth/security/bind-current-wechat').length, beforeBindingRequests);
+  wechatUnavailable = false;
+  await passwordPage.bindPasswordWechat();
+  assert.strictEqual(calls.filter((item) => item.name === 'auth/security/bind-current-wechat').length, beforeBindingRequests + 1);
+  assert.strictEqual(orgSession.getSnapshot().token, 'password-access-token');
+
+  console.log('统一登录、认领、可选微信绑定与默认人工恢复流程测试通过');
 }
 
 run().catch((error) => {

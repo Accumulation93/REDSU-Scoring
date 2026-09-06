@@ -1,5 +1,4 @@
 const localeCopy = require('../locales/zh-CN/generated/utils/api');
-const { authContext: authContextCopy } = require('../locales/zh-CN/main');
 const API_BASE = 'https://accumulation93.com/api';
 const CLIENT_VERSION = '1.2.0-security';
 const orgSession = require('./orgSession');
@@ -24,7 +23,6 @@ const AUTH_ENTRY_APIS = {
   'auth/recovery/complete': true
 };
 
-let authenticationRefreshPromise = null;
 let authenticationRedirecting = false;
 let contextActivationDepth = 0;
 
@@ -141,77 +139,6 @@ function isAuthenticationFailure(statusCode, result) {
   ].indexOf(status) >= 0;
 }
 
-function getFreshWechatCode() {
-  return new Promise(function(resolve, reject) {
-    wx.login({
-      success: function(result) {
-        const code = String((result && result.code) || '');
-        if (code) resolve(code);
-        else reject({ status: 'auth_failed', message: localeCopy.copy_c337bd9350 });
-      },
-      fail: function() {
-        reject({ status: 'auth_failed', message: localeCopy.copy_c337bd9350 });
-      }
-    });
-  });
-}
-
-function requestWechatSession(code, preferredSnapshot) {
-  const preferred = preferredSnapshot || {};
-  return new Promise(function(resolve, reject) {
-    wx.request({
-      url: API_BASE + '/auth/wechat/session',
-      method: 'POST',
-      timeout: 15000,
-      header: createRequestHeaders(createRequestId()),
-      data: {
-        code: code,
-        preferredContextId: preferred.contextId || '',
-        preferredOrganizationId: preferred.orgId || ''
-      },
-      success: function(res) {
-        const result = res.data || {};
-        if (res.statusCode === 200 && result.status === 'login_success') {
-          resolve(result);
-          return;
-        }
-        const error = createResponseError(res);
-        if (!error.message) error.message = result.message || localeCopy.copy_c337bd9350;
-        reject(error);
-      },
-      fail: function(error) {
-        reject({
-          status: 'auth_failed',
-          message: localeCopy.copy_c337bd9350,
-          errMsg: (error && error.errMsg) || 'request:fail'
-        });
-      }
-    });
-  });
-}
-
-function refreshAuthentication() {
-  if (authenticationRefreshPromise) return authenticationRefreshPromise;
-  const expectedSnapshot = orgSession.getSnapshot();
-  authenticationRefreshPromise = getFreshWechatCode()
-    .then(function(code) { return requestWechatSession(code, expectedSnapshot); })
-    .then(function(result) {
-      // 延迟加载可避免 api.js 与 authContext.js 在初始化阶段互相引用。
-      return require('./authContext').applyAuthenticatedResultAsync(result).then(function() {
-        return result;
-      });
-    })
-    .then(function(result) {
-      authenticationRefreshPromise = null;
-      authenticationRedirecting = false;
-      return result;
-    }, function(error) {
-      authenticationRefreshPromise = null;
-      throw error;
-    });
-  return authenticationRefreshPromise;
-}
-
 function authenticationMessage(error) {
   const status = String((error && error.status) || '');
   if (status === 'account_frozen') return localeCopy.copy_d6a178f6ce;
@@ -244,17 +171,6 @@ function redirectToLogin(error) {
   } catch (_) {}
   wx.showToast({ title: message, icon: 'none', duration: 1800 });
   wx.reLaunch({ url: '/subpackages/main/pages/login/login?reason=expired' });
-}
-
-function redirectToPortalAfterContextFallback() {
-  if (authenticationRedirecting) return;
-  authenticationRedirecting = true;
-  wx.showToast({ title: authContextCopy.reopenWorkContext, icon: 'none', duration: 1800 });
-  wx.reLaunch({
-    url: '/subpackages/main/pages/portal/portal',
-    success: function() { authenticationRedirecting = false; },
-    fail: function() { authenticationRedirecting = false; }
-  });
 }
 
 function markAuthenticationReady() {
@@ -321,18 +237,10 @@ function requestOnce(name, data, requestId, allowAuthenticationRefresh, timeoutM
         if (allowAuthenticationRefresh
           && !AUTH_ENTRY_APIS[name]
           && isAuthenticationFailure(res.statusCode, responseData)) {
-          refreshAuthentication().then(function() {
-            const refreshedSnapshot = orgSession.getSnapshot();
-            if (!hasSameSelection(organizationSnapshot, refreshedSnapshot)) {
-              redirectToPortalAfterContextFallback();
-              throw cancelledError(requestId);
-            }
-            return requestOnce(name, data, requestId, false, timeoutMs);
-          }).then(resolve, function(error) {
-            redirectToLogin(error);
-            error.silent = true;
-            reject(error);
-          });
+          // 失效会话不能证明当前账号。禁止自动调用微信登录，更不能在另一个账号下重放。
+          redirectToLogin(responseError);
+          responseError.silent = true;
+          reject(responseError);
           return;
         }
         reject(responseError);

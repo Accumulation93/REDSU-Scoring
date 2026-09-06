@@ -6,19 +6,15 @@ const { nowMysqlUtc } = require('../../utils/dateTime');
 const { getCurrentOrgId } = require('../../utils/orgContext');
 const workGroupModel = require('../models/workGroup');
 const departmentModel = require('../models/department');
-const adminInfoModel = require('../models/adminInfo');
+const { resolveRequestAdmin: ensureAdmin } = require('../services/adminRequestContext');
+const { getAuthenticatedContext } = require('../services/authenticatedContext');
 const personnelCopy = require('../../locales/zh-CN/core/personnel');
 const dictionaryUsage = require('../services/dictionaryUsage');
-
-async function ensureAdmin(openid) {
-  return adminInfoModel.getByOpenid(openid);
-}
 
 // listWorkGroups
 router.post('/listWorkGroups', async (req, res) => {
   try {
-    const openid = req.openid;
-    if (!openid) return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
+    if (!getAuthenticatedContext(req)) return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
 
     const departments = await departmentModel.getAll();
     const departmentsById = new Map(departments.map((d) => [d.id, safeString(d.name)]));
@@ -44,8 +40,7 @@ router.post('/listWorkGroups', async (req, res) => {
 // saveWorkGroup
 router.post('/saveWorkGroup', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const id = safeString(req.body.id);
@@ -95,8 +90,7 @@ router.post('/saveWorkGroup', async (req, res) => {
 // deleteWorkGroup
 router.post('/deleteWorkGroup', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const id = safeString(req.body.id);

@@ -9,6 +9,25 @@ function placeholders(values) {
   return values.map(() => '?').join(',');
 }
 
+// 绑定状态仅描述当前自然人的可选微信凭据，不能使用旧映射或姓名学号匹配。
+async function listWechatBindingStatesByHrIds(hrIds, orgId) {
+  const ids = uniqueIds(hrIds);
+  if (!ids.length || !orgId) return [];
+  const [rows] = await pool.query(
+    `SELECT om.legacy_hr_id AS hr_id, a.id AS account_id,
+            EXISTS (SELECT 1 FROM account_wechat_bindings b
+                     WHERE b.account_id = a.id AND b.app_id = 'whusu-smart-workspace'
+                       AND b.status = 'active') AS has_active_binding
+       FROM organization_memberships om
+       JOIN persons p ON p.id = om.person_id AND p.status = 'active'
+       LEFT JOIN accounts a ON a.person_id = p.id
+      WHERE om.org_id = ? AND om.legacy_hr_id IN (${placeholders(ids)})
+        AND om.status IN ('active', 'left')`,
+    [orgId, ...ids]
+  );
+  return rows;
+}
+
 async function resolvePersonByLegacyHrId(legacyHrId, connection, includeFormer = false) {
   const db = connection || pool;
   const [rows] = await db.query(
@@ -194,6 +213,7 @@ async function listGovernanceDirectory(organizationIds, connection = pool) {
 }
 
 module.exports = {
+  listWechatBindingStatesByHrIds,
   resolvePersonByLegacyHrId,
   listPersonIdentityData,
   listGovernanceDirectory

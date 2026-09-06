@@ -8,6 +8,7 @@ const { getCurrentOrgId } = require('../../utils/orgContext');
 const organizationModel = require('../models/organization');
 const systemConfigModel = require('../models/systemConfig');
 const pool = require('../../config/db');
+const { resolveRequestAdmin } = require('../services/adminRequestContext');
 
 const ORG_REFERENCE_COLUMNS = new Set([
   'org_id',
@@ -40,16 +41,8 @@ async function findOrganizationDependencies(conn, organizationId) {
 // listOrganizations — admin only
 router.post('/listOrganizations', async (req, res) => {
   try {
-    // Require admin authentication
-    const openid = req.openid;
-    if (!openid) {
-      return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
-    }
-    const [adminRows] = await pool.query(
-      "SELECT * FROM admin_info WHERE openid = ? AND bind_status = 'active'",
-      [openid]
-    );
-    if (!adminRows.length) {
+    const admin = await resolveRequestAdmin(req);
+    if (!admin) {
       return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
     }
 
@@ -63,19 +56,11 @@ router.post('/listOrganizations', async (req, res) => {
 // saveOrganization
 router.post('/saveOrganization', async (req, res) => {
   try {
-    const openid = req.openid;
     const id = safeString(req.body.id);
     const name = safeString(req.body.name);
 
     // 仅全局超级管理员可操作
-    if (!openid) {
-      return res.json({ status: 'forbidden', message: localeCopy.copy_20ca49e5e7 });
-    }
-    const [adminRows] = await pool.query(
-      "SELECT * FROM admin_info WHERE openid = ? AND bind_status = 'active'",
-      [openid]
-    );
-    const operator = adminRows[0] || null;
+    const operator = await resolveRequestAdmin(req);
     if (!operator || operator.admin_level !== 'super_admin' || operator.org_id !== '') {
       return res.json({ status: 'forbidden', message: localeCopy.copy_6809d8bae7 });
     }
@@ -107,16 +92,12 @@ router.post('/saveOrganization', async (req, res) => {
 // partially removed.
 router.post('/deleteOrganization', async (req, res) => {
   try {
-    const openid = req.openid;
     const id = safeString(req.body.organizationId || req.body.id);
     if (!id) return res.json({ status: 'invalid_params', message: localeCopy.copy_cc9e4b8129 });
 
     // 仅全局超级管理员可操作
-    const [adminRows] = await pool.query(
-      "SELECT * FROM admin_info WHERE openid = ? AND bind_status = 'active' AND admin_level = 'super_admin' AND org_id = '' LIMIT 1",
-      [openid]
-    );
-    if (!adminRows.length) {
+    const operator = await resolveRequestAdmin(req);
+    if (!operator || operator.admin_level !== 'super_admin' || operator.org_id !== '') {
       return res.json({ status: 'forbidden', message: localeCopy.copy_6809d8bae7 });
     }
 
@@ -192,7 +173,6 @@ router.post('/getCurrentOrganization', async (req, res) => {
 // switchOrganization — simply update system_config, no data migration
 router.post('/switchOrganization', async (req, res) => {
   try {
-    const openid = req.openid;
     const targetOrgId = safeString(req.body.organizationId);
     const targetOrgName = safeString(req.body.organizationName);
 
@@ -206,11 +186,8 @@ router.post('/switchOrganization', async (req, res) => {
     }
 
     // 仅全局超级管理员可切换系统默认组织
-    const [adminRows] = await pool.query(
-      "SELECT * FROM admin_info WHERE openid = ? AND bind_status = 'active' AND admin_level = 'super_admin' AND org_id = '' LIMIT 1",
-      [openid]
-    );
-    if (!adminRows.length) {
+    const operator = await resolveRequestAdmin(req);
+    if (!operator || operator.admin_level !== 'super_admin' || operator.org_id !== '') {
       return res.json({ status: 'forbidden', message: localeCopy.copy_6809d8bae7 });
     }
 

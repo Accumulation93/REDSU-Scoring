@@ -7,7 +7,7 @@ const adminInfoModel = require('../models/adminInfo');
 const pool = require('../../config/db');
 const unifiedIdentityModel = require('../models/unifiedIdentity');
 const personIdentityOverviewModel = require('../models/personIdentityOverview');
-const { resolveCurrentAdmin } = require('../services/adminRequestContext');
+const { resolveRequestAdmin: ensureAdmin } = require('../services/adminRequestContext');
 const {
   AdminOrganizationAccessError,
   requireAdminOrganizationPermission
@@ -16,14 +16,8 @@ const {
   ADMIN_LEVELS,
   isSuperAdmin,
   canManageTarget,
-  canCreateLevel,
-  canDeleteTarget
+  canCreateLevel
 } = require('../services/adminAuthorization');
-
-async function ensureAdmin(req) {
-  const current = await resolveCurrentAdmin(req);
-  return current || req.admin || adminInfoModel.getByOpenid(req.openid);
-}
 
 async function getRequestOrganizationId(req) {
   return safeString(req.authContext && req.authContext.organizationId) || getCurrentOrgId();
@@ -251,14 +245,7 @@ router.post('/deleteAdmin', async (req, res) => {
       await connection.rollback();
       return res.json({ status: 'forbidden', message: localeCopy.copy_1cf137dd0d });
     }
-    if (target.admin_level === 'super_admin') {
-      const superAdmins = await adminInfoModel.lockSuperAdmins(connection);
-      const activeSuperAdminCount = superAdmins.filter((item) => item.bind_status === 'active').length;
-      if (!canDeleteTarget(operator, target, orgId, activeSuperAdminCount)) {
-        await connection.rollback();
-        return res.json({ status: 'forbidden', message: localeCopy.copy_c535df75ca });
-      }
-    }
+    // 最后有效超级管理员保护由统一授权模型事务复核，不再按微信绑定人数判断。
     await unifiedIdentityModel.revokeLegacyAdminGrant(connection, target.id);
     await adminInfoModel.removeExact(connection, target);
     await connection.commit();

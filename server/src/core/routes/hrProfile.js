@@ -278,7 +278,7 @@ router.post('/getUserHrProfile', async (req, res) => {
 // submitUserHrProfile
 router.post('/submitUserHrProfile', async (req, res) => {
   try {
-    const openid = req.openid;
+    const openid = ''; // 历史列不再写入微信身份；本人由统一账号与成员关系确定。
     const values = req.body.values && typeof req.body.values === 'object' ? req.body.values : {};
     const subject = await resolveSelfHrProfileSubject(req);
     if (subject.status !== 'success') return res.json(subject);
@@ -897,7 +897,7 @@ router.post('/getHrPersonDetail', async (req, res) => {
 // saveHrPersonFull
 router.post('/saveHrPersonFull', async (req, res) => {
   try {
-    const openid = req.openid;
+    const openid = ''; // 管理操作同样不以微信标识记录本人。
     const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 

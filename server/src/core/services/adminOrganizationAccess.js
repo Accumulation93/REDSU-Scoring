@@ -3,6 +3,7 @@ const { safeString } = require('../../utils/helpers');
 const adminInfoModel = require('../models/adminInfo');
 const { listAccessibleActorContexts } = require('./accessibleOrganizations');
 const { loadEffectivePermissions, hasAnyPermission } = require('./adminPermissions');
+const { getAuthenticatedContext } = require('./authenticatedContext');
 
 class AdminOrganizationAccessError extends Error {
   constructor(code, message, httpStatus) {
@@ -28,11 +29,17 @@ async function mapWithConcurrency(items, limit, worker) {
 }
 
 async function listAdminOrganizationAccess(req) {
-  const contexts = await listAccessibleActorContexts({
-    openid: safeString(req.openid),
-    role: 'admin',
-    currentOrgId: safeString(req.authContext && req.authContext.organizationId)
+  const selected = getAuthenticatedContext(req);
+  if (!selected || selected.role !== 'admin') return [];
+  const available = await listAccessibleActorContexts(req, 'admin');
+  const organizationContexts = new Map();
+  available.forEach(context => {
+    const previous = organizationContexts.get(context.organizationId);
+    if (!previous || context.actor.adminLevel === 'super_admin') {
+      organizationContexts.set(context.organizationId, context);
+    }
   });
+  const contexts = Array.from(organizationContexts.values());
   return mapWithConcurrency(contexts, 4, async (context) => {
     const admin = context.actor && context.actor.profile;
     const effective = await loadEffectivePermissions(admin, context.organizationId);
@@ -65,8 +72,13 @@ async function requireAdminOrganizationPermission(req, organizationId, permissio
   if (!orgId) {
     throw new AdminOrganizationAccessError('invalid_organization', localeCopy.copy_cc9e4b8129, 400);
   }
-  const admin = await adminInfoModel.getByOpenidForOrganization(
-    safeString(req.openid),
+  const selected = getAuthenticatedContext(req);
+  if (!selected || selected.role !== 'admin') {
+    throw new AdminOrganizationAccessError('organization_forbidden', localeCopy.copy_33bbc50b8f, 403);
+  }
+  const admin = await adminInfoModel.getActiveGrantForAccountInOrganization(
+    safeString(req.authAccount.id),
+    safeString(selected.personId),
     orgId,
     connection,
     Boolean(connection)

@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../../middleware/auth');
 const { safeString } = require('../../utils/helpers');
 const identityModel = require('../models/unifiedIdentity');
-const adminInfoModel = require('../models/adminInfo');
+const { adminProfileFromContext } = require('./adminRequestContext');
 const { loadEffectivePermissions } = require('./adminPermissions');
 
 const WECHAT_APPID = process.env.WECHAT_APPID;
@@ -86,11 +86,9 @@ function verifyBootstrapToken(token) {
 async function decorateContext(context) {
   const value = Object.assign({}, context);
   if (value.role !== 'admin') return value;
-  const admin = value.legacyAdminId
-    ? await adminInfoModel.getByIdGlobal(value.legacyAdminId)
-    : null;
+  const admin = adminProfileFromContext(value);
   if (!admin) {
-    value.permissions = value.adminLevel === 'super_admin' ? ['*'] : [];
+    value.permissions = [];
     return value;
   }
   const effective = await loadEffectivePermissions(admin, value.organizationId);
@@ -222,11 +220,7 @@ function profileFromContext(context) {
 }
 
 async function buildAuthenticatedPayload(account, session) {
-  const rawContexts = await identityModel.listContexts(
-    account.id,
-    null,
-    { allowUnverified: safeString(session && session.bindingMode) === 'temporary' }
-  );
+  const rawContexts = await identityModel.listContexts(account.id);
   const contexts = await decorateContexts(rawContexts);
   const currentContext = contexts.find((item) => item.contextId === session.context.contextId)
     || await decorateContext(session.context);

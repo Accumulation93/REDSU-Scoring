@@ -7,8 +7,6 @@ const router = express.Router();
 const { safeString, generateId } = require('../../utils/helpers');
 const { getCurrentOrgId } = require('../../utils/orgContext');
 const { resolveHrBindingStates } = require('../services/userBindingStatus');
-const { unbindUserAcrossOrganizations } = require('../services/userBindingUnbind');
-const { clearOrgAccessCache } = require('../../middleware/orgContext');
 const unifiedIdentityModel = require('../models/unifiedIdentity');
 const personIdentityOverviewModel = require('../models/personIdentityOverview');
 const personGovernanceModel = require('../models/personGovernance');
@@ -25,7 +23,7 @@ const {
 
 const hrInfoModel = require('../models/hrInfo');
 
-const adminInfoModel = require('../models/adminInfo');
+const { resolveRequestAdmin } = require('../services/adminRequestContext');
 const hrTableImportModel = require('../models/hrTableImport');
 const pool = require('../../config/db');
 
@@ -33,7 +31,7 @@ function authenticationStatus(row) {
   const accountStatus = safeString(row.account_status);
   if (accountStatus === 'frozen') return { value: 'frozen', label: localeCopy.copy_ddaba44b59 };
   if (accountStatus === 'recovery_required') return { value: 'recovery_required', label: localeCopy.copy_16399ef078 };
-  if (accountStatus === 'verified' && Boolean(row.has_active_binding)) {
+  if (accountStatus === 'verified') {
     return { value: 'verified', label: localeCopy.copy_17d26b7956 };
   }
   return { value: 'pending_verification', label: localeCopy.copy_5342fa4b24 };
@@ -59,8 +57,7 @@ function sendHrRouteFailure(req, res, error, fallbackMessage) {
 // listHrInfo
 router.post('/listHrInfo', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = req.admin || await adminInfoModel.getByOpenid(openid);
+    const admin = await resolveRequestAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const orgId = await getCurrentOrgId();
@@ -422,8 +419,7 @@ router.post('/deleteMembershipAssignment', async (req, res) => {
 // saveHrInfo
 router.post('/saveHrInfo', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = req.admin || await adminInfoModel.getByOpenid(openid);
+    const admin = await resolveRequestAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const name = safeString(req.body.name);
@@ -699,7 +695,7 @@ router.post('/mergePersons', async (req, res) => {
 
 async function handleStructuredHrImport(req, res, previewOnly) {
   try {
-    const admin = req.admin || await adminInfoModel.getByOpenid(req.openid);
+    const admin = await resolveRequestAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
     const orgId = await getCurrentOrgId();
     const result = previewOnly
@@ -742,8 +738,7 @@ router.post('/importHrCsv', (req, res) => {
 // batchMaintainFromHrInfo
 router.post('/batchMaintainFromHrInfo', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = req.admin || await adminInfoModel.getByOpenid(openid);
+    const admin = await resolveRequestAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const orgId = await getCurrentOrgId();
@@ -767,8 +762,7 @@ router.post('/batchMaintainFromHrInfo', async (req, res) => {
 router.post('/unbindHrWechat', async (req, res) => {
   let connection;
   try {
-    const openid = req.openid;
-    const admin = req.admin || await adminInfoModel.getByOpenid(openid);
+    const admin = await resolveRequestAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
     const canGlobalAccountManage = Boolean(req.adminPermissions
       && req.adminPermissions.permissions
@@ -805,28 +799,9 @@ router.post('/unbindHrWechat', async (req, res) => {
         unbound: true
       });
     }
-    const result = await unbindUserAcrossOrganizations({
-      hrId,
-      orgId,
-      connection
-    });
-    if (!result) {
-      await connection.rollback();
-      return res.json({ status: 'not_found', message: localeCopy.copy_cf56435dad });
-    }
-
-    await connection.commit();
-    for (const targetOpenid of result.openids) {
-      for (const affectedOrgId of result.affectedOrganizationIds) {
-        clearOrgAccessCache(targetOpenid, affectedOrgId, 'user');
-      }
-    }
-
-    res.json({
-      status: 'success',
-      message: localeCopy.copy_806092b494,
-      unboundCount: result.affectedCount
-    });
+    // 未找到统一账号时不能沿旧微信映射跨组织删除，避免影响另一自然人。
+    await connection.rollback();
+    return res.json({ status: 'not_found', message: localeCopy.copy_cf56435dad });
   } catch (e) {
     if (connection) {
       try { await connection.rollback(); } catch (_) {}

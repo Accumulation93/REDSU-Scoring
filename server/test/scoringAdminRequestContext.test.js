@@ -82,13 +82,13 @@ async function verifyAdminResolution(testCase) {
   assert.strictEqual(loaded.state.lookupCalls, 0, `${testCase.route} 已有中间件字段时不得回退旧表`);
 
   const fallback = await invoke(loaded.router, testCase.route, { body: testCase.body });
-  assert.strictEqual(fallback.status, testCase.authorizedStatus, `${testCase.route} 应兼容无中间件旧夹具`);
-  assert.strictEqual(loaded.state.lookupCalls, 1, `${testCase.route} 旧夹具应仅查询一次 OpenID`);
+  assert.strictEqual(fallback.status, 'forbidden', `${testCase.route} 只有微信标识不得获得管理权限`);
+  assert.strictEqual(loaded.state.lookupCalls, 0, `${testCase.route} 禁止按微信补充认证`);
 
   loaded.state.fallbackAdmin = null;
   const forbidden = await invoke(loaded.router, testCase.route, { body: testCase.body });
   assert.strictEqual(forbidden.status, 'forbidden', `${testCase.route} 无管理员主体时必须显式拒绝`);
-  assert.strictEqual(loaded.state.lookupCalls, 2, `${testCase.route} 拒绝路径应完成一次兼容查询`);
+  assert.strictEqual(loaded.state.lookupCalls, 0, `${testCase.route} 拒绝路径不得查询旧微信表`);
   if (testCase.route === '/listScoreActivities') {
     assert.strictEqual(Object.prototype.hasOwnProperty.call(forbidden, 'list'), false,
       '活动列表无权限时不得伪装为空列表');
@@ -107,8 +107,8 @@ async function run() {
     ), 'utf8');
     assert.doesNotMatch(source, /ensureAdmin\((?:openid|req\.openid)\)/,
       `${fileName} 不得再以 OpenID 作为管理判定入口`);
-    assert.strictEqual((source.match(/adminInfoModel\.getByOpenid\(/g) || []).length, 1,
-      `${fileName} 的旧 OpenID 查询只能保留在无中间件兼容分支`);
+    assert.strictEqual((source.match(/adminInfoModel\.getByOpenid\(/g) || []).length, 0,
+      `${fileName} 禁止为了测试夹具保留旧 OpenID 回退`);
   });
 
   const emptyListModel = { async getAll() { return []; } };

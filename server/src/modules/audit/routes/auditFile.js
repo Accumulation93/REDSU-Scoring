@@ -217,7 +217,7 @@ router.post('/uploadAuditFile', function(req, res, next) {
       buffer,
       fileName,
       mimeType,
-      openid: req.openid
+      accountId: req.authAccount && req.authAccount.id
     });
 
     res.json({ status: 'success', ...uploadInfo });

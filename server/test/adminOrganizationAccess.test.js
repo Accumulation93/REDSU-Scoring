@@ -13,8 +13,8 @@ const permissionByAdminId = {
 let lockedLookup = null;
 const mocks = {
   '../models/adminInfo': {
-    async getByOpenidForOrganization(openid, orgId, connection, lock) {
-      lockedLookup = { openid, orgId, connection, lock };
+    async getActiveGrantForAccountInOrganization(accountId, personId, orgId, connection, lock) {
+      lockedLookup = { accountId, personId, orgId, connection, lock };
       if (orgId === 'org-denied') return null;
       return { id: orgId === 'org-44' ? 'admin-writer' : 'hr-only', admin_level: 'admin', org_id: orgId };
     }
@@ -55,7 +55,8 @@ Module._load = originalLoad;
 (async () => {
   const req = {
     openid: 'openid-1',
-    authContext: { organizationId: 'org-44' }
+    authAccount: { id: 'account-1', personId: 'person-1' },
+    authContext: { role: 'admin', contextId: 'ctx-1', personId: 'person-1', organizationId: 'org-44' }
   };
   const access = await listAdminOrganizationAccess(req);
   assert.deepStrictEqual(access.map((item) => item.organizationId), ['org-44', 'org-43', 'org-college', 'org-review', 'org-account']);
@@ -82,7 +83,7 @@ Module._load = originalLoad;
   );
   assert.strictEqual(allowed.organizationId, 'org-44');
   assert.deepStrictEqual(lockedLookup, {
-    openid: 'openid-1',
+    accountId: 'account-1', personId: 'person-1',
     orgId: 'org-44',
     connection,
     lock: true
@@ -101,6 +102,14 @@ Module._load = originalLoad;
   await assert.rejects(
     () => requireAdminOrganizationPermission(req, '', ['hr.people']),
     (error) => error instanceof AdminOrganizationAccessError && error.code === 'invalid_organization'
+  );
+  for (const openid of ['', 'another-admin-wechat']) {
+    const result = await requireAdminOrganizationPermission(Object.assign({}, req, { openid }), 'org-44', ['system.admin_accounts.write']);
+    assert.strictEqual(result.admin.id, allowed.admin.id, '管理授权不得因当前微信改变');
+  }
+  await assert.rejects(
+    () => requireAdminOrganizationPermission({ openid: 'openid-1' }, 'org-44', ['hr.people']),
+    error => error.code === 'organization_forbidden'
   );
 
   console.log('管理员跨组织权限推导与目标组织写入验权测试通过');

@@ -2,6 +2,7 @@ const localeCopy = require('../../locales/zh-CN/generated/core/services/currentA
 const { safeString } = require('../../utils/helpers');
 const hrInfoModel = require('../models/hrInfo');
 const { resolveCurrentAdmin } = require('./adminRequestContext');
+const { getAuthenticatedContext } = require('./authenticatedContext');
 
 const ACTIVE_ROLES = new Set(['user', 'admin']);
 
@@ -10,8 +11,8 @@ const ACTIVE_ROLES = new Set(['user', 'admin']);
  * 请求头只保留兼容用途，不参与主体或权限判断。
  */
 async function resolveCurrentActor(req) {
-  if (req.authContext && req.authAccount) {
-    const context = req.authContext;
+  const context = getAuthenticatedContext(req);
+  if (context) {
     if (context.role === 'admin') {
       const admin = await resolveCurrentAdmin(req);
       if (!admin) {
@@ -22,7 +23,6 @@ async function resolveCurrentActor(req) {
         actor: {
           type: 'admin',
           id: safeString(admin.id),
-          openid: safeString(req.openid),
           personId: safeString(context.personId),
           contextId: safeString(context.contextId),
           adminGrantId: safeString(context.adminGrantId),
@@ -46,7 +46,6 @@ async function resolveCurrentActor(req) {
       actor: {
         type: 'user',
         id: hrId,
-        openid: safeString(req.openid),
         personId: safeString(context.personId),
         membershipId: safeString(context.membershipId),
         assignmentId: safeString(context.assignmentId),

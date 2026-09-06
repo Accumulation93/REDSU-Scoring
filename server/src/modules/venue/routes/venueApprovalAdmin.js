@@ -6,7 +6,7 @@ const { safeString, generateId } = require('../../../utils/helpers');
 const { getCurrentOrgId } = require('../../../utils/orgContext');
 const pool = require('../../../config/db');
 const { toMysqlUtc } = require('../../../utils/dateTime');
-const adminInfoModel = require('../../../core/models/adminInfo');
+const { resolveRequestAdmin: ensureAdmin } = require('../../../core/services/adminRequestContext');
 const { resolveCurrentActor } = require('../../../core/services/currentActor');
 const unifiedIdentityModel = require('../../../core/models/unifiedIdentity');
 const flowModel = require('../models/venueApprovalFlow');
@@ -49,10 +49,6 @@ function collectRuleDictionaryReferences(rule) {
   };
 }
 
-async function ensureAdmin(openid) {
-  return adminInfoModel.getByOpenid(openid);
-}
-
 // ═══════════════════════════════════════════════════
 // Approval Flow CRUD
 // ═══════════════════════════════════════════════════
@@ -68,7 +64,7 @@ router.post('/getVenueApprovalFlow', (req, res) => {
 // listVenueApprovalFlows — 返回场地全部审批流（含步骤与规则）
 router.post('/listVenueApprovalFlows', async (req, res) => {
   try {
-    const admin = await ensureAdmin(req.openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
     const venueId = safeString(req.body.venueId);
     if (!venueId) return res.json({ status: 'invalid_params', message: localeCopy.copy_3458928c55 });
@@ -89,7 +85,7 @@ router.post('/saveVenueApprovalFlowMeta', async (req, res) => {
   const conn = await pool.getConnection();
   let transactionStarted = false;
   try {
-    const admin = await ensureAdmin(req.openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
     const venueId = safeString(req.body.venueId);
     const flowId = safeString(req.body.flowId);
@@ -150,7 +146,7 @@ router.post('/deleteVenueApprovalFlow', async (req, res) => {
   const conn = await pool.getConnection();
   let transactionStarted = false;
   try {
-    const admin = await ensureAdmin(req.openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
     const venueId = safeString(req.body.venueId);
     const flowId = safeString(req.body.flowId);
@@ -205,7 +201,7 @@ router.post('/saveVenueApprovalStep', (req, res) => {
 router.post('/saveVenueApprovalWholeFlow', async (req, res) => {
   const conn = await pool.getConnection();
   try {
-    const admin = await ensureAdmin(req.openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const venueId = safeString(req.body.venueId);
