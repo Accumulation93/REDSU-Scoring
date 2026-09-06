@@ -779,11 +779,12 @@ function buildHrProfileFilterOptions(rows = []) {
     ],
     completenessStates: [option('complete', localeCopy.hrProfileComplete), option('incomplete', localeCopy.hrProfileIncomplete)],
     accountStates: [
-      option('bound', localeCopy.hrAccountActive),
-      option('pending_activation', localeCopy.hrAccountPendingActivation),
+      option('verified', localeCopy.hrAccountActive),
+      option('pending_verification', localeCopy.hrAccountPendingVerification),
       option('recovery_required', localeCopy.hrAccountRecoveryRequired),
       option('frozen', localeCopy.hrAccountFrozen),
-      option('unbound', localeCopy.hrAccountUnbound)
+      option('unbound', localeCopy.hrAccountUnbound),
+      option('unknown', localeCopy.hrAccountUnknown)
     ],
     bindingStates: [option('bound', localeCopy.hrBindingBound), option('unbound', localeCopy.hrBindingUnbound)]
   };

@@ -39,20 +39,27 @@ function decorateGovernanceRow(item, selected) {
   const auth = Object.assign({}, item && item.auth || {});
   const bindStatus = String(item && item.wxBindStatus
     || (auth.hasActiveBinding ? 'bound' : 'unbound'));
-  let accountState = 'unbound';
-  let accountStateText = localeCopy.copy_ba9b0425fd;
+  let accountState = 'unknown';
+  let accountStateText = localeCopy.accountStateUnknown;
   let accountStateClass = 'unbound-chip';
   if (auth.status === 'frozen') {
     accountState = 'frozen';
     accountStateText = localeCopy.copy_f6eb285e87;
     accountStateClass = 'frozen-chip';
-  } else if (bindStatus === 'bound') {
-    accountState = 'bound';
-    accountStateText = localeCopy.copy_171e9799a7;
+  } else if (auth.status === 'recovery_required') {
+    accountState = 'recovery_required';
+    accountStateText = localeCopy.copy_16399ef078;
+    accountStateClass = 'activation-chip';
+  } else if (auth.status === 'verified') {
+    accountState = 'verified';
+    accountStateText = localeCopy.copy_8e4abe3d58;
     accountStateClass = 'current-chip';
-  } else if (bindStatus === 'pending_activation') {
-    accountState = 'pending_activation';
-    accountStateText = localeCopy.copy_1ceaebed03;
+  } else if (hasGovernance && !item.accountId) {
+    accountState = 'unbound';
+    accountStateText = localeCopy.accountNotCreated;
+  } else if (auth.status === 'pending_verification') {
+    accountState = 'pending_verification';
+    accountStateText = localeCopy.accountPendingVerification;
     accountStateClass = 'activation-chip';
   }
   const verificationText = auth.hasActiveClaimCode || auth.hasActiveInvite
@@ -77,8 +84,9 @@ function decorateGovernanceRow(item, selected) {
     accountStateClass,
     verificationText,
     recoveryText,
-    showVerificationStatus: accountState === 'unbound',
-    canIssueVerification: Boolean(hasGovernance && (auth.hasPendingClaim || !auth.hasBindingHistory)),
+    showVerificationStatus: accountState === 'unbound' || accountState === 'pending_verification',
+    canIssueVerification: Boolean(hasGovernance && auth.status === 'pending_verification'
+      && (auth.hasPendingClaim || !auth.hasBindingHistory)),
     canRevokeVerification: Boolean(hasGovernance && (auth.hasActiveClaimCode || auth.hasActiveInvite)),
     canIssueRecovery: Boolean(hasGovernance && item && item.accountId && auth.status !== 'frozen'),
     canRevokeRecovery: Boolean(hasGovernance && item && item.accountId && auth.hasRecoveryCode && auth.status !== 'frozen'),

@@ -178,6 +178,8 @@ module.exports = Object.freeze({
   hrProfileComplete: '资料完整',
   hrProfileIncomplete: '资料不完整',
   hrAccountActive: '账号正常',
+  hrAccountPendingVerification: '待认证',
+  hrAccountUnknown: '账号状态未加载',
   hrAccountPendingActivation: '待完成绑定',
   hrAccountRecoveryRequired: '需要恢复账号',
   hrAccountFrozen: '账号冻结',

@@ -1,6 +1,9 @@
 'use strict';
 
 module.exports = Object.freeze({
+  accountStateUnknown: '账号状态未加载',
+  accountNotCreated: '未创建账号',
+  accountPendingVerification: '待认证',
   credentialRevokeAction: '撤销',
   credentialSelectedPrefix: '已选择 ',
   credentialSelectedSuffix: ' 名成员',

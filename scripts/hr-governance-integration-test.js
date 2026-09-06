@@ -66,7 +66,7 @@ const merged = context.mergeHrGovernanceRows([
   { id: 'hr-2', name: '乙', studentId: '002' }
 ], governance);
 assert.strictEqual(merged.length, 2);
-assert.strictEqual(merged[0].accountStateText, '已绑定');
+assert.strictEqual(merged[0].accountStateText, '正常');
 assert.strictEqual(merged[0].recoveryText, '尚未生成恢复码');
 assert.strictEqual(merged[1].verificationText, '尚未生成认证码');
 assert.strictEqual(merged[1].canSelectForAuth, true);
@@ -84,8 +84,28 @@ const priorityRows = context.mergeHrGovernanceRows([
   ['unbound', { id: 'unbound', personId: 'p-unbound', auth: { status: 'pending_verification', hasBindingHistory: false } }]
 ]));
 assert.deepStrictEqual(priorityRows.map((item) => item.accountStateText), [
-  '冻结中', '已绑定', '待激活', '未绑定'
+  '冻结中', '正常', '正常', '未创建账号'
 ]);
+const independentRows = context.mergeHrGovernanceRows([
+  { id: 'password' }, { id: 'wechat' }, { id: 'recovery' }, { id: 'pending' }, { id: 'missing' }
+], new Map([
+  ['password', { id: 'password', accountId: 'a-password', auth: { status: 'verified', hasPassphrase: true, hasActiveBinding: false } }],
+  ['wechat', { id: 'wechat', accountId: 'a-wechat', auth: { status: 'verified', hasActiveBinding: true } }],
+  ['recovery', { id: 'recovery', accountId: 'a-recovery', wxBindStatus: 'bound', auth: { status: 'recovery_required', hasActiveBinding: true } }],
+  ['pending', { id: 'pending', accountId: 'a-pending', auth: { status: 'pending_verification' } }]
+]));
+assert.deepStrictEqual(independentRows.map(item => item.accountState), [
+  'verified', 'verified', 'recovery_required', 'pending_verification', 'unknown'
+]);
+assert.strictEqual(independentRows[0].accountStateText, independentRows[1].accountStateText);
+assert.strictEqual(independentRows[0].canIssueVerification, false, '口令已认证人员不应重新要求身份认证');
+assert.strictEqual(independentRows[0].wxBindStatus, 'unbound', '正常账号不等于已绑定微信');
+assert.strictEqual(independentRows[1].wxBindStatus, 'bound');
+assert.strictEqual(independentRows[4].accountStateText, '账号状态未加载', '未取得状态不能伪装成无账号');
+const directoryUtils = require('../miniprogram/subpackages/scoring/pages/admin/modules/adminUtils');
+const normalFilter = directoryUtils.emptyHrProfileFilters();
+normalFilter.accountStates = ['verified'];
+assert.deepStrictEqual(directoryUtils.applyHrProfileFilters(independentRows, normalFilter).map(item => item.id), ['password', 'wechat']);
 context.data.canVerifyIdentity = false;
 const recoveryOnlyRows = context.mergeHrGovernanceRows([
   { id: 'hr-1', name: '甲', studentId: '001' },

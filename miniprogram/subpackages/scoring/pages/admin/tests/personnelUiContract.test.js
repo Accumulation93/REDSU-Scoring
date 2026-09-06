@@ -100,7 +100,8 @@ test('资料驳回必须通过受控原因弹窗提交非空原因', () => {
 
 test('资料审核与账号状态使用稳定的人事事实源', () => {
   assert.match(hrBehavior, /\{ hrId, studentId, action: 'approve' \}/);
-  assert.match(authBehavior, /bindStatus === 'pending_activation'/);
+  assert.match(authBehavior, /auth.status === 'verified'/);
+  assert.doesNotMatch(authBehavior, /else if \(bindStatus ===/);
 });
 
 test('离任成员并入成员资料目录且详情只读并可重新加入', () => {
