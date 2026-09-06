@@ -30,8 +30,10 @@ async function signPdfBuffer(buffer, privateKeyPem, certificatePem, options = {}
   }
   const position = options.signaturePosition;
   let widgetRect;
+  let pdfPage;
   if (position) {
     const page = doc.getPages()[Math.max(0, Math.min(doc.getPageCount() - 1, (Number(position.page) || 1) - 1))];
+    pdfPage = page;
     const size = page.getSize();
     const x = Math.min(1, Math.max(0, Number(position.x) || 0)) * size.width;
     const y = (1 - Math.min(1, Math.max(0, Number(position.y) || 0))) * size.height;
@@ -42,11 +44,16 @@ async function signPdfBuffer(buffer, privateKeyPem, certificatePem, options = {}
   if (!Number.isInteger(signatureLength) || signatureLength < 16384 || signatureLength > MAX_CMS_BYTES) fail('cms_size_invalid');
   pdflibAddPlaceholder({ pdfDoc: doc, reason: 'WHUSU platform attestation', contactInfo: '',
     name: 'WHUSU Smart Workspace', location: '',
-    signatureLength, subFilter: 'adbe.pkcs7.detached', ...(widgetRect ? { widgetRect } : {}) });
+    signatureLength, subFilter: 'adbe.pkcs7.detached', ...(widgetRect ? { widgetRect, pdfPage } : {}) });
   const prepared = Buffer.from(await doc.save({ useObjectStreams: false, updateFieldAppearances: false }));
   if (prepared.length > MAX_FILE_BYTES) fail('pdf_size_invalid');
-  return new SignPdf().sign(prepared, new EvidencePdfSigner({ privateKeyPem, certificatePem,
+  const signed = await new SignPdf().sign(prepared, new EvidencePdfSigner({ privateKeyPem, certificatePem,
     certificateChainPem: options.certificateChainPem || '' }, options.createManifest));
+  // 保存前复验最终字节，任何签名/占位/签后追加错误都不能进入文件提交事务。
+  const checked = verifyPdfSignature(signed);
+  if (!checked.valid || checked.signatures.length !== 1 || !checked.signatures[0].certificateBound
+    || (options.createManifest && !checked.signatures[0].manifest)) fail('pdf_generated_signature_invalid');
+  return signed;
 }
 
 function derPayload(bytes) {

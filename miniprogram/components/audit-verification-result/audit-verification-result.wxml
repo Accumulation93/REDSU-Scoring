@@ -3,12 +3,14 @@
     <view class="crypto-title crypto-state--{{view.state}}">{{view.title}}</view>
     <view class="crypto-note">{{view.source}}</view>
     <view wx:if="{{view.notice}}" class="crypto-note">{{view.notice}}</view>
-    <view wx:if="{{report}}" class="crypto-note">{{copy.hostedNotice}}</view>
   </view>
   <view wx:if="{{!view.files.length}}" class="crypto-note">{{copy.noFiles}}</view>
   <view wx:for="{{view.files}}" wx:for-item="file" wx:key="key" class="crypto-file">
     <view class="crypto-file-name">{{file.name}}</view>
     <view class="crypto-state--{{file.state}} crypto-file-state">{{file.stateText}}</view>
+    <view wx:if="{{!file.platformVerified}}" class="crypto-note">{{copy.platformUnconfirmed}}</view>
+    <view wx:if="{{report && file.platformVerified}}" class="crypto-note">{{copy.hostedNotice}}</view>
+    <view wx:if="{{report && !file.platformVerified}}" class="crypto-note">{{copy.unconfirmedReportNotice}}</view>
     <view wx:if="{{!report}}" class="crypto-check-grid">
       <view wx:for="{{file.summary}}" wx:for-item="check" wx:key="key" class="crypto-check">
         <view class="crypto-check-label">{{check.label}}</view>
@@ -24,13 +26,23 @@
     </view>
     <view wx:if="{{!file.steps.length}}" class="crypto-note">{{copy.noSteps}}</view>
     <view wx:for="{{file.steps}}" wx:for-item="step" wx:key="key" class="crypto-step">
-      <view class="crypto-check-label">{{step.title}}</view>
+      <view class="crypto-step-header">
+        <view class="crypto-check-label">{{step.title}}</view>
+        <view wx:if="{{step.personText}}" class="crypto-person-reference">{{step.personText}}</view>
+      </view>
       <view class="crypto-person">{{step.name}}</view>
-      <view wx:if="{{step.personText}}" class="crypto-note">{{step.personText}}</view>
-      <view wx:if="{{step.organization}}" class="crypto-note">{{copy.organizationLabel}} · {{step.organization}}</view>
-      <view wx:if="{{step.assignment}}" class="crypto-note">{{copy.assignmentLabel}} · {{step.assignment}}</view>
-      <view class="crypto-note">{{copy.timeLabel}} · {{step.signedAtText}}</view>
-      <view class="crypto-state--{{step.state}}">{{step.stateText}}</view>
+      <view class="crypto-identity crypto-state--{{step.state}}">{{step.stateText}}</view>
+      <view class="crypto-affiliation">
+        <view wx:if="{{step.organization}}" class="crypto-affiliation-row">
+          <view class="crypto-note">{{copy.organizationLabel}}</view>
+          <view class="crypto-organization">{{step.organization}}</view>
+        </view>
+        <view wx:if="{{step.assignment}}" class="crypto-affiliation-row">
+          <view class="crypto-note">{{copy.assignmentLabel}}</view>
+          <view class="crypto-assignment">{{step.assignment}}</view>
+        </view>
+      </view>
+      <view class="crypto-step-time crypto-note">{{copy.timeLabel}} · {{step.signedAtText}}</view>
       <view wx:if="{{report}}" class="crypto-details">
         <view class="crypto-note">{{step.digestTypeText}}</view>
         <view wx:for="{{step.fields}}" wx:for-item="field" wx:key="key" class="crypto-detail-row">
@@ -46,16 +58,20 @@
           <view class="crypto-note">{{field.label}}</view><text selectable class="crypto-code">{{field.value}}</text>
         </view>
       </view>
-      <view class="crypto-details">
+      <view wx:if="{{file.platformVerified}}" class="crypto-details">
         <view class="crypto-check-label">{{copy.certificateTitle}}</view>
-        <view class="crypto-note">{{copy.certificateNotice}}</view>
-        <view class="crypto-note">{{copy.certificateGuide}}</view>
-        <view class="crypto-note">{{copy.certificatePublicTrust}}</view>
+        <view class="crypto-report-guide"><view class="crypto-check-label">{{copy.certificateScopeTitle}}</view><view class="crypto-note">{{copy.certificateNotice}}</view></view>
+        <view class="crypto-report-guide"><view class="crypto-check-label">{{copy.certificateUseTitle}}</view><view class="crypto-note">{{copy.certificateGuide}}</view></view>
+        <view class="crypto-report-guide"><view class="crypto-check-label">{{copy.adobeTrustTitle}}</view><view class="crypto-note">{{copy.adobeTrustNotice}}</view></view>
+        <view class="crypto-report-guide"><view class="crypto-check-label">{{copy.certificatePublicTrustTitle}}</view><view class="crypto-note">{{copy.certificatePublicTrust}}</view></view>
         <view wx:if="{{!file.certificates.length}}" class="crypto-note">{{copy.noCertificate}}</view>
-        <button wx:for="{{file.certificates}}" wx:for-item="certificate" wx:for-index="certificateIndex" wx:key="fingerprint" data-file="{{file.key}}" data-certificate="{{certificateIndex}}" class="secondary-btn crypto-details-toggle ui-motion-button" bindtap="exportCertificate" loading="{{exporting}}" disabled="{{exporting}}" hover-class="ui-press-button" hover-stop-propagation="{{true}}" hover-start-time="0" hover-stay-time="160">{{copy.exportCertificate}}</button>
+        <view wx:for="{{file.certificates}}" wx:for-item="certificate" wx:for-index="certificateIndex" wx:key="fingerprint" class="crypto-certificate-actions">
+          <button data-file="{{file.key}}" data-certificate="{{certificateIndex}}" class="secondary-btn crypto-details-toggle ui-motion-button" bindtap="exportCertificate" loading="{{exporting}}" disabled="{{exporting}}" hover-class="ui-press-button" hover-stop-propagation="{{true}}" hover-start-time="0" hover-stay-time="160">{{copy.exportCertificate}}</button>
+          <button data-file="{{file.key}}" data-certificate="{{certificateIndex}}" class="secondary-btn crypto-details-toggle ui-motion-button" bindtap="copyCertificate" disabled="{{exporting}}" hover-class="ui-press-button" hover-stop-propagation="{{true}}" hover-start-time="0" hover-stay-time="160">{{copy.copyCertificate}}</button>
+        </view>
       </view>
     </view>
+    <view wx:if="{{report && file.platformVerified}}" class="crypto-note">{{copy.timeNotice}}</view>
   </view>
-  <view wx:if="{{report}}" class="crypto-note">{{copy.timeNotice}}</view>
   <button wx:if="{{!report}}" class="secondary-btn crypto-details-toggle ui-motion-button" bindtap="openReport" hover-class="ui-press-button" hover-stop-propagation="{{true}}" hover-start-time="0" hover-stay-time="160">{{copy.technical}}</button>
 </view>

@@ -121,6 +121,40 @@ async function run() {
       assert.equal(unknown.overallStatus, 'failed');
       assert(!JSON.stringify(unknown).includes('同名人员'), '无匹配上传不得泄露平台人员身份');
       assert(!unknown.files[0].certificates?.length, '未验真上传不能导出其中提供的任意证书');
+      const forge = require('node-forge');
+      const { createSignerCertificate } = require('../src/modules/audit/utils/pdfSignature');
+      const { signPdfBuffer } = require('../src/modules/audit/utils/pdfSignedDocument');
+      const foreignKey = crypto.generateKeyPairSync('rsa', { modulusLength: 3072,
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
+      const foreignCert = createSignerCertificate(forge.pki.privateKeyFromPem(foreignKey.privateKey),
+        forge.pki.publicKeyFromPem(foreignKey.publicKey), 'WHUSU Platform Attestation', '', 'WHUSU');
+      const foreignDocument = await PDFDocument.create(); foreignDocument.addPage();
+      const foreignPdf = await signPdfBuffer(Buffer.from(await foreignDocument.save()), foreignKey.privateKey, foreignCert,
+        { signer: { name: 'WHUSU Platform Attestation' } });
+      const external = await verifyUnmatchedUpload(foreignPdf);
+      assert.equal(external.files[0].checks.cmsSignature.status, 'passed');
+      assert.equal(external.files[0].checks.documentIntegrity.status, 'passed');
+      assert.equal(external.valid, false, '自签 PDF 有效不等于平台签署');
+      assert.equal(external.overallStatus, 'indeterminate');
+      assert.notEqual(external.files[0].checks.platformCertificate.status, 'passed');
+      assert.notEqual(external.files[0].checks.identityBinding.status, 'passed');
+      assert.equal(external.files[0].steps.length, 0);
+      assert(!external.files[0].certificates?.length, '禁止把攻击者证书作为平台证书导出');
+      assert(!JSON.stringify(external).includes('同名人员'));
+      const { verifyPdfSignature } = require('../src/modules/audit/utils/pdfSignedDocument');
+      const { verifyFile } = require('../src/modules/audit/services/signingVerification');
+      const copiedManifest = verifyPdfSignature(bytes).signatures[0].manifest;
+      const transplantedPdf = await signPdfBuffer(Buffer.from(await foreignDocument.save()), foreignKey.privateKey, foreignCert,
+        { createManifest: () => copiedManifest });
+      const registeredFile = (await fileModel.getBySubmissionId('case'))[0];
+      const transplanted = await verifyFile(transplantedPdf, { ...registeredFile, file_hash: sha256(transplantedPdf) }, {
+        rows: await evidenceModel.listBySubmission('case'), events: await evidenceModel.listEventFacts('case'),
+        certificates: await evidenceModel.listCertificates()
+      });
+      assert.equal(transplanted.overallStatus, 'failed', '移植真清单并用任意私钥重签不能获得平台认可');
+      assert.notEqual(transplanted.checks.identityBinding.status, 'passed');
+      assert.equal(transplanted.steps.length, 0);
+      assert(!transplanted.certificates?.length);
       // 仅测试脚本输出公开结果与合成文件，供开发者工具现场验收；不进入小程序生产依赖。
       if (process.env.SIGNING_UI_FIXTURE_DIR) {
         const fixtureDir = path.resolve(process.env.SIGNING_UI_FIXTURE_DIR);

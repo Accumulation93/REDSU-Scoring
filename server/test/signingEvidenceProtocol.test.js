@@ -8,7 +8,9 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const forge = require('node-forge');
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument, PDFName } = require('pdf-lib');
+const { overlaySignaturesOnBuffer } = require('../src/modules/audit/utils/signatureOverlay');
+const { checkPdfInteroperability } = require('../scripts/checkPdfInteroperability');
 const { createSignerCertificate } = require('../src/modules/audit/utils/pdfSignature');
 const { signCms, verifyCms } = require('../src/modules/audit/utils/cmsSignature');
 const { signPdfBuffer, verifyPdfSignature } = require('../src/modules/audit/utils/pdfSignedDocument');
@@ -84,6 +86,21 @@ test('链缺失、调序、跨文件移植均不能通过', () => {
   assert.equal(verifyManifest(manifest, [secondRow, firstRow], keyring).ok, false);
   assert.equal(verifyManifest(manifest, [firstRow], keyring).ok, false);
 });
+test('攻击者另造私钥并冒用相同证书主体，不能获得平台凭证身份认可', () => {
+  const foreign = crypto.generateKeyPairSync('rsa', { modulusLength: 3072,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
+  const foreignCertificate = createSignerCertificate(forge.pki.privateKeyFromPem(foreign.privateKey),
+    forge.pki.publicKeyFromPem(foreign.publicKey), '平台测试证书', '', '测试组织');
+  assert.equal(new crypto.X509Certificate(foreignCertificate).subject, new crypto.X509Certificate(certificatePem).subject);
+  const attackerKey = { ...active, identity: { privateKeyPem: foreign.privateKey, certificatePem: foreignCertificate },
+    fingerprint: sha256(new crypto.X509Certificate(foreignCertificate).raw) };
+  const opts = options();
+  const forged = createReceipt(opts, { active: attackerKey });
+  assert.equal(verifyCms(Buffer.from(forged.cms, 'base64'), null, { requireBinding: true }).ok, true,
+    '外来签名在数学上可以完全正确');
+  assert.equal(verifyReceipt(forged.cms, row(forged, opts), keyring).reasonCode, 'evidence_certificate_unregistered',
+    '即使主体、版本、身份与记录格式一致，真实证书指纹不符仍必须拒绝');
+});
 test('CMS 缺失/重复属性、同公钥替换证书和非 DER 编码均拒绝', () => {
   const content = Buffer.from('cms-adversarial-content');
   const encoded = signCms(content, active.identity);
@@ -157,4 +174,68 @@ test('最终 PDF 清单绑定实际 ByteRange；附加内容和修改字节失�
   const modified = Buffer.from(signed);
   modified[20] ^= 1;
   assert.equal(verifyPdfSignature(modified).valid, false);
+});
+
+test('多轮多步、多页签字盖章与最后纯通过：每轮成品均独立验真，旧文件不变', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage(); doc.addPage();
+  let bytes = Buffer.from(await doc.save());
+  const imageData = 'data:image/png;base64,' + (await require('sharp')({ create: {
+    width: 24, height: 12, channels: 4, background: { r: 20, g: 70, b: 160, alpha: 0.7 }
+  } }).png().toBuffer()).toString('base64');
+  const versions = [];
+  for (let roundNumber = 1; roundNumber <= 3; roundNumber += 1) {
+    const rows = [];
+    for (let step = 1; step <= 8; step += 1) {
+      const inputDigest = sha256(bytes);
+      if (step < 8) {
+        const marks = [1, 2, 3].map(index => ({ imageData, page: index % 2 + 1,
+          positionX: index / 4, positionY: step / 10, rotation: index * 5 }));
+        bytes = (await overlaySignaturesOnBuffer({ mime_type: 'application/pdf' }, bytes, marks)).buffer;
+      }
+      const opts = options({ inputDigest, round: roundNumber, step, eventId: 'event-' + roundNumber + '-' + step,
+        previous: rows.length ? rows[rows.length - 1].receipt_digest : '', action: step === 8 ? 'pass' : 'both' });
+      if (step < 8) {
+        opts.outputDigest = sha256(bytes);
+        rows.push(row(createReceipt(opts, keyring), opts));
+      } else {
+        bytes = await signPdfBuffer(bytes, pair.privateKey, certificatePem, {
+          signaturePosition: { page: 2, x: 0.5, y: 0.5 }, signatureCapacity: 131072,
+          createManifest(signedBytes) {
+            opts.outputDigest = sha256(signedBytes); opts.outputDigestType = 'pdf_byte_range_sha256';
+            const receipt = createReceipt(opts, keyring);
+            const manifest = buildManifest(rows, receipt, false);
+            rows.push(row(receipt, opts));
+            return manifest;
+          }
+        });
+      }
+    }
+    const result = verifyPdfSignature(bytes);
+    assert.equal(result.valid, true);
+    assert.equal(result.signatures.length, 1, '新版使用一个覆盖全文件的签名封装完整步骤，不遗留重排失效的旧签名');
+    assert.equal(verifyManifest(result.signatures[0].manifest, rows, keyring, result.signatures[0].signedBytesDigest).ok, true);
+    assert.equal(checkPdfInteroperability(bytes).signatures[0].opensslValid, true);
+    const parsed = await PDFDocument.load(bytes, { updateMetadata: false });
+    const signature = parsed.getForm().getFields().find(field => field.acroField.dict.get(PDFName.of('FT')).toString() === '/Sig');
+    assert.equal(signature.acroField.getWidgets()[0].P().toString(), parsed.getPage(1).ref.toString(), '签名域必须位于指定页');
+    versions.push({ bytes, digest: sha256(bytes) });
+  }
+  for (const version of versions) {
+    assert.equal(sha256(version.bytes), version.digest);
+    assert.equal(verifyPdfSignature(version.bytes).valid, true, '后续轮次不得改变旧版本字节');
+  }
+});
+
+test('生成结果受损时失败关闭，禁止向文件事务交付坏签名', async () => {
+  const { SignPdf } = require('@signpdf/signpdf');
+  const original = SignPdf.prototype.sign;
+  const doc = await PDFDocument.create(); doc.addPage();
+  SignPdf.prototype.sign = async function(...args) {
+    return Buffer.concat([await original.apply(this, args), Buffer.from('\n% unexpected append')]);
+  };
+  try {
+    await assert.rejects(signPdfBuffer(Buffer.from(await doc.save()), pair.privateKey, certificatePem),
+      error => error.code === 'pdf_generated_signature_invalid');
+  } finally { SignPdf.prototype.sign = original; }
 });
