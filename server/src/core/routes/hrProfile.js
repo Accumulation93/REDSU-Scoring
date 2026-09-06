@@ -8,8 +8,8 @@ const { createNotification } = require('../../modules/audit/utils/notificationHe
 const { safeString, generateId, buildNameMap, normalizeEmptyValue } = require('../../utils/helpers');
 const { nowMysqlUtc } = require('../../utils/dateTime');
 const { getCurrentOrgId } = require('../../utils/orgContext');
-const adminInfoModel = require('../models/adminInfo');
-const userInfoModel = require('../models/userInfo');
+const { resolveCurrentAdmin } = require('../services/adminRequestContext');
+const { resolveSelfHrProfileSubject } = require('../services/selfHrProfileSubject');
 const hrInfoModel = require('../models/hrInfo');
 const departmentModel = require('../models/department');
 const identityModel = require('../models/identity');
@@ -95,12 +95,12 @@ function profileFieldResponse(field, historical) {
   };
 }
 
-async function ensureAdmin(openid) {
-  return adminInfoModel.getByOpenid(openid);
+async function ensureAdmin(req) {
+  return req.admin || await resolveCurrentAdmin(req);
 }
 
 async function ensureTemplatePermission(req, permissionKeys) {
-  const admin = req.admin || await ensureAdmin(req.openid);
+  const admin = await ensureAdmin(req);
   if (!admin) return null;
   const orgId = await getCurrentOrgId();
   const effective = req.adminPermissions || await loadEffectivePermissions(admin, orgId);
@@ -189,16 +189,6 @@ function profileCompleteness(fields, effectiveValues, pendingValues, auditStatus
   };
 }
 
-async function getUserWithOrg(openid) {
-  const users = await userInfoModel.getAll();
-  const user = users.find((u) => u.openid === openid);
-  if (!user) return { user: null, hr: null };
-  const hrId = safeString(user.hr_id);
-  if (!hrId) return { user, hr: null };
-  const hr = await hrInfoModel.getById(hrId);
-  return { user, hr };
-}
-
 async function enrichHrWithOrg(hr) {
   if (!hr) return null;
   const [departments, identities, workGroups] = await Promise.all([
@@ -223,10 +213,9 @@ async function enrichHrWithOrg(hr) {
 // getUserHrProfile
 router.post('/getUserHrProfile', async (req, res) => {
   try {
-    const openid = req.openid;
-    const { user, hr } = await getUserWithOrg(openid);
-    if (!user) return res.json({ status: 'user_not_found', message: localeCopy.copy_b10d64a68c });
-    if (!hr) return res.json({ status: 'user_not_found', message: localeCopy.copy_10d3269bb4 });
+    const subject = await resolveSelfHrProfileSubject(req);
+    if (subject.status !== 'success') return res.json(subject);
+    const { hr, personId } = subject;
 
     const template = await profileTemplateModel.getByTemplateKey(TEMPLATE_KEY);
     const templateData = template ? {
@@ -257,9 +246,8 @@ router.post('/getUserHrProfile', async (req, res) => {
       vals.forEach((v) => { if (activeFieldIds.has(v.field_id)) values[v.field_id] = v.field_value; });
       pvals.forEach((v) => { if (activeFieldIds.has(v.field_id)) pendingValues[v.field_id] = v.field_value; });
     }
-    const person = await personIdentityOverviewModel.resolvePersonByLegacyHrId(hr.id);
-    if (person && templateData && templateData.fields.length) {
-      const globalRows = await personProfileValueModel.listForPerson(person.id);
+    if (templateData && templateData.fields.length) {
+      const globalRows = await personProfileValueModel.listForPerson(personId);
       const globalValues = personProfileValueModel.mapRows(globalRows);
       templateData.fields.forEach((field) => {
         const shared = globalValues[personProfileValueModel.key(field.label, field.type)];
@@ -292,9 +280,9 @@ router.post('/submitUserHrProfile', async (req, res) => {
   try {
     const openid = req.openid;
     const values = req.body.values && typeof req.body.values === 'object' ? req.body.values : {};
-    const { user, hr } = await getUserWithOrg(openid);
-    if (!user) return res.json({ status: 'user_not_found', message: localeCopy.copy_b10d64a68c });
-    if (!hr) return res.json({ status: 'user_not_found', message: localeCopy.copy_10d3269bb4 });
+    const subject = await resolveSelfHrProfileSubject(req);
+    if (subject.status !== 'success') return res.json(subject);
+    const { hr, personId, organizationId: orgId } = subject;
 
     const template = await profileTemplateModel.getByTemplateKey(TEMPLATE_KEY);
     if (!template) return res.json({ status: 'missing_template', message: localeCopy.copy_8e41ad7690 });
@@ -326,9 +314,9 @@ router.post('/submitUserHrProfile', async (req, res) => {
     }
 
     const nowUtc = nowMysqlUtc();
-    const orgId = await getCurrentOrgId();
     await pool.withTransaction(async (connection) => {
       await unifiedIdentityModel.lockActiveBusinessSubjects(connection, [{
+        personId,
         legacyHrId: hr.id,
         organizationId: orgId
       }]);
@@ -369,12 +357,9 @@ router.post('/submitUserHrProfile', async (req, res) => {
         );
       }
       if (editMode !== 'audit') {
-        const person = await personIdentityOverviewModel.resolvePersonByLegacyHrId(hr.id, connection);
-        if (person) {
-          await personProfileValueModel.upsertEffectiveValues(
-            person.id, orgId, recordId, normalizedFields, normalizedValues, nowUtc, connection
-          );
-        }
+        await personProfileValueModel.upsertEffectiveValues(
+          personId, orgId, recordId, normalizedFields, normalizedValues, nowUtc, connection
+        );
       }
     });
 
@@ -495,8 +480,7 @@ router.post('/saveHrProfileTemplate', (req, res) => {
 // listHrProfileAdminData
 router.post('/listHrProfileAdminData', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const orgId = await getCurrentOrgId();
@@ -659,8 +643,7 @@ router.post('/listHrProfileAdminData', async (req, res) => {
 // reviewHrProfileChange
 router.post('/reviewHrProfileChange', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const hrId = safeString(req.body.hrId);
@@ -786,8 +769,7 @@ router.post('/reviewHrProfileChange', async (req, res) => {
 // getHrPersonDetail
 router.post('/getHrPersonDetail', async (req, res) => {
   try {
-    const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const hrId = safeString(req.body.hrId);
@@ -916,7 +898,7 @@ router.post('/getHrPersonDetail', async (req, res) => {
 router.post('/saveHrPersonFull', async (req, res) => {
   try {
     const openid = req.openid;
-    const admin = await ensureAdmin(openid);
+    const admin = await ensureAdmin(req);
     if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
 
     const hrId = safeString(req.body.hrId);

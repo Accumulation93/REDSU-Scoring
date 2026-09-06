@@ -70,6 +70,22 @@ async function getById(id) {
   return rows[0] || null;
 }
 
+// 本人资料按自然人与当前组织定位，不依赖旧微信绑定或当前是否有岗位。
+async function getActiveByPersonIdInOrg(personId, orgId) {
+  if (!personId || !orgId) return null;
+  const [rows] = await pool.query(
+    `SELECT h.*, om.person_id, om.id AS membership_id, om.status AS membership_status,
+            om.created_at AS joined_at
+       FROM hr_info h
+       JOIN organization_memberships om ON om.legacy_hr_id = h.id AND om.org_id = h.org_id
+       JOIN persons p ON p.id = om.person_id AND p.status = 'active'
+      WHERE om.person_id = ? AND om.org_id = ? AND h.org_id = ? AND om.status = 'active'
+      LIMIT 1`,
+    [personId, orgId, orgId]
+  );
+  return rows[0] || null;
+}
+
 async function getByStudentId(studentId) {
   const orgId = await getCurrentOrgId();
   const [rows] = await pool.query(
@@ -247,6 +263,7 @@ async function getByIdInOrg(id, orgId) {
 }
 
 module.exports = {
+  getActiveByPersonIdInOrg,
   getAll,
   getMembershipDirectory,
   getAllWithDirectory,

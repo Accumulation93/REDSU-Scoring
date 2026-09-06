@@ -19,6 +19,11 @@ const homeWxml = hydrateLocale(
   'copy'
 );
 const homeWxss = fs.readFileSync(path.join(root, 'miniprogram/subpackages/main/styles/home.wxss'), 'utf8');
+const profilePageWxss = fs.readFileSync(path.join(root, 'miniprogram/subpackages/workspace/pages/home/home.wxss'), 'utf8');
+const retryStyle = profilePageWxss.match(/\.profile-load-error \.profile-retry-btn\s*\{([^}]+)\}/);
+assert(retryStyle && /flex:\s*none;/.test(retryStyle[1]) && /height:\s*auto;/.test(retryStyle[1])
+    && ['width', 'min-width', 'max-width'].every((property) => retryStyle[1].includes(property + ': 100%;')),
+  '纵向错误卡内的重试按钮必须解除双列 flex-basis，并遵循全宽自然高度契约');
 const adminWxmlSource = fs.readFileSync(
   path.join(root, 'miniprogram/subpackages/scoring/pages/admin/admin.wxml'),
   'utf8'

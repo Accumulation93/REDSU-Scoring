@@ -20,6 +20,8 @@ module.exports = {
   removedProfileField: '该资料项已删除，请重新选择',
   hrOperationFailed: '人事信息暂时无法处理，请稍后重试',
   hrProfileOperationFailed: '人事资料暂时无法处理，请稍后重试',
+  selfHrProfileUnavailable: '当前组织未找到本人的人事资料，请联系管理员',
+  selfHrProfileContextUnavailable: '暂时无法确认当前组织的本人资料，请返回首页重新选择工作角色',
   assignmentNotFound: '该岗位已失效，请重新选择',
   organizationSelectionExpired: '请重新选择组织',
   workGroupDepartmentMismatch: '所选工作分工不属于当前部门',

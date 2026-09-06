@@ -37,6 +37,13 @@
   text-align: center;
 }
 
-.profile-retry-btn {
+.profile-load-error .profile-retry-btn {
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-height: var(--ui-control-height, 76rpx);
   margin: 0;
 }
