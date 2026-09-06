@@ -34,6 +34,11 @@ const mocks = {
     async replaceForIdentity() { return assignmentResult; },
     async getAllGrouped() { return []; }
   },
+  '../models/stampAssignmentGrant': {
+    async replaceForStamp() { return assignmentResult; },
+    async listGrants() { return []; },
+    async listCandidates() { return []; }
+  },
   '../models/auditSubmission': emptyModel,
   '../models/auditSubmissionStep': emptyModel,
   '../models/auditSubmissionFile': emptyModel,
@@ -76,6 +81,7 @@ async function invoke(routePath, body) {
     body: body || {},
     admin: { id: 'admin-current' }
   }, {
+    status() { return this; },
     json(value) {
       payload = value;
       return value;
@@ -97,19 +103,21 @@ async function invoke(routePath, body) {
   response = await invoke('/deleteStamp', { id: 'stamp-foreign' });
   assert.strictEqual(response.status, 'not_found', '跨组织印章不得伪装成删除成功');
 
-  assignmentResult = { status: 'identity_not_found' };
-  response = await invoke('/saveStampAssignments', {
-    identityId: 'identity-foreign',
-    stampIds: ['stamp-current']
+  assignmentResult = { status: 'assignment_unavailable' };
+  response = await invoke('/saveStampGrants', {
+    stampId: 'stamp-current',
+    assignmentIds: ['assignment-foreign']
   });
-  assert.strictEqual(response.status, 'not_found', '跨组织身份类别不得获得印章授权');
+  assert.strictEqual(response.status, 'assignment_unavailable', '跨组织岗位不得获得印章授权');
 
   assignmentResult = { status: 'stamp_not_found' };
-  response = await invoke('/saveStampAssignments', {
-    identityId: 'identity-current',
-    stampIds: ['stamp-foreign']
+  response = await invoke('/saveStampGrants', {
+    stampId: 'stamp-foreign',
+    assignmentIds: ['assignment-current']
   });
-  assert.strictEqual(response.status, 'not_found', '跨组织印章不得进入当前组织授权');
+  assert.strictEqual(response.status, 'stamp_not_found', '跨组织印章不得进入当前组织授权');
+  response = await invoke('/saveStampAssignments', { identityId: 'identity-current', stampIds: ['stamp-current'] });
+  assert.strictEqual(response.status, 'legacy_api_retired', '旧类别授权不得再扩大用章权限');
 
   verificationCreateResult = { status: 'grantee_not_found' };
   response = await invoke('/saveVerificationPermission', {

@@ -186,7 +186,7 @@ mapRoutes('hr.identities', ['/saveIdentity', '/deleteIdentity']);
 mapRoutes('hr.work_groups', ['/saveWorkGroup', '/deleteWorkGroup']);
 
 mapRoutes('audit.templates', ['/listAuditFlowTemplates', '/saveAuditFlowTemplate', '/deleteAuditFlowTemplate']);
-mapRoutes('audit.stamps', ['/listStamps', '/saveStamp', '/deleteStamp', '/saveStampAssignments', '/listIdentityStamps']);
+mapRoutes('audit.stamps', ['/listStamps', '/saveStamp', '/deleteStamp', '/saveStampAssignments', '/listIdentityStamps', '/listStampCandidates', '/saveStampGrants']);
 mapRoutes('audit.submissions', ['/listAllAuditSubmissions', '/getAuditProgress']);
 mapRoutes('audit.submissions', ['/getSubmissionDetail'], { allowUserRole: true });
 mapRoutes('audit.submissions', [

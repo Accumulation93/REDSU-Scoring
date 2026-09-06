@@ -83,6 +83,9 @@ jobs:
           node scripts/login-binding-refresh-test.js
           node scripts/password-binding-offer-test.js
           node scripts/login-auth-continuation-test.js
+          node scripts/wechat-login-timing-test.js
+          node scripts/stamp-grant-ui-test.js
+          node scripts/miniprogram-page-registration-test.js
           node scripts/hr-profile-export-test.js
           node scripts/personnel-picker-test.js
           node scripts/venue-rule-display-test.js

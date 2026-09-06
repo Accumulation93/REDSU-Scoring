@@ -1,4 +1,5 @@
 const localeCopy = require('../../../../../locales/zh-CN/generated/subpackages/scoring/pages/admin/modules/hrInfoBehavior');
+const stampCopy = require('../../../../../locales/zh-CN/stampAuthorization');
 const { format: localeFormat } = require('../../../../../locales/runtime');
 // Behavior: hrInfo tab — auto-extracted from admin.js
 // Zero functional changes. All methods preserved exactly.
@@ -159,6 +160,7 @@ function deletionCategoryLabel(category) {
     global_profile_values_restored: localeCopy.hrDeletionCleanupGlobalProfileRestored,
     global_profile_history: localeCopy.hrDeletionCleanupGlobalProfileHistory,
     signature_templates: localeCopy.hrDeletionCleanupSignatureTemplate,
+    stamp_assignment_grants: stampCopy.deletionCleanup,
     notifications: localeCopy.hrDeletionCleanupNotification,
     notification_outbox: localeCopy.hrDeletionCleanupNotificationOutbox,
     audit_read_cursors: localeCopy.hrDeletionCleanupReadCursor,

@@ -467,6 +467,9 @@ async function scanCleanupImpact(connection, target) {
   add('global_profile_values', await countRows(connection,
     `SELECT COUNT(*) AS count FROM person_profile_values
       WHERE person_id = ? AND (? = '' OR source_org_id = ?)`, [personId, orgId, orgId]));
+  add('stamp_assignment_grants', await countRows(connection,
+    `SELECT COUNT(*) AS count FROM stamp_assignment_grants WHERE person_id = ? AND (? = '' OR org_id = ?)`,
+    [personId, orgId, orgId]));
   add('global_profile_history', await countRows(connection,
     `SELECT COUNT(*) AS count FROM person_profile_value_history
       WHERE person_id = ? AND (? = '' OR source_org_id = ?)`, [personId, orgId, orgId]));
@@ -1342,6 +1345,9 @@ async function cleanupMembershipArtifacts(connection, target) {
   counts.absoluteTimeReviews = await cleanupMembershipAbsoluteTimeReviews(connection, target);
 
   const disabledRules = await cleanupRuleReferences(connection, target);
+  const [stampGrantsRemoved] = await connection.query(
+    'DELETE FROM stamp_assignment_grants WHERE person_id = ? AND org_id = ?', [personId, orgId]);
+  record('stampAssignmentGrants', stampGrantsRemoved);
   if (hrIds.length) {
     const inSql = placeholders(hrIds);
     let result;

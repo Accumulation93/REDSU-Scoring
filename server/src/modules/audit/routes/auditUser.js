@@ -19,7 +19,7 @@ const signingEvidenceModel = require('../models/signingEvidence');
 const { prepareEvidence } = require('../services/approvalSigningEvidence');
 const { SigningProtocolError } = require('../utils/signingProtocol');
 const signingCopy = require('../../../locales/zh-CN/auditSigningEvidence');
-const stampAssignmentModel = require('../models/identityStampAssignment');
+const stampGrantModel = require('../models/stampAssignmentGrant');
 const { hashFile } = require('../utils/hashChain');
 const { attachUploadedFiles } = require('../utils/fileSecurity');
 const { overlaySignaturesOnBuffer } = require('../utils/signatureOverlay');
@@ -2865,18 +2865,7 @@ router.post('/listMyStamps', async (req, res) => {
       const actorResult = actorContext.actorResult;
       return res.json({ status: actorResult.status || 'forbidden', message: actorResult.message || localeCopy.copy_4e84385ce1 });
     }
-    const orgId = actorContext.orgId;
-    const identityId = actorContext.assignment.identity_id;
-    if (!identityId) return res.json({ status: 'success', stamps: [] });
-
-    const assignments = await stampAssignmentModel.getByIdentityId(identityId);
-    if (!assignments.length) return res.json({ status: 'success', stamps: [] });
-
-    const stampIds = assignments.map(a => a.stamp_id);
-    const [stampRows] = await pool.query(
-      'SELECT id, name, image_data FROM stamps WHERE id IN (?) AND org_id = ?',
-      [stampIds, orgId]
-    );
+    const stampRows = await stampGrantModel.getAuthorizedStamps(actorContext.assignment);
     const stamps = stampRows.map(s => ({
       id: safeString(s.id),
       name: safeString(s.name),

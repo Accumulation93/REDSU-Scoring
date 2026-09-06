@@ -120,21 +120,30 @@ function requestWechatSessionDirect(callbacks, preferredSelection) {
   const preferred = preferredSelection || {};
   let settled = false;
   let requestTask = null;
+  const startedAt = Date.now();
+  const requestId = createRequestId();
+  const trace = function(stage, extra) {
+    // 只记录阶段、耗时和请求号，不记录微信 code、令牌、身份或响应内容。
+    const entry = Object.assign({ stage, elapsedMs: Date.now() - startedAt, requestId }, extra || {});
+    try { if (typeof handlers.trace === 'function') handlers.trace(entry); } catch (_) {}
+  };
   const finish = function(type, value) {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
-    if (type === 'success') {
-      if (typeof handlers.success === 'function') handlers.success(value);
-    } else if (typeof handlers.fail === 'function') {
-      handlers.fail(value);
+    try {
+      if (type === 'success') {
+        if (typeof handlers.success === 'function') handlers.success(value);
+      } else if (typeof handlers.fail === 'function') {
+        handlers.fail(value);
+      }
+    } finally {
+      if (typeof handlers.complete === 'function') handlers.complete();
     }
-    if (typeof handlers.complete === 'function') handlers.complete();
   };
   let timer = setTimeout(function() {
-    if (requestTask && typeof requestTask.abort === 'function') {
-      try { requestTask.abort(); } catch (_) {}
-    }
+    trace('total_timeout');
+    // 原生请求仍以自身 timeout 收尾，不在桥接 abort 前等待释放页面忙碌态。
     finish('fail', new Error(copy.messages.loginUnavailable));
   }, WECHAT_SESSION_TIMEOUT_MS);
 
@@ -143,14 +152,18 @@ function requestWechatSessionDirect(callbacks, preferredSelection) {
     return;
   }
   try {
+    trace('wechat_started');
     wx.login({
     success: function(loginResult) {
+      if (settled) return;
+      trace('wechat_returned');
       const code = String((loginResult && loginResult.code) || '');
       if (!code) {
         finish('fail', new Error(copy.messages.relogin));
         return;
       }
       try {
+        trace('request_started');
         requestTask = wx.request({
           url: API_BASE + '/auth/wechat/session',
           method: 'POST',
@@ -158,7 +171,7 @@ function requestWechatSessionDirect(callbacks, preferredSelection) {
           header: {
             'Content-Type': 'application/json',
             'X-Client-Version': CLIENT_VERSION,
-            'X-Request-Id': createRequestId()
+            'X-Request-Id': requestId
           },
           data: {
             code: code,
@@ -166,6 +179,8 @@ function requestWechatSessionDirect(callbacks, preferredSelection) {
             preferredOrganizationId: preferred.organizationId || ''
           },
           success: function(response) {
+            trace(settled ? 'late_response' : 'response_received', { httpStatus: Number(response && response.statusCode) || 0 });
+            if (settled) return;
             let result = (response && response.data) || {};
             if (typeof result === 'string') {
               try { result = JSON.parse(result); } catch (_) { result = {}; }
@@ -179,20 +194,29 @@ function requestWechatSessionDirect(callbacks, preferredSelection) {
             finish('fail', error);
           },
           fail: function(error) {
+            trace(settled ? 'late_failure' : 'request_failed', { nativeCode: Number(error && error.errno) || 0 });
             finish('fail', error || new Error(copy.messages.loginUnavailable));
           }
         });
+        if (requestTask && typeof requestTask.onHeadersReceived === 'function') {
+          try { requestTask.onHeadersReceived(function() { trace('headers_received'); }); } catch (_) {}
+        }
       } catch (error) {
         finish('fail', error);
       }
     },
     fail: function(error) {
+      trace('wechat_failed', { nativeCode: Number(error && error.errno) || 0 });
       finish('fail', error || new Error(copy.messages.relogin));
     }
     });
   } catch (error) {
     finish('fail', error);
   }
+  return function cancel() {
+    settled = true;
+    clearTimeout(timer);
+  };
 }
 
 Page({
@@ -358,10 +382,18 @@ Page({
 
   onUnload() {
     this._active = false;
+    if (this._wechatLoginCancel) this._wechatLoginCancel();
     if (this._portalNavigationTimer) {
       clearTimeout(this._portalNavigationTimer);
       this._portalNavigationTimer = null;
     }
+  },
+
+  onHide() {
+    if (this._wechatLoginCancel) this._wechatLoginCancel();
+    this._wechatLoginCancel = null;
+    this._loginSubmitting = false;
+    if (this.data.loading) this.setData({ loading: false });
   },
 
   onVerificationCode(e) {
@@ -412,25 +444,33 @@ Page({
     const page = this;
     const startLogin = function() {
       if (page._active === false) return;
-      requestWechatSessionDirect({
+      page._wechatLoginCancel = requestWechatSessionDirect({
+      trace: function(entry) {
+        const records = page._wechatLoginTrace || [];
+        page._wechatLoginTrace = records.concat([entry]).slice(-24);
+        console.info('[auth:wechat:timing]', JSON.stringify(entry));
+      },
       success: function(result) {
+        if (page._active === false) return;
         page.setData({ loading: false });
         try { page.handleWechatSession(result); } catch (error) {
           showShortToast(getErrorText(error, copy.messages.relogin));
         }
       },
       fail: function(error) {
+        if (page._active === false) return;
         const message = getErrorText(error, copy.messages.relogin);
         if (message) showShortToast(message);
       },
       complete: function() {
         page._loginSubmitting = false;
-        page.setData({ loading: false });
+        if (page._active !== false) page.setData({ loading: false });
       }
       }, page._preferredSelection);
     };
-    const preferenceReady = this._preferredSelectionPromise || Promise.resolve();
-    preferenceReady.then(startLogin, startLogin);
+    // 历史角色只是预填偏好；读取未完成时不等待 Promise 或 storage 回调。
+    this._wechatLoginTrace = [];
+    startLogin();
   },
 
   handleWechatSession(result) {

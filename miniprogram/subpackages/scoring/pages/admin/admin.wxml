@@ -2816,6 +2816,7 @@
     <view class="section-stack" wx:if="{{activeTab === 'auditStamps'}}">
       <view class="section-control-card">
         <view class="section-title">{{localeCopy.copy_82f17ccbef}}</view>
+        <view class="panel-note">{{stampCopy.scope}}</view>
       </view>
       <view class="edit-box">
         <view class="list-title">{{stampForm.id ? localeCopy.copy_211047f590 : localeCopy.copy_a44e21b978}}</view>
@@ -2836,6 +2837,10 @@
 
       <view class="list-card">
         <view class="list-title">{{localeCopy.copy_2ed0eb7de9}}</view>
+        <view wx:if="{{stampLoadError}}" class="empty-inline">
+          <view>{{stampLoadError}}</view>
+          <button class="secondary-btn ui-motion-button" bindtap="loadStamps" hover-class="ui-press-button" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{stampCopy.retry}}</button>
+        </view>
         <scroll-view enhanced="{{true}}" show-scrollbar="{{true}}" bounces="{{true}}" class="inner-scroll medium-scroll" scroll-y>
           <view class="card-loading-overlay" wx:if="{{loadingMap.auditStamps}}"><view class="card-loading-spinner"></view></view>
           <block wx:else>
@@ -2843,13 +2848,19 @@
             <view class="list-main">
               <view class="list-name">{{item.name}}</view>
               <image wx:if="{{item.imageData}}" src="{{item.imageData}}" mode="widthFix" class="audit-stamp-preview audit-stamp-preview--small" />
+              <view class="list-meta">{{item.assignedPeople.length ? item.authorizationText : stampCopy.empty}}</view>
+              <view wx:if="{{item.assignedIdentities.length && !item.assignedPeople.length}}" class="list-meta">{{stampCopy.legacy}}</view>
+              <view wx:for="{{item.assignedPeople}}" wx:for-item="grantee" wx:key="assignmentId" class="list-meta">
+                {{grantee.name}} · {{grantee.assignmentLabel}}{{grantee.available ? '' : ' · ' + stampCopy.inactive}}
+              </view>
             </view>
-            <view class="list-actions card-actions card-actions--inline">
+            <view class="card-actions">
+              <text wx:if="{{!stampLoadError}}" class="link ui-motion-chip" data-id="{{item.id}}" bindtap="openStampGrants" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{stampCopy.configure}}</text>
               <text class="link ui-motion-chip" data-id="{{item.id}}" bindtap="editStamp" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_e040ae3016}}</text>
               <text class="link danger-link ui-motion-chip" data-id="{{item.id}}" bindtap="deleteStamp" hover-class="ui-press-chip" hover-start-time="0" hover-stay-time="160" hover-stop-propagation="{{true}}">{{localeCopy.copy_acc985cabc}}</text>
             </view>
           </view>
-          <view class="empty-inline" wx:if="{{!stamps.length}}">{{localeCopy.copy_0596fc0dc8}}</view>
+          <view class="empty-inline" wx:if="{{!stamps.length && !stampLoadError}}">{{localeCopy.copy_0596fc0dc8}}</view>
           </block>
         </scroll-view>
       </view>
@@ -3121,6 +3132,7 @@
 
   <!-- Shared designation personnel picker -->
   <personnel-picker visible="{{showDesignationPicker}}" title="{{localeCopy.copy_74b0241999}}" options="{{designationPickerHrList}}" value="{{designationPickerSelectedList}}" selectionLevel="assignment" multiple="{{true}}" confirmLoading="{{loadingMap.saveDesignations}}" bindconfirm="confirmSharedDesignationPicker" bindcancel="closeDesignationPicker" />
+  <personnel-picker visible="{{stampGrantVisible}}" title="{{stampCopy.title}}" contextText="{{stampGrantContext}}" options="{{stampGrantOptions}}" value="{{stampGrantValue}}" selectionLevel="assignment" multiple="{{true}}" loading="{{stampGrantLoading}}" errorText="{{stampGrantError}}" confirmLoading="{{stampGrantSaving}}" bindconfirm="confirmStampGrants" bindcancel="closeStampGrants" bindretry="loadStampGrantCandidates" />
   <viewport-portal wx:if="{{orgFormVisible}}">
   <view class="popup-mask ui-overlay" wx:if="{{orgFormVisible}}" bindtap="closeOrgForm">
     <view class="ui-overlay-blocker" catchtouchmove="noop"></view>

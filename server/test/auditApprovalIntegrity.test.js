@@ -34,7 +34,7 @@ const {
 
 const VALID_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X5W2GQAAAABJRU5ErkJggg==';
 const currentFiles = [{ id: 'file-pdf', mime_type: 'application/pdf', approval_page_count: 1 }];
-const approverAssignment = { identity_id: 'identity-a' };
+const approverAssignment = { identity_id: 'identity-a', assignment_id: 'assignment-a', person_id: 'person-a', org_id: 'org-a' };
 let nextId = 0;
 
 function material(signatureType, overrides) {
@@ -340,14 +340,15 @@ async function expectCode(promise, code, message) {
   '每一步必须从全部当前附件生成凭证，不能依赖本次新增图层');
 
   const stampModelSource = fs.readFileSync(
-    path.resolve(__dirname, '../src/modules/audit/models/identityStampAssignment.js'),
+    path.resolve(__dirname, '../src/modules/audit/models/stampAssignmentGrant.js'),
     'utf8'
   );
-  assert(stampModelSource.includes('JOIN stamps s')
-    && stampModelSource.includes('isa.identity_id = ?')
-    && stampModelSource.includes('isa.org_id = ?')
+  assert(stampModelSource.includes('FROM stamps s')
+    && stampModelSource.includes('g.assignment_id = ?')
+    && stampModelSource.includes('g.person_id = ?')
+    && stampModelSource.includes('s.org_id = ?')
     && stampModelSource.includes('FOR UPDATE'),
-  '印章授权必须按当前身份与组织查询并在事务中锁定');
+  '印章授权必须按当前自然人、具体岗位与组织查询并在事务中锁定');
 
   const frontendSource = fs.readFileSync(
     path.resolve(__dirname, '../../miniprogram/subpackages/audit/pages/submissionDetail/submissionDetail.js'),

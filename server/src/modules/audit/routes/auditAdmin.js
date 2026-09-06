@@ -12,6 +12,8 @@ const flowTemplateStepModel = require('../models/auditFlowTemplateStep');
 const flowTemplateStepConditionModel = require('../models/auditFlowTemplateStepCondition');
 const stampModel = require('../models/stamp');
 const stampAssignmentModel = require('../models/identityStampAssignment');
+const stampGrantModel = require('../models/stampAssignmentGrant');
+const stampCopy = require('../../../locales/zh-CN/stampAuthorization');
 const submissionModel = require('../models/auditSubmission');
 const submissionStepModel = require('../models/auditSubmissionStep');
 const submissionFileModel = require('../models/auditSubmissionFile');
@@ -422,6 +424,7 @@ router.post('/listStamps', async (req, res) => {
 
     const stamps = await stampModel.getAll();
     const assignments = await stampAssignmentModel.getAllGrouped();
+    const grants = await stampGrantModel.listGrants();
 
     // Build stamp → identity list map
     const stampIdentityMap = {};
@@ -438,6 +441,7 @@ router.post('/listStamps', async (req, res) => {
       name: safeString(s.name),
       imageData: s.image_data || '',
       assignedIdentities: stampIdentityMap[s.id] || [],
+      assignedPeople: grants.filter(grant => grant.stampId === s.id),
       createdBy: safeString(s.created_by),
       createdAt: s.created_at
     }));
@@ -515,31 +519,33 @@ router.post('/deleteStamp', async (req, res) => {
   }
 });
 
-// saveStampAssignments — Bulk set stamp assignments for an identity
-router.post('/saveStampAssignments', async (req, res) => {
+// 印章可用人仅由当前组织的印章管理权限配置，候选接口不依赖人事管理权限。
+router.post('/listStampCandidates', async (req, res) => {
   try {
-    const admin = await ensureAdmin(req);
-    if (!admin) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
-
-    const identityId = safeString(req.body.identityId);
-    const stampIds = Array.isArray(req.body.stampIds) ? req.body.stampIds.map((s) => safeString(s)).filter(Boolean) : [];
-
-    if (!identityId) {
-      return res.json({ status: 'invalid_params', message: localeCopy.copy_d1856227b6 });
-    }
-
-    const result = await stampAssignmentModel.replaceForIdentity(identityId, stampIds);
-    if (result.status === 'identity_not_found') {
-      return res.json({ status: 'not_found', message: localeCopy.copy_d1856227b6 });
-    }
-    if (result.status === 'stamp_not_found') {
-      return res.json({ status: 'not_found', message: localeCopy.copy_fc971e88db });
-    }
-    res.json({ status: 'success', message: localeCopy.copy_cb20eb18bc });
-  } catch (e) {
-    console.error('[audit:stamp:assignment] failed:', e);
-    res.json({ status: 'error', message: localeCopy.stampOperationFailed });
+    if (!await ensureAdmin(req)) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
+    res.json({ status: 'success', candidates: await stampGrantModel.listCandidates() });
+  } catch (error) {
+    console.error('[audit:stamp:candidates] failed:', error);
+    res.json({ status: 'error', message: stampCopy.failed });
   }
+});
+
+router.post('/saveStampGrants', async (req, res) => {
+  try {
+    if (!await ensureAdmin(req)) return res.json({ status: 'forbidden', message: localeCopy.copy_f048be09ae });
+    const result = await stampGrantModel.replaceForStamp(safeString(req.body.stampId), req.body.assignmentIds);
+    const messages = { invalid_params: stampCopy.invalidSelection, assignment_unavailable: stampCopy.unavailable,
+      stamp_not_found: localeCopy.copy_fc971e88db, success: stampCopy.saved };
+    res.json({ status: result.status, message: messages[result.status] || stampCopy.failed });
+  } catch (error) {
+    console.error('[audit:stamp:grants] failed:', error);
+    res.json({ status: 'error', message: stampCopy.failed });
+  }
+});
+
+// 旧类别授权入口退役，不能继续扩大为整类岗位的用章权限。
+router.post('/saveStampAssignments', async (req, res) => {
+  return res.status(410).json({ status: 'legacy_api_retired', message: stampCopy.legacyRetired });
 });
 
 // listIdentityStamps — Get stamps available for an identity

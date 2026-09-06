@@ -1,6 +1,6 @@
 const fs = require('fs');
 const { PDFDocument } = require('pdf-lib');
-const stampAssignmentModel = require('../models/identityStampAssignment');
+const stampGrantModel = require('../models/stampAssignmentGrant');
 const {
   SIGNATURE_HASH_VERSION_V2,
   computeMaterialImageHash,
@@ -198,12 +198,12 @@ async function resolveApprovalMaterials(options) {
   }
 
   if (requestedStampIds.size) {
-    const loadAuthorizedStamps = opts.loadAuthorizedStamps || (async (stampIds, identityId, db) => (
-      stampAssignmentModel.getAuthorizedStampsForIdentityForUpdate(stampIds, identityId, db)
+    const loadAuthorizedStamps = opts.loadAuthorizedStamps || (async (stampIds, assignment, db) => (
+      stampGrantModel.getAuthorizedStamps(assignment, stampIds, db)
     ));
-    const identityId = String(opts.approverAssignment && opts.approverAssignment.identity_id || '').trim();
-    if (!identityId) fail('approval_stamp_not_authorized');
-    const authorizedRows = await loadAuthorizedStamps([...requestedStampIds], identityId, opts.db);
+    const assignment = opts.approverAssignment;
+    if (!assignment || !assignment.assignment_id || !assignment.person_id || !opts.db) fail('approval_stamp_not_authorized');
+    const authorizedRows = await loadAuthorizedStamps([...requestedStampIds], assignment, opts.db);
     const authorizedMap = new Map((authorizedRows || []).map((row) => [String(row.id), row]));
     for (const stampId of requestedStampIds) {
       const row = authorizedMap.get(stampId);

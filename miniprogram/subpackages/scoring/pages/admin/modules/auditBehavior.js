@@ -13,6 +13,7 @@ const {
   buildMatchVerificationParams
 } = require('../../../../../utils/auditVerification');
 const orgSession = require('../../../../../utils/orgSession');
+const stampCopy = require('../../../../../locales/zh-CN/stampAuthorization');
 const {
   ALL_FILTER_KEY,
   buildAuditPersonnelFilterOptions,
@@ -93,9 +94,6 @@ module.exports = Behavior({
     // ── Stamps ──
     stamps: [],
     stampForm: { id: '', name: '', imageData: '' },
-    stampAssignIdentityId: '',
-    stampAssignVisible: false,
-    stampAssignSelectedIds: [],
 
     // ── Audit Submissions ──
     auditSubmissions: [],
@@ -1291,14 +1289,16 @@ module.exports = Behavior({
         const res = await this.callCloud('listStamps', {});
         if (!orgSession.isRequestCurrent(this, request)) return;
         if (res.status === 'success') {
-          this.setData({ stamps: res.stamps || [] });
+          this.setData({ stamps: (res.stamps || []).map(stamp => Object.assign({}, stamp, {
+            authorizationText: stampCopy.count((stamp.assignedPeople || []).filter(person => person.available).length)
+          })), stampLoadError: '' });
         } else {
-          console.error('[audit] listStamps failed:', res.message);
+          this.setData({ stampLoadError: res.message || stampCopy.loadingFailed });
         }
       } catch (e) {
         if (!orgSession.isRequestCurrent(this, request) || (e && e.silent)) return;
         console.error('[audit] loadStamps error:', e);
-        this.setData({ stamps: [] });
+        this.setData({ stampLoadError: getErrorText(e, stampCopy.loadingFailed) });
       } finally {
         if (orgSession.isRequestCurrent(this, request)) this.setLoading('auditStamps', false);
       }
@@ -1344,6 +1344,8 @@ module.exports = Behavior({
     },
 
     async saveStamp() {
+      if (this.data.loadingMap.saveStamp || this.data.stampLoadError) return;
+      const request = orgSession.beginRequest(this, 'auditStampSave');
       const form = this.data.stampForm;
       if (!form.name) { showShortToast(localeCopy.copy_76f2662073); return; }
       if (!form.imageData) { showShortToast(localeCopy.copy_9cf20101c9); return; }
@@ -1355,17 +1357,21 @@ module.exports = Behavior({
           name: form.name,
           imageData: form.imageData
         });
+        if (!orgSession.isRequestCurrent(this, request)) return;
         if (res.status === 'success') {
           showShortToast(form.id ? localeCopy.copy_161855b67c : localeCopy.copy_8e51c9c0df);
           this.startCreateStamp();
-          this.loadStamps();
+          await this.loadStamps();
+          if (!orgSession.isRequestCurrent(this, request)) return;
+          if (!form.id && res.id) this.openStampGrants({ currentTarget: { dataset: { id: res.id } } });
         } else {
           showShortToast(res.message || localeCopy.copy_215e3c57da);
         }
       } catch (e) {
+        if (!orgSession.isRequestCurrent(this, request)) return;
         showShortToast(getErrorText(e, localeCopy.copy_215e3c57da));
       } finally {
-        this.setLoading('saveStamp', false);
+        if (orgSession.isRequestCurrent(this, request)) this.setLoading('saveStamp', false);
       }
     },
 
@@ -1390,50 +1396,6 @@ module.exports = Behavior({
           }
         }
       });
-    },
-
-    openStampAssign(e) {
-      const identityId = e.currentTarget.dataset.identityId || '';
-      const selectedIds = (this.data.stamps || [])
-        .filter(function (s) { return (s.assignedIdentities || []).some(function (a) { return a.identityId === identityId; }); })
-        .map(function (s) { return s.id; });
-
-      this.setData({
-        stampAssignIdentityId: identityId,
-        stampAssignSelectedIds: selectedIds,
-        stampAssignVisible: true
-      });
-    },
-
-    closeStampAssign() {
-      this.setData({ stampAssignVisible: false });
-    },
-
-    toggleStampAssignSelect(e) {
-      const id = e.currentTarget.dataset.id;
-      const selected = [...this.data.stampAssignSelectedIds];
-      const idx = selected.indexOf(id);
-      if (idx >= 0) selected.splice(idx, 1);
-      else selected.push(id);
-      this.setData({ stampAssignSelectedIds: selected });
-    },
-
-    async saveStampAssignments() {
-      try {
-        const res = await this.callCloud('saveStampAssignments', {
-          identityId: this.data.stampAssignIdentityId,
-          stampIds: this.data.stampAssignSelectedIds
-        });
-        if (res.status === 'success') {
-          showShortToast(localeCopy.copy_cb20eb18bc);
-          this.closeStampAssign();
-          this.loadStamps();
-        } else {
-          showShortToast(res.message || localeCopy.copy_215e3c57da);
-        }
-      } catch (e) {
-        showShortToast(getErrorText(e, localeCopy.copy_215e3c57da));
-      }
     },
 
     // ═══════════════════════════════════════════════════════

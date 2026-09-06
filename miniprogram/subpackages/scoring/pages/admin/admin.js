@@ -24,6 +24,7 @@ const adminManagementBehavior = require('./modules/adminManagementBehavior');
 const settingsBehavior = require('./modules/settingsBehavior');
 const publicationBehavior = require('./modules/publicationBehavior');
 const auditBehavior = require('./modules/auditBehavior');
+const stampGrantBehavior = require('./modules/stampGrantBehavior');
 const authPersonnelBehavior = require('./modules/authPersonnelBehavior');
 const dictionaryFeedbackBehavior = require('./modules/dictionaryFeedbackBehavior');
 
@@ -43,6 +44,7 @@ Page({
     settingsBehavior,
     publicationBehavior,
     auditBehavior,
+    stampGrantBehavior,
     authPersonnelBehavior,
   ],
   data: {
@@ -525,7 +527,13 @@ Page({
         auditStarterConditionEditorVisible: false,
         auditMultiPickerVisible: false,
         auditSubmissionDetailVisible: false,
-        stampAssignVisible: false,
+        stampGrantVisible: false,
+        stampGrantId: '',
+        stampGrantOptions: [],
+        stampGrantValue: [],
+        stampGrantSaving: false,
+        stampGrantError: '',
+        stampLoadError: '',
         auditFlowTemplates: [],
         stamps: [],
         auditSubmissions: [],
