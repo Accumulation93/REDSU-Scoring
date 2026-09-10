@@ -156,6 +156,9 @@ router.post('/saveAuditFlowTemplate', async (req, res) => {
 
     for (let si = 0; si < starterConditions.length; si++) {
       const starterCondition = starterConditions[si];
+      if (!starterCondition || typeof starterCondition !== 'object' || Array.isArray(starterCondition)) {
+        return res.json({ status: 'invalid_params', message: localeCopy.workflowConfigurationInvalid });
+      }
       if (starterCondition.conditionType !== 'person') continue;
       const binding = await resolveAndValidateBindings(starterCondition, orgId);
       if (!binding.ok) {
@@ -175,6 +178,9 @@ router.post('/saveAuditFlowTemplate', async (req, res) => {
     // Validate each step has at least one valid condition with proper IDs
     for (let vi = 0; vi < steps.length; vi++) {
       const vstep = steps[vi];
+      if (!vstep || typeof vstep !== 'object' || Array.isArray(vstep)) {
+        return res.json({ status: 'invalid_params', message: localeCopy.workflowConfigurationInvalid });
+      }
       const vconditions = Array.isArray(vstep.conditions) ? vstep.conditions : [];
       if (!vconditions.length && !(vstep.approverType || vstep.approverIdentityId || vstep.approverHrId)) {
         return res.json({ status: 'invalid_params', message: localeCopy.copy_93c50c01c0 + (vi + 1) + localeCopy.copy_287253008b });
@@ -196,6 +202,9 @@ router.post('/saveAuditFlowTemplate', async (req, res) => {
       }
       for (let vj = 0; vj < vconditions.length; vj++) {
         const vc = vconditions[vj];
+        if (!vc || typeof vc !== 'object' || Array.isArray(vc)) {
+          return res.json({ status: 'invalid_params', message: localeCopy.workflowConfigurationInvalid });
+        }
         if (vc.conditionType === 'person') {
           const binding = await resolveAndValidateBindings(vc, orgId);
           if (!binding.ok) {
@@ -204,16 +213,37 @@ router.post('/saveAuditFlowTemplate', async (req, res) => {
           vc.personHrIds = binding.condition.personHrIds;
           vc.assignmentIds = binding.condition.assignmentIds;
         } else {
-          if (vc.departmentScope === 'specific' && (!vc.specificDepartmentId || !vc.specificDepartmentId.trim())) {
+          if (vc.departmentScope === 'specific' && (typeof vc.specificDepartmentId !== 'string' || !vc.specificDepartmentId.trim())) {
             return res.json({ status: 'invalid_params', message: localeCopy.copy_93c50c01c0 + (vi + 1) + localeCopy.copy_61ae470673 + (vj + 1) + localeCopy.copy_c4dc113412 });
           }
-          if (vc.workGroupScope === 'specific' && (!vc.specificWorkGroupId || !vc.specificWorkGroupId.trim())) {
+          if (vc.workGroupScope === 'specific' && (typeof vc.specificWorkGroupId !== 'string' || !vc.specificWorkGroupId.trim())) {
             return res.json({ status: 'invalid_params', message: localeCopy.copy_93c50c01c0 + (vi + 1) + localeCopy.copy_61ae470673 + (vj + 1) + localeCopy.copy_5fed9cfcc5 });
           }
-          if (vc.identityScope === 'specific' && (!vc.specificIdentityId || !vc.specificIdentityId.trim())) {
+          if (vc.identityScope === 'specific' && (typeof vc.specificIdentityId !== 'string' || !vc.specificIdentityId.trim())) {
             return res.json({ status: 'invalid_params', message: localeCopy.copy_93c50c01c0 + (vi + 1) + localeCopy.copy_61ae470673 + (vj + 1) + localeCopy.copy_20ef4f329b });
           }
         }
+      }
+      // 校验必须处于当前步骤的作用域内，并在打开事务前完成。
+      let validationConditions = vconditions;
+      if (!validationConditions.length && safeString(vstep.approverType) === 'specific_person') {
+        validationConditions = [{
+          conditionType: 'person',
+          personHrIds: vstep.approverHrId,
+          assignmentIds: vstep.approverAssignmentIds || vstep.assignmentIds
+        }];
+      } else if (!validationConditions.length && safeString(vstep.approverType) === 'identity'
+        && safeString(vstep.approverIdentityId)) {
+        validationConditions = [{
+          conditionType: 'identity_scope',
+          departmentScope: 'all',
+          workGroupScope: 'all',
+          identityScope: 'specific',
+          specificIdentityId: vstep.approverIdentityId
+        }];
+      }
+      if (!validateStepShape({ actionType: vstep.actionType, conditions: validationConditions }).ok) {
+        return res.json({ status: 'invalid_params', message: localeCopy.workflowConfigurationInvalid });
       }
     }
 
@@ -247,26 +277,6 @@ router.post('/saveAuditFlowTemplate', async (req, res) => {
         if (!stepConditions.length && step.approverIdentityId) {
           allConditions.push({ specificIdentityId: step.approverIdentityId });
         }
-      }
-      let validationConditions = vconditions;
-      if (!validationConditions.length && safeString(vstep.approverType) === 'specific_person') {
-        validationConditions = [{
-          conditionType: 'person',
-          personHrIds: vstep.approverHrId,
-          assignmentIds: vstep.approverAssignmentIds || vstep.assignmentIds
-        }];
-      } else if (!validationConditions.length && safeString(vstep.approverType) === 'identity'
-        && safeString(vstep.approverIdentityId)) {
-        validationConditions = [{
-          conditionType: 'identity_scope',
-          departmentScope: 'all',
-          workGroupScope: 'all',
-          identityScope: 'specific',
-          specificIdentityId: vstep.approverIdentityId
-        }];
-      }
-      if (!validateStepShape({ actionType: vstep.actionType, conditions: validationConditions }).ok) {
-        return res.json({ status: 'invalid_params', message: localeCopy.workflowConfigurationInvalid });
       }
       await dictionaryUsage.lockOrganizationDictionaryWrites(orgId, conn);
       for (const condition of allConditions) {
